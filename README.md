@@ -8,14 +8,13 @@ Local-first Streamlit app for monitoring AI and data-center infrastructure stock
 2. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
-3. Initialize database and seed data:
+3. Initialize SQLite database:
 
 ```bash
-python scripts/init_db.py
-python scripts/seed_companies.py
+python3 scripts/init_db.py
 ```
 
 4. Run the app:
@@ -23,4 +22,9 @@ python scripts/seed_companies.py
 ```bash
 streamlit run app/main.py
 ```
-AI Infrastructure Watcher Index
+
+5. Run tests:
+
+```bash
+python3 -m pytest
+```
