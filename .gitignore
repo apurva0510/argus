@@ -180,6 +180,12 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Codex Configurations and Skills
+.codex/
+
+# VS Code settings
+.vscode/
+
 # Project-specific local data
 data/app.db
 data/raw/

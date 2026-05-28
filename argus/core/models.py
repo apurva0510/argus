@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -17,12 +17,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 from argus.core.db import Base
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
     )
 
@@ -103,7 +107,7 @@ class PriceBar(Base):
     volume: Mapped[float | None] = mapped_column(Float)
     provider: Mapped[str] = mapped_column(String(32), default="yfinance", nullable=False)
     interval: Mapped[str] = mapped_column(String(16), default="1d", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class DailyMetric(Base):
@@ -134,7 +138,7 @@ class DailyMetric(Base):
     relative_return_vs_nvda_3m: Mapped[float | None] = mapped_column(Float)
     volatility_20d: Mapped[float | None] = mapped_column(Float)
     opportunity_score: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class FundamentalsSnapshot(Base):
@@ -157,7 +161,7 @@ class FundamentalsSnapshot(Base):
     operating_margin: Mapped[float | None] = mapped_column(Float)
     free_cash_flow: Mapped[float | None] = mapped_column(Float)
     provider: Mapped[str] = mapped_column(String(32), default="yfinance", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class NewsItem(Base):
@@ -171,7 +175,7 @@ class NewsItem(Base):
     provider: Mapped[str | None] = mapped_column(String(64))
     sentiment_score: Mapped[float | None] = mapped_column(Float)
     relevance_score: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class NewsMention(Base):
@@ -198,7 +202,7 @@ class SecFiling(Base):
     primary_doc_url: Mapped[str | None] = mapped_column(String(1024))
     filing_detail_url: Mapped[str | None] = mapped_column(String(1024))
     is_new: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class EarningsEvent(Base):
@@ -215,7 +219,7 @@ class EarningsEvent(Base):
     revenue_estimate: Mapped[float | None] = mapped_column(Float)
     revenue_actual: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(64), default="yfinance", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class Alert(Base, TimestampMixin):
@@ -239,13 +243,13 @@ class AlertEvent(Base):
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True, nullable=False)
-    triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[dict | None] = mapped_column(JSON)
     delivery_status: Mapped[str | None] = mapped_column(String(32))
     dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class UserNote(Base, TimestampMixin):
@@ -267,7 +271,7 @@ class JobRun(Base):
     rows_read: Mapped[int | None] = mapped_column(Integer)
     rows_written: Mapped[int | None] = mapped_column(Integer)
     error_text: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 class AppSetting(Base):
@@ -275,10 +279,10 @@ class AppSetting(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     value: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
     )

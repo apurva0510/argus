@@ -554,16 +554,16 @@ parent_theme_id
 Example themes:
 
 ```text
+ai_capex_benchmark
 power_grid
 cooling
 optical_networking
-semicap
+semiconductor_equipment
 advanced_packaging
-nuclear_power
+energy_nuclear_utilities
 data_center_reit
-construction
+aggressive_ai_infra
 hyperscaler_capex
-benchmark
 ```
 
 ### company_theme_exposure
