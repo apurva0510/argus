@@ -1,0 +1,1 @@
+"""Fundamentals refresh placeholder."""

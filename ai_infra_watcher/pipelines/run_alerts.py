@@ -1,0 +1,1 @@
+"""Alert execution pipeline placeholder."""

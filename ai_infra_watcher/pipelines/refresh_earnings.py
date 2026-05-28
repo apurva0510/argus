@@ -1,0 +1,1 @@
+"""Earnings refresh placeholder."""

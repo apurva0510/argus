@@ -179,3 +179,15 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Project-specific local data
+data/app.db
+data/raw/
+data/lake/
+data/exports/
+
+# Streamlit local config/state
+.streamlit/
+
+# macOS
+.DS_Store
