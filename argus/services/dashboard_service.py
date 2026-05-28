@@ -1,5 +1,5 @@
-from ai_infra_watcher.core.db import session_scope
-from ai_infra_watcher.core.models import Company, DailyMetric, NewsItem, PriceBar, SecFiling, WatchlistItem
+from argus.core.db import session_scope
+from argus.core.models import Company, DailyMetric, NewsItem, PriceBar, SecFiling, WatchlistItem
 
 
 def get_dashboard_overview() -> dict[str, int]:

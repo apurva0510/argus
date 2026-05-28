@@ -1,5 +1,5 @@
-from ai_infra_watcher.core.db import session_scope
-from ai_infra_watcher.core.models import Company
+from argus.core.db import session_scope
+from argus.core.models import Company
 
 
 def get_company_options() -> list[str]:

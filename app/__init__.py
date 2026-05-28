@@ -1,1 +1,1 @@
-"""Streamlit app package for AI Infra Watcher."""
+"""Streamlit app package for Argus."""

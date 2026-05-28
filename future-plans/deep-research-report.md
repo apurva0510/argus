@@ -164,7 +164,7 @@ The system should be built as a **small Python package with a CLI**, not as a mo
 ### Proposed package layout
 
 ```text
-ai_infra_watcher/
+argus/
   app/
     main.py
     pages/
@@ -843,13 +843,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml README.md /app/
-COPY ai_infra_watcher /app/ai_infra_watcher
+COPY argus /app/argus
 
 RUN pip install --upgrade pip && pip install .
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "ai_infra_watcher/app/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "argus/app/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
 ```
 
 ### Example GitHub Actions workflow
@@ -873,7 +873,7 @@ jobs:
       - run: pip install -e .[dev]
       - run: pytest -q
       - run: ruff check .
-      - run: mypy ai_infra_watcher
+      - run: mypy argus
 ```
 
 **Open questions and limitations**

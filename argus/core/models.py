@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ai_infra_watcher.core.db import Base
+from argus.core.db import Base
 
 
 class TimestampMixin:
@@ -53,6 +53,9 @@ class Theme(Base):
 
 class CompanyThemeExposure(Base):
     __tablename__ = "company_theme_exposure"
+    __table_args__ = (
+        UniqueConstraint("company_id", "theme_id", name="uq_company_theme_exposure"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
     theme_id: Mapped[int] = mapped_column(ForeignKey("themes.id"), index=True, nullable=False)
@@ -73,6 +76,9 @@ class Watchlist(Base, TimestampMixin):
 
 class WatchlistItem(Base, TimestampMixin):
     __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "company_id", name="uq_watchlist_items"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id"), index=True, nullable=False)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
@@ -102,6 +108,9 @@ class PriceBar(Base):
 
 class DailyMetric(Base):
     __tablename__ = "daily_metrics"
+    __table_args__ = (
+        UniqueConstraint("company_id", "date", name="uq_daily_metrics"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
     date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
@@ -130,6 +139,9 @@ class DailyMetric(Base):
 
 class FundamentalsSnapshot(Base):
     __tablename__ = "fundamentals_snapshot"
+    __table_args__ = (
+        UniqueConstraint("company_id", "as_of_date", "provider", name="uq_fundamentals_snapshot"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -144,7 +156,7 @@ class FundamentalsSnapshot(Base):
     gross_margin: Mapped[float | None] = mapped_column(Float)
     operating_margin: Mapped[float | None] = mapped_column(Float)
     free_cash_flow: Mapped[float | None] = mapped_column(Float)
-    provider: Mapped[str | None] = mapped_column(String(32))
+    provider: Mapped[str] = mapped_column(String(32), default="yfinance", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -164,6 +176,9 @@ class NewsItem(Base):
 
 class NewsMention(Base):
     __tablename__ = "news_mentions"
+    __table_args__ = (
+        UniqueConstraint("news_id", "company_id", name="uq_news_mentions"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     news_id: Mapped[int] = mapped_column(ForeignKey("news_items.id"), index=True, nullable=False)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
@@ -188,6 +203,9 @@ class SecFiling(Base):
 
 class EarningsEvent(Base):
     __tablename__ = "earnings_events"
+    __table_args__ = (
+        UniqueConstraint("company_id", "event_date", "source", name="uq_earnings_events"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
     event_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
@@ -196,7 +214,7 @@ class EarningsEvent(Base):
     eps_actual: Mapped[float | None] = mapped_column(Float)
     revenue_estimate: Mapped[float | None] = mapped_column(Float)
     revenue_actual: Mapped[float | None] = mapped_column(Float)
-    source: Mapped[str | None] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(String(64), default="yfinance", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -216,6 +234,9 @@ class Alert(Base, TimestampMixin):
 
 class AlertEvent(Base):
     __tablename__ = "alert_events"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_alert_events_dedupe_key"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True, nullable=False)
     triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -223,7 +244,7 @@ class AlertEvent(Base):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[dict | None] = mapped_column(JSON)
     delivery_status: Mapped[str | None] = mapped_column(String(32))
-    dedupe_key: Mapped[str | None] = mapped_column(String(255), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

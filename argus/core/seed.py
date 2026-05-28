@@ -1,4 +1,4 @@
-from ai_infra_watcher.core.models import Company, CompanyThemeExposure, Theme, Watchlist, WatchlistItem
+from argus.core.models import Company, CompanyThemeExposure, Theme, Watchlist, WatchlistItem
 
 SECTOR_GROUPS: dict[str, list[str]] = {
     "AI Capex Benchmarks": ["NVDA", "MSFT", "AMZN", "GOOGL", "META", "QQQ"],

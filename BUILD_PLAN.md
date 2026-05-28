@@ -1,8 +1,8 @@
-# AI Infra Watcher: Updated Streamlit Build Plan for Codex
+# Argus: Updated Streamlit Build Plan for Codex
 
 ## 1. Product Summary
 
-Build a lightweight Streamlit application called **AI Infra Watcher**.
+Build a lightweight Streamlit application called **Argus**.
 
 The app is designed for two users:
 
@@ -833,7 +833,7 @@ created_at
 Use this structure:
 
 ```text
-ai-infra-watcher/
+argus/
   README.md
   pyproject.toml
   requirements.txt
@@ -854,7 +854,7 @@ ai-infra-watcher/
       metrics.py
       filters.py
 
-  ai_infra_watcher/
+  argus/
     core/
       settings.py
       logging.py
@@ -972,13 +972,13 @@ Deliverables:
 Codex prompt:
 
 ```text
-Build the initial scaffold for a local-first Streamlit app called AI Infra Watcher.
+Build the initial scaffold for a local-first Streamlit app called Argus.
 
 Requirements:
 - Use Python 3.12
 - Use Streamlit for the UI
 - Use SQLite and SQLAlchemy for storage
-- Create a package named ai_infra_watcher
+- Create a package named argus
 - Create pages: Dashboard, Watchlists, Company Detail, Pullback Finder, News Filings Alerts
 - Create SQLAlchemy models for companies, themes, company_theme_exposure, watchlists, watchlist_items, price_bars, daily_metrics, fundamentals_snapshot, news_items, news_mentions, sec_filings, earnings_events, alerts, alert_events, user_notes, job_runs
 - Add scripts/init_db.py
@@ -1549,7 +1549,7 @@ Use this order exactly:
 Use this prompt to start the project:
 
 ```text
-Build a local-first Streamlit application called AI Infra Watcher.
+Build a local-first Streamlit application called Argus.
 
 The app is for two users: me as the developer and my dad as the primary user. It should monitor AI and data-center infrastructure stocks that may not have fully run up in the AI trade.
 
