@@ -1,0 +1,149 @@
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from argus.sources.yfinance_client import fetch_daily_ohlcv
+
+
+def test_fetch_daily_ohlcv_preserves_adjusted_close(monkeypatch) -> None:
+    history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [102.0],
+            "Low": [99.0],
+            "Close": [101.0],
+            "Adj Close": [100.5],
+            "Volume": [1000],
+        },
+        index=pd.Index([pd.Timestamp("2025-01-02")], name="Date"),
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    frame = fetch_daily_ohlcv("NVDA")
+
+    assert frame.to_dict(orient="records") == [
+        {
+            "date": date(2025, 1, 2),
+            "open": 100.0,
+            "high": 102.0,
+            "low": 99.0,
+            "close": 101.0,
+            "adj_close": 100.5,
+            "volume": 1000,
+        }
+    ]
+
+
+def test_fetch_daily_ohlcv_calls_yfinance_with_expected_daily_arguments(monkeypatch) -> None:
+    history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [102.0],
+            "Low": [99.0],
+            "Close": [101.0],
+            "Adj Close": [100.5],
+            "Volume": [1000],
+        },
+        index=pd.Index([pd.Timestamp("2025-01-02")], name="Date"),
+    )
+    captured_kwargs = {}
+
+    def fake_download(**kwargs):
+        captured_kwargs.update(kwargs)
+        return history
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", fake_download)
+
+    fetch_daily_ohlcv("NVDA", period="6mo")
+
+    assert captured_kwargs == {
+        "tickers": "NVDA",
+        "period": "6mo",
+        "interval": "1d",
+        "auto_adjust": False,
+        "progress": False,
+        "threads": False,
+    }
+
+
+def test_fetch_daily_ohlcv_falls_back_to_close_when_adjusted_close_missing(monkeypatch) -> None:
+    history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [102.0],
+            "Low": [99.0],
+            "Close": [101.0],
+            "Volume": [1000],
+        },
+        index=pd.Index([pd.Timestamp("2025-01-02")], name="Date"),
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    frame = fetch_daily_ohlcv("NVDA")
+
+    assert frame.loc[0, "adj_close"] == 101.0
+
+
+def test_fetch_daily_ohlcv_handles_multiindex_columns(monkeypatch) -> None:
+    history = pd.DataFrame(
+        [[100.0, 102.0, 99.0, 101.0, 100.5, 1000]],
+        columns=pd.MultiIndex.from_product(
+            [["Open", "High", "Low", "Close", "Adj Close", "Volume"], ["NVDA"]]
+        ),
+        index=pd.Index([pd.Timestamp("2025-01-02")], name="Date"),
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    frame = fetch_daily_ohlcv("NVDA")
+
+    assert frame.loc[0, "date"] == date(2025, 1, 2)
+    assert frame.loc[0, "adj_close"] == 100.5
+
+
+def test_fetch_daily_ohlcv_keeps_provider_daily_date_for_timezone_aware_index(monkeypatch) -> None:
+    history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [102.0],
+            "Low": [99.0],
+            "Close": [101.0],
+            "Adj Close": [100.5],
+            "Volume": [1000],
+        },
+        index=pd.Index([pd.Timestamp("2025-01-02 23:30:00", tz="America/New_York")], name="Date"),
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    frame = fetch_daily_ohlcv("NVDA")
+
+    assert frame.loc[0, "date"] == date(2025, 1, 2)
+
+
+def test_fetch_daily_ohlcv_returns_empty_frame_for_empty_response(monkeypatch) -> None:
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame())
+
+    frame = fetch_daily_ohlcv("BAD")
+
+    assert frame.empty
+
+
+def test_fetch_daily_ohlcv_rejects_missing_required_columns(monkeypatch) -> None:
+    history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [102.0],
+            "Low": [99.0],
+            "Volume": [1000],
+        },
+        index=pd.Index([pd.Timestamp("2025-01-02")], name="Date"),
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    with pytest.raises(ValueError, match="missing columns: close"):
+        fetch_daily_ohlcv("BAD")
