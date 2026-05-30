@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -82,6 +83,10 @@ class WatchlistItem(Base, TimestampMixin):
     __tablename__ = "watchlist_items"
     __table_args__ = (
         UniqueConstraint("watchlist_id", "company_id", name="uq_watchlist_items"),
+        CheckConstraint(
+            "watch_status IN ('ignore', 'watch', 'high_priority', 'owned')",
+            name="ck_watchlist_items_watch_status",
+        ),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id"), index=True, nullable=False)

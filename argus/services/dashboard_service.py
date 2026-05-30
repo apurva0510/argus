@@ -1,5 +1,175 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from typing import Any
+
+import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
 from argus.core.db import session_scope
 from argus.core.models import Company, DailyMetric, NewsItem, PriceBar, SecFiling, WatchlistItem
+from argus.core.seed import AI_INFRA_CORE_INDEX_SYMBOLS
+
+STALE_DAYS_THRESHOLD = 3
+LOW_RSI_THRESHOLD = 40.0
+
+
+def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
+    with engine.connect() as conn:
+        latest_dates = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    (SELECT MAX(date) FROM price_bars WHERE provider = 'yfinance' AND interval = '1d') AS latest_price_date,
+                    (SELECT MAX(date) FROM daily_metrics) AS latest_metrics_date,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at
+                """
+            ),
+            conn,
+        )
+        latest_metrics_date = latest_dates.at[0, "latest_metrics_date"]
+
+        if latest_metrics_date is None or pd.isna(latest_metrics_date):
+            latest_metrics = pd.DataFrame()
+        else:
+            latest_metrics = pd.read_sql_query(
+                text(
+                    """
+                    SELECT
+                        c.symbol,
+                        c.name,
+                        dm.date,
+                        dm.return_1d,
+                        dm.return_1w,
+                        dm.return_1m,
+                        dm.rsi_14,
+                        dm.drawdown_52w
+                    FROM daily_metrics dm
+                    JOIN companies c ON c.id = dm.company_id
+                    WHERE dm.date = :metrics_date
+                    """
+                ),
+                conn,
+                params={"metrics_date": latest_metrics_date},
+            )
+
+        active_symbol_count = pd.read_sql_query(
+            text("SELECT COUNT(*) AS count FROM companies WHERE is_active = 1"),
+            conn,
+        ).at[0, "count"]
+        news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[0, "count"]
+        filings_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM sec_filings"), conn).at[0, "count"]
+        earnings_count = pd.read_sql_query(
+            text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= DATE('now')"),
+            conn,
+        ).at[0, "count"]
+
+    return {
+        "latest_dates": latest_dates.iloc[0].to_dict(),
+        "latest_metrics": latest_metrics,
+        "index_symbol_count": int(active_symbol_count),
+        "news_count": int(news_count),
+        "filings_count": int(filings_count),
+        "earnings_count": int(earnings_count),
+    }
+
+
+def parse_optional_date(value: Any) -> date | None:
+    if value is None or pd.isna(value):
+        return None
+    return pd.to_datetime(value).date()
+
+
+def parse_optional_datetime(value: Any) -> datetime | None:
+    if value is None or pd.isna(value):
+        return None
+    dt = pd.to_datetime(value).to_pydatetime()
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def build_stale_reasons(
+    latest_price_date: date | None,
+    latest_metrics_date: date | None,
+    *,
+    today: date | None = None,
+    stale_days_threshold: int = STALE_DAYS_THRESHOLD,
+) -> list[str]:
+    today = today or datetime.now(UTC).date()
+    stale_reasons = []
+
+    if latest_price_date is None:
+        stale_reasons.append("No price data found.")
+    elif (today - latest_price_date).days > stale_days_threshold:
+        stale_reasons.append(f"Prices are stale (latest date: {latest_price_date.isoformat()}).")
+
+    if latest_metrics_date is None:
+        stale_reasons.append("No metrics data found.")
+    elif (today - latest_metrics_date).days > stale_days_threshold:
+        stale_reasons.append(f"Metrics are stale (latest date: {latest_metrics_date.isoformat()}).")
+
+    return stale_reasons
+
+
+def summarize_core_returns(metrics_df: pd.DataFrame) -> dict[str, float | None]:
+    empty_summary = {"return_1d": None, "return_1w": None, "return_1m": None}
+    if metrics_df.empty or "symbol" not in metrics_df:
+        return empty_summary
+
+    core_metrics = metrics_df[metrics_df["symbol"].isin(AI_INFRA_CORE_INDEX_SYMBOLS)]
+    if core_metrics.empty:
+        return empty_summary
+
+    return {
+        "return_1d": _mean_or_none(core_metrics, "return_1d"),
+        "return_1w": _mean_or_none(core_metrics, "return_1w"),
+        "return_1m": _mean_or_none(core_metrics, "return_1m"),
+    }
+
+
+def rank_top_gainers(metrics_df: pd.DataFrame, *, limit: int = 5) -> pd.DataFrame:
+    return _rank_by_metric(metrics_df, "return_1d", limit=limit, ascending=False)
+
+
+def rank_top_losers(metrics_df: pd.DataFrame, *, limit: int = 5) -> pd.DataFrame:
+    return _rank_by_metric(metrics_df, "return_1d", limit=limit, ascending=True)
+
+
+def rank_biggest_drawdowns(metrics_df: pd.DataFrame, *, limit: int = 5) -> pd.DataFrame:
+    return _rank_by_metric(metrics_df, "drawdown_52w", limit=limit, ascending=True)
+
+
+def filter_low_rsi(
+    metrics_df: pd.DataFrame,
+    *,
+    threshold: float = LOW_RSI_THRESHOLD,
+    limit: int = 10,
+) -> pd.DataFrame:
+    columns = ["symbol", "name", "rsi_14"]
+    if metrics_df.empty or not set(columns).issubset(metrics_df.columns):
+        return pd.DataFrame(columns=columns)
+
+    rsi = metrics_df[columns].dropna(subset=["rsi_14"])
+    return rsi[rsi["rsi_14"] < threshold].sort_values("rsi_14", ascending=True).head(limit)
+
+
+def _rank_by_metric(metrics_df: pd.DataFrame, metric: str, *, limit: int, ascending: bool) -> pd.DataFrame:
+    columns = ["symbol", "name", metric]
+    if metrics_df.empty or not set(columns).issubset(metrics_df.columns):
+        return pd.DataFrame(columns=columns)
+
+    ranked = metrics_df[columns].dropna(subset=[metric]).sort_values(metric, ascending=ascending)
+    return ranked.head(limit)
+
+
+def _mean_or_none(metrics_df: pd.DataFrame, column: str) -> float | None:
+    if column not in metrics_df:
+        return None
+    value = metrics_df[column].mean(skipna=True)
+    if pd.isna(value):
+        return None
+    return float(value)
 
 
 def get_dashboard_overview() -> dict[str, int]:
