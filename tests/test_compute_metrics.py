@@ -344,3 +344,52 @@ def test_compute_metrics_persists_job_run_on_unexpected_failure(sqlite_engine, m
         assert jobs[0].status == "failed"
         assert jobs[0].error_text == "schema inspection failed"
         assert session.query(DailyMetric).count() == 0
+
+
+def test_compute_metrics_with_mismatched_benchmark_dates(sqlite_engine, monkeypatch) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+
+    with db_module.session_scope() as session:
+        abc = Company(symbol="ABC", name="ABC", is_active=True)
+        qqq = Company(symbol="QQQ", name="QQQ", is_active=True)
+        session.add_all([abc, qqq])
+        session.flush()
+
+        # Seed mismatched price bars
+        # ABC has bars on day 0, 1, 2, 4
+        # QQQ has bars on day 0, 1, 3, 4
+        start = date(2026, 5, 1)
+        for offset in [0, 1, 2, 4]:
+            session.add(
+                PriceBar(
+                    company_id=abc.id,
+                    date=start + timedelta(days=offset),
+                    close=100.0 + offset,
+                    adj_close=100.0 + offset,
+                    provider="yfinance",
+                    interval="1d",
+                )
+            )
+        for offset in [0, 1, 3, 4]:
+            session.add(
+                PriceBar(
+                    company_id=qqq.id,
+                    date=start + timedelta(days=offset),
+                    close=200.0 + offset,
+                    adj_close=200.0 + offset,
+                    provider="yfinance",
+                    interval="1d",
+                )
+            )
+
+    result = compute_daily_metrics()
+    # Should run successfully despite mismatched dates
+    assert result["status"] == "success"
+
+    with db_module.session_scope() as session:
+        # Check that metrics are stored for all 4 dates for ABC
+        abc_id = session.query(Company.id).filter(Company.symbol == "ABC").scalar()
+        abc_metrics = session.query(DailyMetric).filter(DailyMetric.company_id == abc_id).order_by(DailyMetric.date.asc()).all()
+        assert len(abc_metrics) == 4
+        assert [m.date for m in abc_metrics] == [start, start + timedelta(days=1), start + timedelta(days=2), start + timedelta(days=4)]
+

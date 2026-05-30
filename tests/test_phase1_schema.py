@@ -56,7 +56,6 @@ def test_package_modules_import_without_side_effects() -> None:
         "argus.core.settings",
         "argus.analytics.indicators",
         "argus.alerts.rules",
-        "app.bootstrap",
     ]
 
     for module_name in module_names:

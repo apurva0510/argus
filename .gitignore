@@ -185,6 +185,7 @@ cython_debug/
 
 # VS Code settings
 .vscode/
+.agents/
 
 # Project-specific local data
 data/app.db

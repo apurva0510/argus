@@ -39,7 +39,7 @@ python3 scripts/compute_metrics.py
 6. Run the app:
 
 ```bash
-streamlit run app/main.py
+.venv/bin/streamlit run app/main.py
 ```
 
 7. Run tests:

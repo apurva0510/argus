@@ -1,4 +1,383 @@
-import streamlit as st
+from __future__ import annotations
 
-st.title("Company Detail")
-st.info("Company detail view will be implemented in a later phase.")
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
+from datetime import datetime, date
+
+from argus.core.db import create_database_engine
+from argus.core.settings import settings
+from argus.core.seed import WATCH_STATUSES
+from argus.services.company_service import (
+    get_company_options,
+    get_company_by_symbol,
+    get_company_metrics,
+    get_company_price_history,
+    get_company_fundamentals,
+    get_company_news,
+    get_company_filings,
+    get_company_notes,
+    add_company_note,
+    get_watch_status,
+    update_watch_status,
+)
+
+
+@st.cache_resource
+def get_db_engine():
+    return create_database_engine(settings.database_url)
+
+
+def _fmt_pct(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value * 100:+.2f}%"
+
+
+def _fmt_price(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"${value:.2f}"
+
+
+def _fmt_large_num(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    if value >= 1e12:
+        return f"${value / 1e12:.2f}T"
+    if value >= 1e9:
+        return f"${value / 1e9:.2f}B"
+    if value >= 1e6:
+        return f"${value / 1e6:.2f}M"
+    return f"${value:,.2f}"
+
+
+def get_relative_perf_df(df_comp, df_qqq, df_nvda, start_date):
+    # Align on date
+    df_comp_filtered = df_comp[df_comp['date'] >= start_date].copy()
+    if df_comp_filtered.empty:
+        return pd.DataFrame()
+    
+    # Merge on date
+    merged = df_comp_filtered[['date', 'adj_close']].rename(columns={'adj_close': 'comp_close'})
+    
+    if not df_qqq.empty:
+        df_qqq_filtered = df_qqq[['date', 'adj_close']].rename(columns={'adj_close': 'qqq_close'})
+        merged = pd.merge(merged, df_qqq_filtered, on='date', how='left')
+        merged['qqq_close'] = merged['qqq_close'].ffill().bfill()
+        
+    if not df_nvda.empty:
+        df_nvda_filtered = df_nvda[['date', 'adj_close']].rename(columns={'adj_close': 'nvda_close'})
+        merged = pd.merge(merged, df_nvda_filtered, on='date', how='left')
+        merged['nvda_close'] = merged['nvda_close'].ffill().bfill()
+        
+    # Calculate cumulative returns in percentage
+    base_comp = merged['comp_close'].iloc[0]
+    merged['comp_ret'] = (merged['comp_close'] / base_comp - 1) * 100
+    
+    if 'qqq_close' in merged:
+        base_qqq = merged['qqq_close'].iloc[0]
+        merged['qqq_ret'] = (merged['qqq_close'] / base_qqq - 1) * 100
+    else:
+        merged['qqq_ret'] = 0.0
+        
+    if 'nvda_close' in merged:
+        base_nvda = merged['nvda_close'].iloc[0]
+        merged['nvda_ret'] = (merged['nvda_close'] / base_nvda - 1) * 100
+    else:
+        merged['nvda_ret'] = 0.0
+        
+    return merged
+
+
+def render_company_detail() -> None:
+    st.set_page_config(page_title="Argus - Company Detail", layout="wide")
+    
+    st.title("🔍 Company Detail")
+    
+    symbols = get_company_options()
+    if not symbols:
+        st.warning("No active companies found in the database. Please seed the database first.")
+        return
+        
+    # Check if a ticker is in session_state or default to first
+    if "selected_ticker" not in st.session_state:
+        st.session_state.selected_ticker = symbols[0]
+        
+    selected_ticker = st.selectbox(
+        "Select Ticker",
+        symbols,
+        index=symbols.index(st.session_state.selected_ticker) if st.session_state.selected_ticker in symbols else 0,
+        key="ticker_selector_selectbox"
+    )
+    st.session_state.selected_ticker = selected_ticker
+    
+    # Load company details
+    company = get_company_by_symbol(selected_ticker)
+    if not company:
+        st.error(f"Company {selected_ticker} not found.")
+        return
+        
+    # Headline Information
+    st.subheader(f"{company['name']} ({company['symbol']})")
+    st.caption(f"Exchange: {company['exchange']} | Sector: {company['sector']} | Industry: {company['industry']} | Country: {company['country']}")
+    
+    metrics = get_company_metrics(company['id'])
+    
+    # 8 Metric Cards Layout
+    st.write("---")
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    
+    # Latest price from price history or metrics
+    df_price = get_company_price_history(company['id'])
+    latest_price = None
+    if not df_price.empty:
+        df_price['date'] = pd.to_datetime(df_price['date']).dt.date
+        latest_price = df_price.iloc[-1]['adj_close']
+        
+    # Fetch returns from metrics
+    ret_1d = metrics.get("return_1d") if metrics else None
+    ret_1m = metrics.get("return_1m") if metrics else None
+    ret_ytd = metrics.get("return_ytd") if metrics else None
+    rsi = metrics.get("rsi_14") if metrics else None
+    drawdown = metrics.get("drawdown_52w") if metrics else None
+    ma_50 = metrics.get("ma_50") if metrics else None
+    ma_200 = metrics.get("ma_200") if metrics else None
+    
+    with m_col1:
+        st.metric("Price", _fmt_price(latest_price))
+        st.metric("1D Return", _fmt_pct(ret_1d))
+    with m_col2:
+        st.metric("1M Return", _fmt_pct(ret_1m))
+        st.metric("YTD Return", _fmt_pct(ret_ytd))
+    with m_col3:
+        st.metric("RSI (14)", f"{rsi:.1f}" if rsi is not None else "n/a")
+        st.metric("52W Drawdown", _fmt_pct(drawdown))
+    with m_col4:
+        st.metric("50 DMA", _fmt_price(ma_50))
+        st.metric("200 DMA", _fmt_price(ma_200))
+        
+    st.write("---")
+    
+    # Main split layout: Charts on Left (7), Notes/Watch Status on Right (3)
+    main_col1, main_col2 = st.columns([7, 3])
+    
+    with main_col1:
+        chart_tabs = st.tabs(["Price Chart", "Relative Performance"])
+        
+        with chart_tabs[0]:
+            # Timeframe selector
+            tf = st.radio("Timeframe", ["1M", "3M", "6M", "1Y", "All"], index=3, horizontal=True, key="timeframe_radio")
+            
+            if df_price.empty:
+                st.info("No price history available for this company.")
+            else:
+                # Calculate rolling MAs on entire history first, so they are accurate at the beginning of the plot
+                df_chart = df_price.sort_values("date").copy()
+                df_chart["50DMA"] = df_chart["adj_close"].rolling(50).mean()
+                df_chart["200DMA"] = df_chart["adj_close"].rolling(200).mean()
+                
+                latest_date = df_chart['date'].max()
+                if tf == "1M":
+                    start_date = latest_date - pd.Timedelta(days=30)
+                elif tf == "3M":
+                    start_date = latest_date - pd.Timedelta(days=90)
+                elif tf == "6M":
+                    start_date = latest_date - pd.Timedelta(days=180)
+                elif tf == "1Y":
+                    start_date = latest_date - pd.Timedelta(days=365)
+                else:
+                    start_date = df_chart['date'].min()
+                    
+                df_filtered = df_chart[df_chart['date'] >= start_date]
+                
+                # Plotly Chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_filtered['date'], y=df_filtered['adj_close'],
+                    name="Adj Close", line=dict(color="#1f77b4", width=2.5)
+                ))
+                
+                # Overlay moving averages if they exist in the filtered range
+                if not df_filtered["50DMA"].isna().all():
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered['date'], y=df_filtered['50DMA'],
+                        name="50 DMA", line=dict(color="#ff7f0e", width=1.5, dash="dash")
+                    ))
+                if not df_filtered["200DMA"].isna().all():
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered['date'], y=df_filtered['200DMA'],
+                        name="200 DMA", line=dict(color="#d62728", width=1.5, dash="dash")
+                    ))
+                    
+                fig.update_layout(
+                    title=f"{company['symbol']} Historical Price",
+                    xaxis_title="Date",
+                    yaxis_title="Price ($)",
+                    template="plotly_white",
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    height=450,
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+        with chart_tabs[1]:
+            st.write("### Relative Return Comparison")
+            if df_price.empty:
+                st.info("No price history available to calculate relative performance.")
+            else:
+                # Get start date for relative calculation
+                latest_date = df_price['date'].max()
+                if tf == "1M":
+                    start_date = latest_date - pd.Timedelta(days=30)
+                elif tf == "3M":
+                    start_date = latest_date - pd.Timedelta(days=90)
+                elif tf == "6M":
+                    start_date = latest_date - pd.Timedelta(days=180)
+                elif tf == "1Y":
+                    start_date = latest_date - pd.Timedelta(days=365)
+                else:
+                    start_date = df_price['date'].min()
+                
+                # Fetch QQQ and NVDAclose
+                qqq_comp = get_company_by_symbol("QQQ")
+                nvda_comp = get_company_by_symbol("NVDA")
+                df_qqq = get_company_price_history(qqq_comp['id']) if qqq_comp else pd.DataFrame()
+                df_nvda = get_company_price_history(nvda_comp['id']) if nvda_comp else pd.DataFrame()
+                
+                if not df_qqq.empty:
+                    df_qqq['date'] = pd.to_datetime(df_qqq['date']).dt.date
+                if not df_nvda.empty:
+                    df_nvda['date'] = pd.to_datetime(df_nvda['date']).dt.date
+                    
+                rel_df = get_relative_perf_df(df_price, df_qqq, df_nvda, start_date)
+                
+                if rel_df.empty:
+                    st.info("No overlapping data found for this timeframe.")
+                else:
+                    fig_rel = go.Figure()
+                    fig_rel.add_trace(go.Scatter(
+                        x=rel_df['date'], y=rel_df['comp_ret'],
+                        name=company['symbol'], line=dict(color="#1f77b4", width=2.5)
+                    ))
+                    if 'qqq_ret' in rel_df:
+                        fig_rel.add_trace(go.Scatter(
+                            x=rel_df['date'], y=rel_df['qqq_ret'],
+                            name="QQQ (Benchmark)", line=dict(color="#2ca02c", width=1.5, dash="dot")
+                        ))
+                    if 'nvda_ret' in rel_df:
+                        fig_rel.add_trace(go.Scatter(
+                            x=rel_df['date'], y=rel_df['nvda_ret'],
+                            name="NVDA (Benchmark)", line=dict(color="#9467bd", width=1.5, dash="dot")
+                        ))
+                        
+                    # Placeholder for AI Infra Core Index
+                    fig_rel.add_trace(go.Scatter(
+                        x=rel_df['date'], y=[0.0] * len(rel_df),
+                        name="AI Infra Core Index (Placeholder)", line=dict(color="#7f7f7f", width=1.5, dash="dash")
+                    ))
+                    
+                    fig_rel.update_layout(
+                        title=f"Relative Cumulative Return vs Benchmarks (Start Date: {start_date})",
+                        xaxis_title="Date",
+                        yaxis_title="Return (%)",
+                        template="plotly_white",
+                        margin=dict(l=40, r=40, t=40, b=40),
+                        height=450,
+                        hovermode="x unified"
+                    )
+                    st.plotly_chart(fig_rel, use_container_width=True)
+                    st.info("💡 AI Infra Core Index line is a placeholder pending Phase 11 index implementation.")
+                    
+    with main_col2:
+        # Watch Status
+        st.write("### Watch Status")
+        current_status = get_watch_status(company['id'])
+        new_status = st.selectbox(
+            "Status",
+            sorted(list(WATCH_STATUSES)),
+            index=sorted(list(WATCH_STATUSES)).index(current_status) if current_status in WATCH_STATUSES else 0,
+            key="watch_status_selectbox"
+        )
+        if new_status != current_status:
+            update_watch_status(company['id'], new_status)
+            st.success(f"Status updated to '{new_status}'!")
+            st.rerun()
+            
+        st.write("---")
+        
+        # User Notes
+        st.write("### User Notes")
+        existing_notes = get_company_notes(company['id'])
+        
+        # Form to add a note
+        with st.form("add_note_form", clear_on_submit=True):
+            new_note_text = st.text_area("Add research note...", height=100)
+            submit_note = st.form_submit_button("Save Note")
+            if submit_note and new_note_text.strip():
+                add_company_note(company['id'], new_note_text)
+                st.success("Note saved!")
+                st.rerun()
+                
+        # List notes chronologically
+        if not existing_notes:
+            st.info("No research notes for this ticker yet.")
+        else:
+            for note in existing_notes:
+                dt_str = note['created_at'].strftime('%Y-%m-%d %H:%M') if note['created_at'] else 'n/a'
+                st.markdown(f"**{note['created_by'] or 'User'}** ({dt_str}):")
+                st.info(note['note_text'])
+                
+    # Bottom Layout: Fundamentals, news, filings
+    st.write("---")
+    bottom_tabs = st.tabs(["Fundamentals Snapshot", "Latest News", "Latest SEC Filings"])
+    
+    with bottom_tabs[0]:
+        fundamentals = get_company_fundamentals(company['id'])
+        if not fundamentals:
+            st.info("No fundamentals snapshot available in database.")
+        else:
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                st.write("**Valuation Metrics**")
+                st.write(f"- **Market Cap:** {_fmt_large_num(fundamentals.get('market_cap'))}")
+                st.write(f"- **Enterprise Value:** {_fmt_large_num(fundamentals.get('enterprise_value'))}")
+                st.write(f"- **Trailing P/E:** {fundamentals.get('trailing_pe') or 'n/a'}")
+                st.write(f"- **Forward P/E:** {fundamentals.get('forward_pe') or 'n/a'}")
+                st.write(f"- **Price / Sales:** {fundamentals.get('price_to_sales') or 'n/a'}")
+                st.write(f"- **EV / Sales:** {fundamentals.get('ev_to_sales') or 'n/a'}")
+                st.write(f"- **EV / EBITDA:** {fundamentals.get('ev_to_ebitda') or 'n/a'}")
+            with f_col2:
+                st.write("**Operating Metrics**")
+                st.write(f"- **Revenue Growth:** {_fmt_pct(fundamentals.get('revenue_growth'))}")
+                st.write(f"- **Gross Margin:** {_fmt_pct(fundamentals.get('gross_margin'))}")
+                st.write(f"- **Operating Margin:** {_fmt_pct(fundamentals.get('operating_margin'))}")
+                st.write(f"- **Free Cash Flow:** {_fmt_large_num(fundamentals.get('free_cash_flow'))}")
+                st.write(f"- **Data Provider:** {fundamentals.get('provider')}")
+                st.write(f"- **As of Date:** {fundamentals.get('as_of_date')}")
+                
+    with bottom_tabs[1]:
+        news_items = get_company_news(company['id'])
+        if not news_items:
+            st.info("No recent news articles found in database.")
+        else:
+            for item in news_items:
+                dt_str = item['published_at'].strftime('%Y-%m-%d %H:%M') if item['published_at'] else 'n/a'
+                st.markdown(f"##### [{item['title']}]({item['url']})")
+                st.caption(f"Source: {item['source_name'] or 'Unknown'} | {dt_str}")
+                if item['summary']:
+                    st.write(item['summary'])
+                st.write("---")
+                
+    with bottom_tabs[2]:
+        filings = get_company_filings(company['id'])
+        if not filings:
+            st.info("No SEC filings found in database.")
+        else:
+            for f in filings:
+                f_date = f['filing_date'].strftime('%Y-%m-%d') if f['filing_date'] else 'n/a'
+                url = f['primary_doc_url'] or f['filing_detail_url'] or "#"
+                st.markdown(f"- **[{f['form']}]({url})** - filed on {f_date}")
+
+
+render_company_detail()

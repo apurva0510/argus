@@ -5,11 +5,8 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
-from app.bootstrap import ensure_project_root_on_path
-
-ensure_project_root_on_path()
-
 from argus.core.db import create_database_engine
+
 from argus.core.settings import settings
 from argus.services.dashboard_service import (
     build_stale_reasons,
