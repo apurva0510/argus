@@ -5,7 +5,8 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime, date
 
-from argus.core.db import create_database_engine
+from app.components.sidebar import render_sidebar_navigation
+
 from argus.core.settings import settings
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
@@ -20,12 +21,28 @@ from argus.services.company_service import (
     add_company_note,
     get_watch_status,
     update_watch_status,
+    get_watchlist_notes,
 )
 
 
-@st.cache_resource
-def get_db_engine():
-    return create_database_engine(settings.database_url)
+@st.cache_data(ttl=300)
+def load_price_history(company_id: int) -> pd.DataFrame:
+    return get_company_price_history(company_id)
+
+
+@st.cache_data(ttl=300)
+def load_company_fundamentals(company_id: int) -> dict | None:
+    return get_company_fundamentals(company_id)
+
+
+@st.cache_data(ttl=300)
+def load_company_news(company_id: int) -> list[dict]:
+    return get_company_news(company_id)
+
+
+@st.cache_data(ttl=300)
+def load_company_filings(company_id: int) -> list[dict]:
+    return get_company_filings(company_id)
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -92,6 +109,7 @@ def get_relative_perf_df(df_comp, df_qqq, df_nvda, start_date):
 
 def render_company_detail() -> None:
     st.set_page_config(page_title="Argus - Company Detail", layout="wide")
+    render_sidebar_navigation()
     
     st.title("🔍 Company Detail")
     
@@ -100,6 +118,13 @@ def render_company_detail() -> None:
         st.warning("No active companies found in the database. Please seed the database first.")
         return
         
+    # Check query parameters for ticker
+    qp = st.query_params
+    if "ticker" in qp:
+        qp_ticker = qp["ticker"].strip().upper()
+        if qp_ticker in symbols:
+            st.session_state.selected_ticker = qp_ticker
+
     # Check if a ticker is in session_state or default to first
     if "selected_ticker" not in st.session_state:
         st.session_state.selected_ticker = symbols[0]
@@ -129,7 +154,7 @@ def render_company_detail() -> None:
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     
     # Latest price from price history or metrics
-    df_price = get_company_price_history(company['id'])
+    df_price = load_price_history(company['id']).copy()
     latest_price = None
     if not df_price.empty:
         df_price['date'] = pd.to_datetime(df_price['date']).dt.date
@@ -242,8 +267,8 @@ def render_company_detail() -> None:
                 # Fetch QQQ and NVDAclose
                 qqq_comp = get_company_by_symbol("QQQ")
                 nvda_comp = get_company_by_symbol("NVDA")
-                df_qqq = get_company_price_history(qqq_comp['id']) if qqq_comp else pd.DataFrame()
-                df_nvda = get_company_price_history(nvda_comp['id']) if nvda_comp else pd.DataFrame()
+                df_qqq = load_price_history(qqq_comp['id']).copy() if qqq_comp else pd.DataFrame()
+                df_nvda = load_price_history(nvda_comp['id']).copy() if nvda_comp else pd.DataFrame()
                 
                 if not df_qqq.empty:
                     df_qqq['date'] = pd.to_datetime(df_qqq['date']).dt.date
@@ -304,6 +329,15 @@ def render_company_detail() -> None:
             st.success(f"Status updated to '{new_status}'!")
             st.rerun()
             
+        # Watchlist Notes Reference
+        wl_notes = get_watchlist_notes(company['id'])
+        if wl_notes:
+            st.write("---")
+            st.write("**Watchlist Reference Notes:**")
+            for wl_note in wl_notes:
+                st.caption(f"_{wl_note['watchlist']}_:")
+                st.info(wl_note['notes'])
+            
         st.write("---")
         
         # User Notes
@@ -333,7 +367,7 @@ def render_company_detail() -> None:
     bottom_tabs = st.tabs(["Fundamentals Snapshot", "Latest News", "Latest SEC Filings"])
     
     with bottom_tabs[0]:
-        fundamentals = get_company_fundamentals(company['id'])
+        fundamentals = load_company_fundamentals(company['id'])
         if not fundamentals:
             st.info("No fundamentals snapshot available in database.")
         else:
@@ -357,7 +391,7 @@ def render_company_detail() -> None:
                 st.write(f"- **As of Date:** {fundamentals.get('as_of_date')}")
                 
     with bottom_tabs[1]:
-        news_items = get_company_news(company['id'])
+        news_items = load_company_news(company['id'])
         if not news_items:
             st.info("No recent news articles found in database.")
         else:
@@ -370,7 +404,7 @@ def render_company_detail() -> None:
                 st.write("---")
                 
     with bottom_tabs[2]:
-        filings = get_company_filings(company['id'])
+        filings = load_company_filings(company['id'])
         if not filings:
             st.info("No SEC filings found in database.")
         else:
@@ -380,4 +414,5 @@ def render_company_detail() -> None:
                 st.markdown(f"- **[{f['form']}]({url})** - filed on {f_date}")
 
 
-render_company_detail()
+if __name__ == "__main__":
+    render_company_detail()

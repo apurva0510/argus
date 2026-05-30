@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from argus.core.db import session_scope
-from argus.core.models import WatchlistItem
+from argus.core.models import UserNote, WatchlistItem
 from argus.core.seed import WATCH_STATUSES
 
 
@@ -101,10 +101,34 @@ def update_watchlist_items(edits: list[dict[str, Any]]) -> tuple[int, list[str]]
             item = items_by_id[item_id]
             changed = False
             if item.watch_status != new_status:
-                item.watch_status = new_status
+                # Synchronize watch status globally for this company
+                company_items = (
+                    session.query(WatchlistItem)
+                    .filter(WatchlistItem.company_id == item.company_id)
+                    .all()
+                )
+                for c_item in company_items:
+                    c_item.watch_status = new_status
                 changed = True
             if (item.notes or "") != new_notes:
-                item.notes = new_notes
+                # Synchronize notes globally for this company across watchlist items
+                company_items = (
+                    session.query(WatchlistItem)
+                    .filter(WatchlistItem.company_id == item.company_id)
+                    .all()
+                )
+                for c_item in company_items:
+                    c_item.notes = new_notes
+                
+                # Append to user_notes table to preserve history
+                if new_notes.strip():
+                    user_note = UserNote(
+                        company_id=item.company_id,
+                        note_text=new_notes.strip(),
+                        note_type="watchlist_update",
+                        created_by="User"
+                    )
+                    session.add(user_note)
                 changed = True
 
             if changed:

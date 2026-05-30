@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
+from app.components.sidebar import render_sidebar_navigation
 from argus.core.db import create_database_engine
 
 from argus.core.settings import settings
@@ -44,6 +45,7 @@ def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
 
 
 def render_dashboard() -> None:
+    render_sidebar_navigation()
     st.title("Dashboard")
 
     if st.button("Refresh dashboard"):
@@ -109,11 +111,13 @@ def render_dashboard() -> None:
             st.info("No 1D return data available for the latest metrics date.")
         else:
             gainers_view = gainers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
+            gainers_view["Ticker"] = gainers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             gainers_view["1D %"] = gainers_view["1D %"].apply(_fmt_pct)
             st.dataframe(
                 gainers_view,
                 hide_index=True,
                 width="stretch",
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
             )
         st.subheader("Biggest Drawdowns From 52W High")
         if drawdowns.empty:
@@ -122,11 +126,13 @@ def render_dashboard() -> None:
             drawdowns_view = drawdowns.rename(
                 columns={"symbol": "Ticker", "name": "Company", "drawdown_52w": "Drawdown %"}
             ).copy()
+            drawdowns_view["Ticker"] = drawdowns_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             drawdowns_view["Drawdown %"] = drawdowns_view["Drawdown %"].apply(_fmt_pct)
             st.dataframe(
                 drawdowns_view,
                 hide_index=True,
                 width="stretch",
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
             )
     with right:
         st.subheader("Top 5 Losers (1D)")
@@ -134,19 +140,27 @@ def render_dashboard() -> None:
             st.info("No 1D return data available for the latest metrics date.")
         else:
             losers_view = losers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
+            losers_view["Ticker"] = losers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             losers_view["1D %"] = losers_view["1D %"].apply(_fmt_pct)
             st.dataframe(
                 losers_view,
                 hide_index=True,
                 width="stretch",
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
             )
         st.subheader("RSI Below 40")
         if rsi_below_40.empty:
             st.info("No symbols with RSI below 40 on the latest metrics date.")
         else:
             rsi_view = rsi_below_40.rename(columns={"symbol": "Ticker", "name": "Company", "rsi_14": "RSI 14"}).copy()
+            rsi_view["Ticker"] = rsi_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             rsi_view["RSI 14"] = rsi_view["RSI 14"].round(1)
-            st.dataframe(rsi_view, hide_index=True, width="stretch")
+            st.dataframe(
+                rsi_view,
+                hide_index=True,
+                width="stretch",
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
+            )
 
     st.subheader("Recent News")
     if data["news_count"] == 0:

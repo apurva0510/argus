@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.components.sidebar import render_sidebar_navigation
 from argus.core.db import create_database_engine
 
 from argus.core.seed import WATCH_STATUSES
@@ -36,6 +37,7 @@ def _fmt_pct(value: float | None) -> str:
 
 
 def render_watchlists() -> None:
+    render_sidebar_navigation()
     st.title("Watchlists")
 
     theme_options_df = load_watchlist_table(get_watchlist_engine())
@@ -67,6 +69,7 @@ def render_watchlists() -> None:
         return
 
     editor_df = df.copy()
+    editor_df["ticker"] = editor_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
     editor_df["price"] = editor_df["price"].round(2)
     editor_df["1D %"] = editor_df["return_1d"].apply(_fmt_pct)
     editor_df["1W %"] = editor_df["return_1w"].apply(_fmt_pct)
@@ -113,7 +116,7 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.TextColumn("ticker", disabled=True),
+            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)", disabled=True),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True),

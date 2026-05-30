@@ -194,6 +194,11 @@ def add_company_note(
             created_by=created_by,
         )
         session.add(note)
+        
+        # Sync notes to all watchlist_items for this company
+        items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
+        for item in items:
+            item.notes = note_text.strip()
 
 
 def get_watch_status(company_id: int) -> str:
@@ -238,3 +243,14 @@ def update_watch_status(company_id: int, watch_status: str) -> None:
                 notes="",
             )
             session.add(item)
+
+
+def get_watchlist_notes(company_id: int) -> list[dict]:
+    with session_scope() as session:
+        results = (
+            session.query(Watchlist.name, WatchlistItem.notes)
+            .join(WatchlistItem, WatchlistItem.watchlist_id == Watchlist.id)
+            .filter(WatchlistItem.company_id == company_id)
+            .all()
+        )
+        return [{"watchlist": row[0], "notes": row[1]} for row in results if row[1] and row[1].strip()]

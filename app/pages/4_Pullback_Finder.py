@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.components.sidebar import render_sidebar_navigation
 from datetime import UTC, datetime
 
 from argus.core.db import create_database_engine
@@ -39,6 +40,7 @@ def _fmt_score(value: float | None) -> str:
 
 
 def render_pullback_finder() -> None:
+    render_sidebar_navigation()
     st.title("Pullback Finder")
     st.caption(
         "Research support only. This page ranks pullback candidates and explains the score components. "
@@ -120,6 +122,7 @@ def render_pullback_finder() -> None:
 
     display_df = filtered.copy()
     display_df["rank"] = range(1, len(display_df) + 1)
+    display_df["ticker"] = display_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
     display_df["score"] = display_df["opportunity_score"].round(1)
     display_df["drawdown"] = display_df["drawdown_52w"].apply(_fmt_pct)
     display_df["rsi"] = display_df["rsi_14"].apply(lambda value: "n/a" if pd.isna(value) else f"{value:.1f}")
@@ -156,6 +159,7 @@ def render_pullback_finder() -> None:
             "rank": st.column_config.NumberColumn("rank", width="small"),
             "score": st.column_config.NumberColumn("score", format="%.1f"),
             "explanation": st.column_config.TextColumn("reason / explanation", width="large"),
+            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
         },
     )
 
@@ -183,7 +187,12 @@ def render_pullback_finder() -> None:
                 "score_risk_penalty": "risk penalty",
             }
         )
-        st.dataframe(breakdown_df, hide_index=True, width="stretch")
+        st.dataframe(
+            breakdown_df, 
+            hide_index=True, 
+            width="stretch",
+            column_config={"ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)")}
+        )
 
 
 def selected_dma_position(label: str) -> str | None:
