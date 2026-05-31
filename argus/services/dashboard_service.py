@@ -48,11 +48,16 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                         dm.drawdown_52w
                     FROM daily_metrics dm
                     JOIN companies c ON c.id = dm.company_id
-                    WHERE dm.date = :metrics_date
+                    WHERE c.is_active = 1
+                        AND dm.date = (
+                            SELECT MAX(dm2.date)
+                            FROM daily_metrics dm2
+                            WHERE dm2.company_id = c.id
+                        )
+                    ORDER BY c.symbol
                     """
                 ),
                 conn,
-                params={"metrics_date": latest_metrics_date},
             )
 
         active_symbol_count = pd.read_sql_query(
@@ -65,6 +70,63 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= DATE('now')"),
             conn,
         ).at[0, "count"]
+        recent_news = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    ni.published_at,
+                    ni.title,
+                    ni.url,
+                    ni.source_name,
+                    ni.provider,
+                    (
+                        SELECT group_concat(DISTINCT nm2.ticker)
+                        FROM news_mentions nm2
+                        WHERE nm2.news_id = ni.id
+                    ) AS tickers
+                FROM news_items ni
+                ORDER BY ni.published_at DESC
+                LIMIT 5
+                """
+            ),
+            conn,
+        )
+        recent_filings = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    sf.filing_date,
+                    c.symbol,
+                    c.name,
+                    sf.form,
+                    sf.filing_detail_url,
+                    sf.primary_doc_url
+                FROM sec_filings sf
+                JOIN companies c ON c.id = sf.company_id
+                ORDER BY sf.filing_date DESC, sf.acceptance_datetime DESC
+                LIMIT 5
+                """
+            ),
+            conn,
+        )
+        upcoming_earnings = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    ee.event_date,
+                    c.symbol,
+                    c.name,
+                    ee.fiscal_period,
+                    ee.source
+                FROM earnings_events ee
+                JOIN companies c ON c.id = ee.company_id
+                WHERE ee.event_date >= DATE('now')
+                ORDER BY ee.event_date ASC, c.symbol ASC
+                LIMIT 5
+                """
+            ),
+            conn,
+        )
 
     return {
         "latest_dates": latest_dates.iloc[0].to_dict(),
@@ -73,6 +135,9 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         "news_count": int(news_count),
         "filings_count": int(filings_count),
         "earnings_count": int(earnings_count),
+        "recent_news": recent_news,
+        "recent_filings": recent_filings,
+        "upcoming_earnings": upcoming_earnings,
     }
 
 

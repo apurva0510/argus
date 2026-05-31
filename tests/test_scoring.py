@@ -450,7 +450,6 @@ def test_load_pullback_candidates_joins_and_calculates_correctly(sqlite_engine, 
     assert len(candidates) == 2
     # Verify the values
     vrt = candidates[candidates["ticker"] == "VRT"].iloc[0]
-    nvda = candidates[candidates["ticker"] == "NVDA"].iloc[0]
     
     assert vrt["price"] == 100.0
     assert vrt["drawdown_52w"] == -0.15
@@ -523,6 +522,5 @@ def test_watchlist_update_propagates_to_opportunity_score(sqlite_engine, db_sess
 
     # Score should have increased by exactly 2.0 points (3.0 -> 5.0)
     assert score_2 == pytest.approx(score_1 + 2.0)
-
 
 

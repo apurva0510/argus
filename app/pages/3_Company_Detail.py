@@ -3,13 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime, date
 
 from app.components.sidebar import render_sidebar_navigation
 
-from argus.core.settings import settings
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
+    build_relative_performance_frame,
     get_company_options,
     get_company_by_symbol,
     get_company_metrics,
@@ -23,6 +22,8 @@ from argus.services.company_service import (
     update_watch_status,
     get_watchlist_notes,
 )
+
+get_relative_perf_df = build_relative_performance_frame
 
 
 @st.cache_data(ttl=300)
@@ -69,44 +70,6 @@ def _fmt_large_num(value: float | None) -> str:
     return f"${value:,.2f}"
 
 
-def get_relative_perf_df(df_comp, df_qqq, df_nvda, start_date):
-    # Align on date
-    df_comp_filtered = df_comp[df_comp['date'] >= start_date].copy()
-    if df_comp_filtered.empty:
-        return pd.DataFrame()
-    
-    # Merge on date
-    merged = df_comp_filtered[['date', 'adj_close']].rename(columns={'adj_close': 'comp_close'})
-    
-    if not df_qqq.empty:
-        df_qqq_filtered = df_qqq[['date', 'adj_close']].rename(columns={'adj_close': 'qqq_close'})
-        merged = pd.merge(merged, df_qqq_filtered, on='date', how='left')
-        merged['qqq_close'] = merged['qqq_close'].ffill().bfill()
-        
-    if not df_nvda.empty:
-        df_nvda_filtered = df_nvda[['date', 'adj_close']].rename(columns={'adj_close': 'nvda_close'})
-        merged = pd.merge(merged, df_nvda_filtered, on='date', how='left')
-        merged['nvda_close'] = merged['nvda_close'].ffill().bfill()
-        
-    # Calculate cumulative returns in percentage
-    base_comp = merged['comp_close'].iloc[0]
-    merged['comp_ret'] = (merged['comp_close'] / base_comp - 1) * 100
-    
-    if 'qqq_close' in merged:
-        base_qqq = merged['qqq_close'].iloc[0]
-        merged['qqq_ret'] = (merged['qqq_close'] / base_qqq - 1) * 100
-    else:
-        merged['qqq_ret'] = 0.0
-        
-    if 'nvda_close' in merged:
-        base_nvda = merged['nvda_close'].iloc[0]
-        merged['nvda_ret'] = (merged['nvda_close'] / base_nvda - 1) * 100
-    else:
-        merged['nvda_ret'] = 0.0
-        
-    return merged
-
-
 def render_company_detail() -> None:
     st.set_page_config(page_title="Argus - Company Detail", layout="wide")
     render_sidebar_navigation()
@@ -124,6 +87,7 @@ def render_company_detail() -> None:
         qp_ticker = qp["ticker"].strip().upper()
         if qp_ticker in symbols:
             st.session_state.selected_ticker = qp_ticker
+            st.session_state.ticker_selector_selectbox = qp_ticker
 
     # Check if a ticker is in session_state or default to first
     if "selected_ticker" not in st.session_state:
@@ -244,7 +208,7 @@ def render_company_detail() -> None:
                     height=450,
                     hovermode="x unified"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 
         with chart_tabs[1]:
             st.write("### Relative Return Comparison")
@@ -311,7 +275,7 @@ def render_company_detail() -> None:
                         height=450,
                         hovermode="x unified"
                     )
-                    st.plotly_chart(fig_rel, use_container_width=True)
+                    st.plotly_chart(fig_rel, width="stretch")
                     st.info("💡 AI Infra Core Index line is a placeholder pending Phase 11 index implementation.")
                     
     with main_col2:
@@ -327,6 +291,10 @@ def render_company_detail() -> None:
         if new_status != current_status:
             update_watch_status(company['id'], new_status)
             st.success(f"Status updated to '{new_status}'!")
+            load_price_history.clear()
+            load_company_fundamentals.clear()
+            load_company_news.clear()
+            load_company_filings.clear()
             st.rerun()
             
         # Watchlist Notes Reference
@@ -351,6 +319,10 @@ def render_company_detail() -> None:
             if submit_note and new_note_text.strip():
                 add_company_note(company['id'], new_note_text)
                 st.success("Note saved!")
+                load_price_history.clear()
+                load_company_fundamentals.clear()
+                load_company_news.clear()
+                load_company_filings.clear()
                 st.rerun()
                 
         # List notes chronologically

@@ -69,7 +69,6 @@ def render_watchlists() -> None:
         return
 
     editor_df = df.copy()
-    editor_df["ticker"] = editor_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
     editor_df["price"] = editor_df["price"].round(2)
     editor_df["1D %"] = editor_df["return_1d"].apply(_fmt_pct)
     editor_df["1W %"] = editor_df["return_1w"].apply(_fmt_pct)
@@ -104,6 +103,19 @@ def render_watchlists() -> None:
         ]
     ]
 
+    # Compact same-tab navigation
+    ticker_list = editor_df["ticker"].unique().tolist()
+    nav_ticker = st.selectbox(
+        "🔍 Jump to Company Detail",
+        ticker_list,
+        index=None,
+        placeholder="Select a ticker to view…",
+    )
+    if nav_ticker:
+        st.session_state.selected_ticker = nav_ticker
+        st.session_state.ticker_selector_selectbox = nav_ticker
+        st.switch_page("pages/3_Company_Detail.py")
+
     editable = st.data_editor(
         editor_df,
         hide_index=True,
@@ -116,7 +128,7 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)", disabled=True),
+            "ticker": st.column_config.TextColumn("ticker", disabled=True),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True),

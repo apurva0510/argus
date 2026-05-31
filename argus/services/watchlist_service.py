@@ -111,15 +111,8 @@ def update_watchlist_items(edits: list[dict[str, Any]]) -> tuple[int, list[str]]
                     c_item.watch_status = new_status
                 changed = True
             if (item.notes or "") != new_notes:
-                # Synchronize notes globally for this company across watchlist items
-                company_items = (
-                    session.query(WatchlistItem)
-                    .filter(WatchlistItem.company_id == item.company_id)
-                    .all()
-                )
-                for c_item in company_items:
-                    c_item.notes = new_notes
-                
+                item.notes = new_notes
+
                 # Append to user_notes table to preserve history
                 if new_notes.strip():
                     user_note = UserNote(

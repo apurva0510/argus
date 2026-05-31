@@ -128,7 +128,7 @@ def refresh_filings() -> dict[str, object]:
 
                 try:
                     filings = fetch_filings(company.cik)
-                except Exception as exc:
+                except Exception:
                     logger.exception("Failed to fetch filings for %s", company.symbol)
                     failed_symbols.append(company.symbol)
                     continue

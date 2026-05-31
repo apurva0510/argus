@@ -12,11 +12,11 @@ from argus.core.models import (
     NewsMention,
     PriceBar,
     SecFiling,
-    UserNote,
     Watchlist,
     WatchlistItem,
 )
 from argus.services.company_service import (
+    build_relative_performance_frame,
     get_company_options,
     get_company_by_symbol,
     get_company_metrics,
@@ -167,18 +167,17 @@ def test_user_notes_crud(sqlite_engine, db_session, monkeypatch) -> None:
 
     # Add note
     add_company_note(c.id, "First note for AAPL", created_by="Apurva")
-    
-    # Verify watchlist item notes synced
+
+    # Research notes should not overwrite watchlist-specific notes.
     db_session.expire_all()
     item = db_session.query(WatchlistItem).filter(WatchlistItem.id == wi.id).one()
-    assert item.notes == "First note for AAPL"
+    assert item.notes == ""
 
     add_company_note(c.id, "Second note for AAPL", created_by="Dad")
-    
-    # Verify watchlist item notes synced to second note
+
     db_session.expire_all()
     item = db_session.query(WatchlistItem).filter(WatchlistItem.id == wi.id).one()
-    assert item.notes == "Second note for AAPL"
+    assert item.notes == ""
 
     add_company_note(c.id, "   ", created_by="Apurva")  # empty note should be ignored
 
@@ -268,20 +267,17 @@ def test_get_relative_perf_df() -> None:
 
 
 def test_get_relative_perf_df_missing_benchmark() -> None:
-    detail_page = importlib.import_module("app.pages.3_Company_Detail")
-    get_relative_perf_df = detail_page.get_relative_perf_df
-
     df_comp = pd.DataFrame({
         "date": [date(2026, 1, 1), date(2026, 1, 2)],
         "adj_close": [100.0, 105.0]
     })
 
-    res = get_relative_perf_df(df_comp, pd.DataFrame(), pd.DataFrame(), date(2026, 1, 1))
+    res = build_relative_performance_frame(df_comp, pd.DataFrame(), pd.DataFrame(), date(2026, 1, 1))
 
     assert len(res) == 2
     assert list(res["comp_ret"]) == pytest.approx([0.0, 5.0])
-    assert list(res["qqq_ret"]) == pytest.approx([0.0, 0.0])
-    assert list(res["nvda_ret"]) == pytest.approx([0.0, 0.0])
+    assert res["qqq_ret"].isna().all()
+    assert res["nvda_ret"].isna().all()
 
 
 def test_get_relative_perf_df_missing_dates() -> None:
@@ -306,9 +302,10 @@ def test_get_relative_perf_df_missing_dates() -> None:
     res = get_relative_perf_df(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
 
     assert len(res) == 3
-    # Check that ffill/bfill resolved QQQ's missing date and NVDA's early missing date
-    # NVDA starts at 50 on 1-2, bfill makes it 50 on 1-1. So returns on 1-1 is 0.0%, 1-2 is 0.0%, 1-3 is 10%
-    assert list(res["nvda_ret"]) == pytest.approx([0.0, 0.0, 10.0])
+    # QQQ forward-fills a missing middle date. NVDA starts late and should not
+    # be backfilled into 1-1, because that would use future data.
+    assert pd.isna(res["nvda_ret"].iloc[0])
+    assert list(res["nvda_ret"].iloc[1:]) == pytest.approx([0.0, 10.0])
     # QQQ is 200 on 1-1, ffill makes it 200 on 1-2, 204 on 1-3. Returns: 0.0%, 0.0%, 2.0%
     assert list(res["qqq_ret"]) == pytest.approx([0.0, 0.0, 2.0])
 
@@ -327,3 +324,26 @@ def test_user_notes_does_not_overwrite(sqlite_engine, db_session, monkeypatch) -
     assert notes[0]["note_text"] == "Note 2"
     assert notes[1]["note_text"] == "Note 1"
 
+
+def test_add_company_note_does_not_overwrite_watchlist_notes(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    c = Company(symbol="AAPL", name="Apple", is_active=True)
+    wl = Watchlist(name="Watchlist", is_system=True)
+    db_session.add_all([c, wl])
+    db_session.flush()
+    item = WatchlistItem(
+        watchlist_id=wl.id,
+        company_id=c.id,
+        watch_status="watch",
+        notes="watchlist note",
+    )
+    db_session.add(item)
+    db_session.commit()
+
+    add_company_note(c.id, "Research note")
+
+    db_session.expire_all()
+    item = db_session.query(WatchlistItem).filter(WatchlistItem.id == item.id).one()
+    assert item.notes == "watchlist note"

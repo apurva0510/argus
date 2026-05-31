@@ -155,6 +155,9 @@ def test_load_dashboard_data_handles_empty_database(sqlite_engine) -> None:
     assert data["news_count"] == 0
     assert data["filings_count"] == 0
     assert data["earnings_count"] == 0
+    assert data["recent_news"].empty
+    assert data["recent_filings"].empty
+    assert data["upcoming_earnings"].empty
 
 
 def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
@@ -247,6 +250,9 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert rank_top_losers(metrics, limit=2)["symbol"].tolist() == ["PWR", "VRT"]
     assert rank_biggest_drawdowns(metrics, limit=2)["symbol"].tolist() == ["PWR", "VRT"]
     assert filter_low_rsi(metrics, threshold=40.0)["symbol"].tolist() == ["VRT", "ETN"]
+    assert data["recent_news"]["title"].tolist() == ["Power demand update"]
+    assert data["recent_filings"]["symbol"].tolist() == ["ETN"]
+    assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
 
 
 def test_load_dashboard_data_handles_price_data_without_metrics(db_session, sqlite_engine) -> None:
@@ -270,3 +276,24 @@ def test_load_dashboard_data_handles_price_data_without_metrics(db_session, sqli
     assert data["latest_dates"]["latest_metrics_date"] is None
     assert data["latest_metrics"].empty
     assert data["index_symbol_count"] == 1
+
+
+def test_load_dashboard_data_uses_latest_metric_per_company(db_session, sqlite_engine) -> None:
+    etn = Company(symbol="ETN", name="Eaton", is_active=True)
+    vrt = Company(symbol="VRT", name="Vertiv", is_active=True)
+    db_session.add_all([etn, vrt])
+    db_session.flush()
+    db_session.add_all(
+        [
+            DailyMetric(company_id=etn.id, date=date(2026, 5, 30), return_1d=0.03),
+            DailyMetric(company_id=vrt.id, date=date(2026, 5, 29), return_1d=-0.02),
+        ]
+    )
+    db_session.commit()
+
+    data = load_dashboard_data_from_engine(sqlite_engine)
+    metrics = data["latest_metrics"]
+
+    assert data["latest_dates"]["latest_metrics_date"] == "2026-05-30"
+    assert set(metrics["symbol"]) == {"ETN", "VRT"}
+    assert metrics.set_index("symbol").loc["VRT", "date"] == "2026-05-29"

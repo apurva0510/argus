@@ -546,3 +546,42 @@ def test_update_watchlist_items_syncs_status_globally(sqlite_engine, db_session,
     # Verify notes remain separate
     assert item1.notes == "system note"
     assert item2.notes == "custom note"
+
+
+def test_update_watchlist_items_does_not_sync_notes_globally(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+
+    company = Company(symbol="NVDA", name="NVIDIA", is_active=True)
+    wl1 = Watchlist(name="System Watchlist", is_system=True)
+    wl2 = Watchlist(name="Custom Watchlist", is_system=False)
+    db_session.add_all([company, wl1, wl2])
+    db_session.flush()
+
+    wi1 = WatchlistItem(
+        watchlist_id=wl1.id,
+        company_id=company.id,
+        watch_status="watch",
+        notes="system note",
+    )
+    wi2 = WatchlistItem(
+        watchlist_id=wl2.id,
+        company_id=company.id,
+        watch_status="watch",
+        notes="custom note",
+    )
+    db_session.add_all([wi1, wi2])
+    db_session.commit()
+
+    updated_count, errors = update_watchlist_items(
+        [{"watchlist_item_id": wi1.id, "watch_status": "watch", "notes": "updated system note"}]
+    )
+
+    assert errors == []
+    assert updated_count == 1
+    db_session.expire_all()
+    item1 = db_session.query(WatchlistItem).filter(WatchlistItem.id == wi1.id).one()
+    item2 = db_session.query(WatchlistItem).filter(WatchlistItem.id == wi2.id).one()
+    assert item1.notes == "updated system note"
+    assert item2.notes == "custom note"

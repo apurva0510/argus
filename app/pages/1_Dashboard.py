@@ -44,6 +44,74 @@ def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
     return f"{value * 100:.{digits}f}%"
 
 
+def _render_recent_news(news_df: pd.DataFrame) -> None:
+    if news_df.empty:
+        st.info("No recent news found. Run `python scripts/refresh_news.py` to ingest catalyst headlines.")
+        return
+
+    view = news_df.rename(
+        columns={
+            "published_at": "Published",
+            "title": "Headline",
+            "source_name": "Source",
+            "tickers": "Tickers",
+            "url": "Link",
+        }
+    ).copy()
+    view["Published"] = pd.to_datetime(view["Published"]).dt.strftime("%Y-%m-%d %H:%M")
+    st.dataframe(
+        view[["Published", "Headline", "Source", "Tickers", "Link"]],
+        hide_index=True,
+        width="stretch",
+        column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open")},
+    )
+
+
+def _render_recent_filings(filings_df: pd.DataFrame) -> None:
+    if filings_df.empty:
+        st.info("No recent SEC filings found. Run `python scripts/refresh_filings.py` after setting SEC_USER_AGENT.")
+        return
+
+    view = filings_df.rename(
+        columns={
+            "symbol": "Ticker",
+            "name": "Company",
+            "form": "Form",
+            "filing_date": "Filed",
+            "filing_detail_url": "Filing",
+        }
+    ).copy()
+    view["Filed"] = pd.to_datetime(view["Filed"]).dt.strftime("%Y-%m-%d")
+    st.dataframe(
+        view[["Filed", "Ticker", "Company", "Form", "Filing"]],
+        hide_index=True,
+        width="stretch",
+        column_config={"Filing": st.column_config.LinkColumn("Filing", display_text="Open")},
+    )
+
+
+def _render_upcoming_earnings(earnings_df: pd.DataFrame) -> None:
+    if earnings_df.empty:
+        st.info("No upcoming earnings found in the database.")
+        return
+
+    view = earnings_df.rename(
+        columns={
+            "event_date": "Date",
+            "symbol": "Ticker",
+            "name": "Company",
+            "fiscal_period": "Fiscal Period",
+            "source": "Source",
+        }
+    ).copy()
+    view["Date"] = pd.to_datetime(view["Date"]).dt.strftime("%Y-%m-%d")
+    st.dataframe(
+        view[["Date", "Ticker", "Company", "Fiscal Period", "Source"]],
+        hide_index=True,
+        width="stretch",
+    )
+
+
 def render_dashboard() -> None:
     render_sidebar_navigation()
     st.title("Dashboard")
@@ -163,26 +231,13 @@ def render_dashboard() -> None:
             )
 
     st.subheader("Recent News")
-    if data["news_count"] == 0:
-        st.info("News feed placeholder. News ingestion is not implemented yet.")
-    else:
-        st.info(f"News data exists ({data['news_count']} rows). News dashboard section is coming next phase.")
+    _render_recent_news(data["recent_news"])
 
     st.subheader("Recent Filings")
-    if data["filings_count"] == 0:
-        st.info("Filings placeholder. SEC filings dashboard section is not implemented yet.")
-    else:
-        st.info(
-            f"Filings data exists ({data['filings_count']} rows). Filings dashboard section is coming next phase."
-        )
+    _render_recent_filings(data["recent_filings"])
 
     st.subheader("Upcoming Earnings")
-    if data["earnings_count"] == 0:
-        st.info("Earnings placeholder. Earnings dashboard section is not implemented yet.")
-    else:
-        st.info(
-            f"Upcoming earnings data exists ({data['earnings_count']} rows). Earnings section is coming next phase."
-        )
+    _render_upcoming_earnings(data["upcoming_earnings"])
 
 
 render_dashboard()

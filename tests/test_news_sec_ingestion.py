@@ -1,4 +1,4 @@
-from datetime import date, datetime, UTC
+from datetime import date, datetime
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -355,7 +355,6 @@ def test_fetch_filings_client_parsing(monkeypatch, sec_submission_payload) -> No
 # SEC filing deduplication test
 def test_refresh_filings_deduplication(sqlite_engine, monkeypatch, sec_submission_payload) -> None:
     from argus.core import db as db_module
-    import argus.pipelines.refresh_filings as filings_module
     from argus.core.settings import settings
     import httpx
 

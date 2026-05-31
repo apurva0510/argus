@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.components.sidebar import render_sidebar_navigation
 from datetime import UTC, datetime
+from app.components.sidebar import render_sidebar_navigation
 
 from argus.core.db import create_database_engine
 from argus.core.seed import WATCH_STATUSES

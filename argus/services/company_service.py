@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-from sqlalchemy import text
 
 from argus.core.db import session_scope
 from argus.core.models import (
@@ -16,6 +15,57 @@ from argus.core.models import (
     Watchlist,
     WatchlistItem,
 )
+
+
+def build_relative_performance_frame(
+    company_prices: pd.DataFrame,
+    qqq_prices: pd.DataFrame,
+    nvda_prices: pd.DataFrame,
+    start_date,
+) -> pd.DataFrame:
+    """Build cumulative relative performance without backfilling future benchmark data."""
+    company_frame = company_prices[company_prices["date"] >= start_date].copy()
+    if company_frame.empty:
+        return pd.DataFrame()
+
+    merged = company_frame[["date", "adj_close"]].rename(columns={"adj_close": "comp_close"})
+
+    if not qqq_prices.empty:
+        qqq_frame = qqq_prices[["date", "adj_close"]].rename(columns={"adj_close": "qqq_close"})
+        merged = pd.merge(merged, qqq_frame, on="date", how="left")
+        merged["qqq_close"] = merged["qqq_close"].ffill()
+
+    if not nvda_prices.empty:
+        nvda_frame = nvda_prices[["date", "adj_close"]].rename(columns={"adj_close": "nvda_close"})
+        merged = pd.merge(merged, nvda_frame, on="date", how="left")
+        merged["nvda_close"] = merged["nvda_close"].ffill()
+
+    base_company = merged["comp_close"].iloc[0]
+    merged["comp_ret"] = (merged["comp_close"] / base_company - 1.0) * 100.0
+
+    if "qqq_close" in merged:
+        first_valid = merged["qqq_close"].first_valid_index()
+        merged["qqq_ret"] = pd.NA
+        if first_valid is not None:
+            base_qqq = merged.loc[first_valid, "qqq_close"]
+            merged.loc[first_valid:, "qqq_ret"] = (
+                merged.loc[first_valid:, "qqq_close"] / base_qqq - 1.0
+            ) * 100.0
+    else:
+        merged["qqq_ret"] = pd.NA
+
+    if "nvda_close" in merged:
+        first_valid = merged["nvda_close"].first_valid_index()
+        merged["nvda_ret"] = pd.NA
+        if first_valid is not None:
+            base_nvda = merged.loc[first_valid, "nvda_close"]
+            merged.loc[first_valid:, "nvda_ret"] = (
+                merged.loc[first_valid:, "nvda_close"] / base_nvda - 1.0
+            ) * 100.0
+    else:
+        merged["nvda_ret"] = pd.NA
+
+    return merged
 
 
 def get_company_options() -> list[str]:
@@ -194,11 +244,6 @@ def add_company_note(
             created_by=created_by,
         )
         session.add(note)
-        
-        # Sync notes to all watchlist_items for this company
-        items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
-        for item in items:
-            item.notes = note_text.strip()
 
 
 def get_watch_status(company_id: int) -> str:
