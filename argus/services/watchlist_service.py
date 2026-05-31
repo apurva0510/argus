@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from argus.core.db import session_scope
+from argus.core.settings import settings
 from argus.core.models import UserNote, WatchlistItem
 from argus.core.seed import WATCH_STATUSES
 
@@ -48,7 +49,7 @@ def load_watchlist_table(
                     SELECT pb2.id
                     FROM price_bars pb2
                     WHERE pb2.company_id = c.id
-                        AND pb2.provider = 'yfinance'
+                        AND pb2.provider = :provider
                         AND pb2.interval = '1d'
                     ORDER BY pb2.date DESC
                     LIMIT 1
@@ -66,7 +67,7 @@ def load_watchlist_table(
                 """
             ),
             conn,
-            params={"theme": theme, "ticker_query": ticker_query},
+            params={"theme": theme, "ticker_query": ticker_query, "provider": settings.market_data_provider},
         )
 
     if watch_statuses:

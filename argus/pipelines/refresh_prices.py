@@ -8,7 +8,11 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, PriceBar
-from argus.sources.yfinance_client import fetch_daily_ohlcv
+from argus.sources.factory import get_market_data_provider
+
+def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
+    provider = get_market_data_provider()
+    return provider.fetch_daily_ohlcv(symbol, period)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +54,7 @@ def _finish_job_run(
             job.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
 
 
-def _upsert_price_bar_rows(session, company_id: int, rows: list[dict]) -> int:
+def _upsert_price_bar_rows(session, company_id: int, rows: list[dict], provider: str) -> int:
     if not rows:
         return 0
 
@@ -66,7 +70,7 @@ def _upsert_price_bar_rows(session, company_id: int, rows: list[dict]) -> int:
                 "close": row.get("close"),
                 "adj_close": row.get("adj_close") or row.get("close"),
                 "volume": row.get("volume"),
-                "provider": "yfinance",
+                "provider": provider,
                 "interval": "1d",
             }
         )
@@ -100,6 +104,8 @@ def refresh_prices(period: str = "2y") -> dict[str, object]:
     status = "success"
     error_text: str | None = None
 
+    provider = get_market_data_provider()
+
     try:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
@@ -118,7 +124,7 @@ def refresh_prices(period: str = "2y") -> dict[str, object]:
 
                 records = frame.to_dict(orient="records")
                 rows_read += len(records)
-                rows_written += _upsert_price_bar_rows(session, company.id, records)
+                rows_written += _upsert_price_bar_rows(session, company.id, records, provider.name)
 
             if failed_symbols:
                 status = "partial_success"

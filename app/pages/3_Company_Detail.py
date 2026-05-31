@@ -32,6 +32,23 @@ def load_price_history(company_id: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_index_relative_returns(start_date) -> pd.DataFrame:
+    from argus.core.db import create_database_engine
+    from argus.core.settings import settings
+    from sqlalchemy.orm import sessionmaker
+    from argus.analytics.index_builder import calculate_equal_weight_index, calculate_relative_performance
+    
+    engine = create_database_engine(settings.database_url)
+    SessionLocal = sessionmaker(bind=engine)
+    with SessionLocal() as session:
+        index_df = calculate_equal_weight_index(session)
+        if index_df.empty:
+            return pd.DataFrame()
+        rel_df = calculate_relative_performance(session, index_df, start_date)
+        return rel_df
+
+
+@st.cache_data(ttl=300)
 def load_company_fundamentals(company_id: int) -> dict | None:
     return get_company_fundamentals(company_id)
 
@@ -260,11 +277,13 @@ def render_company_detail() -> None:
                             name="NVDA (Benchmark)", line=dict(color="#9467bd", width=1.5, dash="dot")
                         ))
                         
-                    # Placeholder for AI Infra Core Index
-                    fig_rel.add_trace(go.Scatter(
-                        x=rel_df['date'], y=[0.0] * len(rel_df),
-                        name="AI Infra Core Index (Placeholder)", line=dict(color="#7f7f7f", width=1.5, dash="dash")
-                    ))
+                    # Real AI Infra Core Index
+                    idx_rel = load_index_relative_returns(start_date)
+                    if not idx_rel.empty and 'index_ret' in idx_rel:
+                        fig_rel.add_trace(go.Scatter(
+                            x=idx_rel['date'], y=idx_rel['index_ret'],
+                            name="AI Infra Core Index", line=dict(color="#7f7f7f", width=2.0, dash="dash")
+                        ))
                     
                     fig_rel.update_layout(
                         title=f"Relative Cumulative Return vs Benchmarks (Start Date: {start_date})",
@@ -276,7 +295,6 @@ def render_company_detail() -> None:
                         hovermode="x unified"
                     )
                     st.plotly_chart(fig_rel, width="stretch")
-                    st.info("💡 AI Infra Core Index line is a placeholder pending Phase 11 index implementation.")
                     
     with main_col2:
         # Watch Status
@@ -292,6 +310,7 @@ def render_company_detail() -> None:
             update_watch_status(company['id'], new_status)
             st.success(f"Status updated to '{new_status}'!")
             load_price_history.clear()
+            load_index_relative_returns.clear()
             load_company_fundamentals.clear()
             load_company_news.clear()
             load_company_filings.clear()
@@ -320,6 +339,7 @@ def render_company_detail() -> None:
                 add_company_note(company['id'], new_note_text)
                 st.success("Note saved!")
                 load_price_history.clear()
+                load_index_relative_returns.clear()
                 load_company_fundamentals.clear()
                 load_company_news.clear()
                 load_company_filings.clear()

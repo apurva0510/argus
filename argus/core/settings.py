@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     email_to: str = Field(default="", alias="EMAIL_TO")
     news_request_delay_seconds: float = Field(default=2.0, alias="NEWS_REQUEST_DELAY_SECONDS")
     news_refresh_min_hours: float = Field(default=3.0, alias="NEWS_REFRESH_MIN_HOURS")
+    finnhub_api_key: str = Field(default="", alias="FINNHUB_API_KEY")
+    twelve_data_api_key: str = Field(default="", alias="TWELVE_DATA_API_KEY")
+    alpha_vantage_api_key: str = Field(default="", alias="ALPHA_VANTAGE_API_KEY")
+    market_data_provider: str = Field(default="yfinance", alias="MARKET_DATA_PROVIDER")
+
 
 
 settings = Settings()

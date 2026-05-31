@@ -29,7 +29,12 @@ Edit `.env` if you want SEC filings or email alerts:
 
 - `SEC_USER_AGENT` is required for SEC EDGAR filing refreshes.
 - `EMAIL_HOST`, `EMAIL_TO`, and optional SMTP credentials are used by email alerts.
-- Optional API keys may stay blank.
+- Optional API keys may stay blank (yfinance remains default and requires no credentials).
+- Optional providers (`finnhub`, `twelvedata`, `alphavantage`) can be selected via the `MARKET_DATA_PROVIDER` env variable.
+  
+  > [!IMPORTANT]
+  > Twelve Data and Alpha Vantage free tiers have strict rate limits and monthly quotas. Request interval pacing is automatically enforced to comply with limits. However, running full historical backfills (`--period 2y` or longer) frequently when utilizing Twelve Data can exhaust your monthly call volume credits.
+
 
 4. Initialize SQLite database:
 
@@ -97,7 +102,7 @@ Run lint:
 
 ## Current scope
 
-Implemented through Phase 10-style MVP workflow:
+Implemented through Phase 11-style MVP workflow:
 
 - SQLite schema and seed data
 - yfinance price ingestion
@@ -108,9 +113,22 @@ Implemented through Phase 10-style MVP workflow:
 - opportunity scoring
 - email alert rules and deduplication
 - daily refresh orchestration
+- AI Infra Core Index implementation, charting, and contributors mapping
 
 Still pending:
 
-- AI Infra Core Index implementation and charting
 - fundamentals refresh
 - earnings refresh provider
+
+## AI Infra Core Index Methodology
+
+The custom **AI Infra Core Index** is built to monitor the collective performance of AI infrastructure and data-center supplier stocks.
+
+### Weighting & Calculation
+- **Equal Weighted**: The index is an equal-weighted average of all active constituent stocks.
+- **Base Level**: Set to a base of 100.0. The chart on the Dashboard dynamically rebases the index level to 100 on the starting date of the selected timeframe for easy comparison.
+- **Dynamic Rebalancing / Missing History**: IPOs (e.g. `GEV` or `ALAB`) and companies with missing historical price bars are handled gracefully. The daily index return is the average of daily returns of only those constituents that have valid price data on both the current and the previous trading day. This average return is then compounded daily to build the index level.
+
+### Constituents & Exclusions
+- **Constituents**: Selected active AI infrastructure and data-center supplier stocks.
+- **Default Exclusions**: Benchmark-only and large hyperscaler names (`QQQ`, `NVDA`, `MSFT`, `AMZN`, `GOOGL`, `META`) and optional highly aggressive stocks (`ALAB`, `CRDO`) are excluded from the index calculation by default.

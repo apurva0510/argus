@@ -13,6 +13,7 @@ from argus.core.models import (
     EarningsEvent,
     Alert,
 )
+from argus.core.settings import settings
 
 logger = logging.getLogger(__name__)
 MAX_MARKET_DATA_AGE_DAYS = 3
@@ -33,7 +34,7 @@ def _latest_fresh_price_bar(session: Session, company: Company) -> PriceBar | No
         session.query(PriceBar)
         .filter(
             PriceBar.company_id == company.id,
-            PriceBar.provider == "yfinance",
+            PriceBar.provider == settings.market_data_provider,
             PriceBar.interval == "1d",
         )
         .order_by(PriceBar.date.desc())
@@ -217,7 +218,7 @@ def check_crossed_50dma(session: Session, alert: Alert, company: Company) -> lis
         session.query(PriceBar)
         .filter(
             PriceBar.company_id == company.id,
-            PriceBar.provider == "yfinance",
+            PriceBar.provider == settings.market_data_provider,
             PriceBar.interval == "1d",
             PriceBar.date == latest.date,
         )
@@ -282,7 +283,7 @@ def check_crossed_200dma(session: Session, alert: Alert, company: Company) -> li
         session.query(PriceBar)
         .filter(
             PriceBar.company_id == company.id,
-            PriceBar.provider == "yfinance",
+            PriceBar.provider == settings.market_data_provider,
             PriceBar.interval == "1d",
             PriceBar.date == latest.date,
         )

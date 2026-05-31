@@ -20,6 +20,7 @@ from argus.analytics.indicators import (
 from argus.analytics.relative_strength import relative_return
 from argus.core.db import session_scope
 from argus.core.models import Company, DailyMetric, JobRun, PriceBar, utc_now
+from argus.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def _load_price_frame(session, company_id: int) -> pd.DataFrame:
         session.query(PriceBar.date, PriceBar.adj_close)
         .filter(
             PriceBar.company_id == company_id,
-            PriceBar.provider == "yfinance",
+            PriceBar.provider == settings.market_data_provider,
             PriceBar.interval == "1d",
         )
         .order_by(PriceBar.date.asc())

@@ -893,10 +893,14 @@ class TestFormatting:
 
 
 class TestEmailDelivery:
-    def test_smtp_not_configured_by_default(self):
+    def test_smtp_not_configured_by_default(self, monkeypatch):
         # In test env, EMAIL_HOST / EMAIL_TO should not be set
+        from argus.alerts import email_delivery
+        monkeypatch.setattr(email_delivery.settings, "email_host", "")
+        monkeypatch.setattr(email_delivery.settings, "email_to", "")
         result = is_smtp_configured()
         assert result is False
+
 
     def test_send_email_returns_false_without_smtp_config_and_does_not_open_connection(
         self, monkeypatch

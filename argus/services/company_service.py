@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from argus.core.db import session_scope
+from argus.core.settings import settings
 from argus.core.models import (
     Company,
     DailyMetric,
@@ -132,7 +133,7 @@ def get_company_price_history(company_id: int) -> pd.DataFrame:
     with session_scope() as session:
         query = (
             session.query(PriceBar)
-            .filter(PriceBar.company_id == company_id, PriceBar.provider == "yfinance", PriceBar.interval == "1d")
+            .filter(PriceBar.company_id == company_id, PriceBar.provider == settings.market_data_provider, PriceBar.interval == "1d")
             .order_by(PriceBar.date.asc())
         )
         df = pd.read_sql_query(query.statement, session.bind)

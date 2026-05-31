@@ -60,3 +60,18 @@ def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     frame["date"] = frame[date_column].apply(_normalize_daily_date)
     frame = frame[["date", "open", "high", "low", "close", "adj_close", "volume"]].copy()
     return frame
+
+
+from argus.sources.base import BaseMarketDataProvider
+
+class YFinanceProvider(BaseMarketDataProvider):
+    @property
+    def name(self) -> str:
+        return "yfinance"
+
+    def is_available(self) -> bool:
+        return True
+
+    def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
+        return fetch_daily_ohlcv(symbol, period)
+

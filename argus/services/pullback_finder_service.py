@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 
 from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
 from argus.core.seed import WATCH_STATUSES
+from argus.core.settings import settings
 
 
 def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
@@ -64,7 +65,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     SELECT pb2.id
                     FROM price_bars pb2
                     WHERE pb2.company_id = c.id
-                        AND pb2.provider = 'yfinance'
+                        AND pb2.provider = :provider
                         AND pb2.interval = '1d'
                     ORDER BY pb2.date DESC
                     LIMIT 1
@@ -81,6 +82,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                 """
             ),
             conn,
+            params={"provider": settings.market_data_provider},
         )
 
     if df.empty:

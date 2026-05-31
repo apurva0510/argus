@@ -235,7 +235,15 @@ def detect_mentions_and_keywords(
                 "matched_keywords": ", ".join(all_kws) if all_kws else None,
             })
 
-    return mentions
+    # Deduplicate mentions by company_id before returning
+    seen_company_ids = set()
+    unique_mentions = []
+    for m in mentions:
+        if m["company_id"] not in seen_company_ids:
+            seen_company_ids.add(m["company_id"])
+            unique_mentions.append(m)
+
+    return unique_mentions
 
 
 def normalize_news_url(url: str | None) -> str:
@@ -272,6 +280,15 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
     # Check if URL already exists
     stable_key = stable_article_key(art)
     existing_item = session.query(NewsItem).filter(NewsItem.url == stable_key).one_or_none()
+
+    # Deduplicate input mentions by company_id to prevent database UNIQUE constraint violations
+    seen_company_ids = set()
+    unique_mentions = []
+    for m in mentions:
+        if m["company_id"] not in seen_company_ids:
+            seen_company_ids.add(m["company_id"])
+            unique_mentions.append(m)
+    mentions = unique_mentions
 
     if existing_item is None:
         # Create news item
@@ -323,6 +340,7 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
                     matched_keywords=m["matched_keywords"],
                 )
                 session.add(mention)
+                existing_company_ids.add(m["company_id"])  # Prevent duplicates within the same batch in case they were not fully filtered
                 written += 1
         return 1 if written > 0 else 0
 

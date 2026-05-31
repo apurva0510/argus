@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from argus.core.db import session_scope
+from argus.core.settings import settings
 from argus.core.models import Company, DailyMetric, NewsItem, PriceBar, SecFiling, WatchlistItem
 from argus.core.seed import AI_INFRA_CORE_INDEX_SYMBOLS
 
@@ -21,13 +22,16 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             text(
                 """
                 SELECT
-                    (SELECT MAX(date) FROM price_bars WHERE provider = 'yfinance' AND interval = '1d') AS latest_price_date,
+                    (SELECT MAX(date) FROM price_bars WHERE provider = :provider AND interval = '1d') AS latest_price_date,
                     (SELECT MAX(date) FROM daily_metrics) AS latest_metrics_date,
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_news') AS last_news_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings') AS last_filings_refresh_at
                 """
             ),
             conn,
+            params={"provider": settings.market_data_provider},
         )
         latest_metrics_date = latest_dates.at[0, "latest_metrics_date"]
 
@@ -128,6 +132,50 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             conn,
         )
 
+        # Calculate stale tickers count
+        stale_threshold_str = f"-{STALE_DAYS_THRESHOLD} days"
+        stale_tickers_count = pd.read_sql_query(
+            text(
+                """
+                SELECT COUNT(DISTINCT symbol) AS count
+                FROM companies
+                WHERE is_active = 1 AND id NOT IN (
+                    SELECT DISTINCT company_id
+                    FROM price_bars
+                    WHERE provider = :provider
+                      AND date >= DATE('now', :stale_threshold)
+                )
+                """
+            ),
+            conn,
+            params={
+                "provider": settings.market_data_provider,
+                "stale_threshold": stale_threshold_str,
+            },
+        ).at[0, "count"]
+
+        # Fetch latest failed job
+        failed_job_df = pd.read_sql_query(
+            text(
+                """
+                SELECT job_name, finished_at, error_text
+                FROM job_runs
+                WHERE status = 'failed'
+                ORDER BY id DESC LIMIT 1
+                """
+            ),
+            conn,
+        )
+        failed_job = failed_job_df.iloc[0].to_dict() if not failed_job_df.empty else None
+
+        provider_status = {
+            "active_provider": settings.market_data_provider,
+            "yfinance_available": True,
+            "finnhub_available": bool(settings.finnhub_api_key),
+            "twelvedata_available": bool(settings.twelve_data_api_key),
+            "alphavantage_available": bool(settings.alpha_vantage_api_key),
+        }
+
     return {
         "latest_dates": latest_dates.iloc[0].to_dict(),
         "latest_metrics": latest_metrics,
@@ -138,6 +186,9 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         "recent_news": recent_news,
         "recent_filings": recent_filings,
         "upcoming_earnings": upcoming_earnings,
+        "stale_tickers_count": int(stale_tickers_count),
+        "failed_job": failed_job,
+        "provider_status": provider_status,
     }
 
 

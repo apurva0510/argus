@@ -290,7 +290,7 @@ def _render_alert_history() -> None:
     st.dataframe(
         display[["alert_name", "event_type", "ticker", "triggered_at", "delivery"]],
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "alert_name": "Alert",
             "event_type": "Rule Type",

@@ -787,3 +787,66 @@ def test_refresh_news_force_bypasses_refresh_throttle(sqlite_engine, monkeypatch
 
     assert result["status"] == "success"
     assert calls == 1
+
+
+def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    # Mock RSS to return articles that match NVDA
+    def mock_fetch_rss(query: str) -> list[dict]:
+        return [
+            {
+                "title": "NVIDIA leads the way",
+                "summary": "AI servers liquid cooling demand.",
+                "url": "https://example.com/nvda-story",
+                "source_name": "Yahoo Finance",
+                "published_at": datetime(2026, 5, 30, 10, 0, 0),
+            }
+        ]
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda *a, **k: [])
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    # Seed NVDA once in DB
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+
+    with db_module.session_scope() as session:
+        companies = session.query(Company).all()
+        # Create duplicate list
+        duplicate_companies = companies + companies
+        
+        # Verify detect_mentions_and_keywords filters duplicate results
+        mentions = detect_mentions_and_keywords("NVIDIA leads the way", "AI servers liquid cooling demand.", duplicate_companies)
+        assert len(mentions) == 1
+        
+        # Verify _upsert_news_item does not fail with UNIQUE constraint even if passed duplicates
+        dup_mention_payload = [
+            {"company_id": companies[0].id, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"},
+            {"company_id": companies[0].id, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"},
+        ]
+        
+        # Run upsert
+        res_first = news_module._upsert_news_item(
+            session,
+            {
+                "title": "NVIDIA leads the way",
+                "summary": "AI servers liquid cooling demand.",
+                "url": "https://example.com/nvda-story",
+                "source_name": "Yahoo Finance",
+                "provider": "rss",
+                "published_at": datetime(2026, 5, 30, 10, 0, 0),
+            },
+            dup_mention_payload
+        )
+        assert res_first == 1
+        session.flush()
+        
+        # Verify NewsMention count is exactly 1 (not 2)
+        assert session.query(NewsMention).count() == 1
