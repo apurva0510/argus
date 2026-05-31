@@ -8,6 +8,7 @@ SECTOR_GROUPS: dict[str, list[str]] = {
     "Semiconductor Equipment and Advanced Packaging": ["AMAT", "KLAC", "LRCX", "ASML", "ONTO", "TER"],
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
+    "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
     "Optional Aggressive AI Infrastructure Names": ["ALAB", "CRDO"],
 }
 
@@ -22,6 +23,7 @@ THEMES: list[tuple[str, str]] = [
     ("advanced_packaging", "Advanced Packaging"),
     ("energy_nuclear_utilities", "Energy, Nuclear, and Utilities"),
     ("data_center_reit", "Data Center REIT"),
+    ("cybersecurity", "Cybersecurity"),
     ("aggressive_ai_infra", "Aggressive AI Infrastructure"),
     ("hyperscaler_capex", "Hyperscaler Capex"),
 ]
@@ -55,6 +57,7 @@ SECTOR_THEME_CODES: dict[str, list[str]] = {
     "Semiconductor Equipment and Advanced Packaging": ["semiconductor_equipment", "advanced_packaging"],
     "Energy, Nuclear, and Utilities": ["energy_nuclear_utilities"],
     "Data Center REITs": ["data_center_reit"],
+    "Cybersecurity": ["cybersecurity"],
     "Optional Aggressive AI Infrastructure Names": ["aggressive_ai_infra"],
 }
 COMPANY_NAMES = {
@@ -95,6 +98,12 @@ COMPANY_NAMES = {
     "SMR": "NuScale Power Corporation",
     "EQIX": "Equinix, Inc.",
     "DLR": "Digital Realty Trust, Inc.",
+    "CRWD": "CrowdStrike Holdings, Inc.",
+    "PANW": "Palo Alto Networks, Inc.",
+    "FTNT": "Fortinet, Inc.",
+    "NET": "Cloudflare, Inc.",
+    "S": "SentinelOne, Inc.",
+    "ZS": "Zscaler, Inc.",
     "ALAB": "Astera Labs, Inc.",
     "CRDO": "Credo Technology Group Holding Ltd",
 }
@@ -137,6 +146,12 @@ COMPANY_METADATA = {
     "SMR": {"exchange": "NYSE", "country": "US", "industry": "Nuclear Power"},
     "EQIX": {"exchange": "NASDAQ", "country": "US", "industry": "Data Center REIT"},
     "DLR": {"exchange": "NYSE", "country": "US", "industry": "Data Center REIT"},
+    "CRWD": {"exchange": "NASDAQ", "country": "US", "industry": "Cybersecurity"},
+    "PANW": {"exchange": "NASDAQ", "country": "US", "industry": "Cybersecurity"},
+    "FTNT": {"exchange": "NASDAQ", "country": "US", "industry": "Cybersecurity"},
+    "NET": {"exchange": "NYSE", "country": "US", "industry": "Cybersecurity"},
+    "S": {"exchange": "NYSE", "country": "US", "industry": "Cybersecurity"},
+    "ZS": {"exchange": "NASDAQ", "country": "US", "industry": "Cybersecurity"},
     "ALAB": {"exchange": "NASDAQ", "country": "US", "industry": "Semiconductors"},
     "CRDO": {"exchange": "NASDAQ", "country": "US", "industry": "Semiconductors"},
 }
@@ -180,6 +195,12 @@ COMPANY_CIKS = {
     "SMR": "0001816017",
     "EQIX": "0001101239",
     "DLR": "0001284490",
+    "CRWD": "0001535527",
+    "PANW": "0001327567",
+    "FTNT": "0001262039",
+    "NET": "0001477333",
+    "S": "0001583708",
+    "ZS": "0001713683",
     "ALAB": "0001760630",
     "CRDO": "0001807794",
 }

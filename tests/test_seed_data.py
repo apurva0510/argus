@@ -37,6 +37,7 @@ EXPECTED_SECTOR_GROUPS = {
     "Semiconductor Equipment and Advanced Packaging": ["AMAT", "KLAC", "LRCX", "ASML", "ONTO", "TER"],
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
+    "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
     "Optional Aggressive AI Infrastructure Names": ["ALAB", "CRDO"],
 }
 
@@ -49,6 +50,7 @@ EXPECTED_THEME_CODES = {
     "advanced_packaging",
     "energy_nuclear_utilities",
     "data_center_reit",
+    "cybersecurity",
     "aggressive_ai_infra",
     "hyperscaler_capex",
 }
