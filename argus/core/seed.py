@@ -142,6 +142,49 @@ COMPANY_METADATA = {
 }
 
 
+COMPANY_CIKS = {
+    "NVDA": "0001045810",
+    "MSFT": "0000789019",
+    "AMZN": "0001018724",
+    "GOOGL": "0001652044",
+    "META": "0001326801",
+    "QQQ": "0001098253",
+    "ETN": "0001553113",
+    "GEV": "0001980838",
+    "PWR": "0001053112",
+    "ABBNY": "0001091584",
+    "SBGSY": "0001438902",
+    "SIEGY": "0001012920",
+    "HUBB": "0000048898",
+    "VRT": "0001674101",
+    "TT": "0001466258",
+    "CARR": "0001783180",
+    "JCI": "0001377013",
+    "CIEN": "0001033097",
+    "GLW": "0000024741",
+    "COHR": "0000867773",
+    "LITE": "0001636286",
+    "NOK": "0000924618",
+    "CSCO": "0000858877",
+    "ANET": "0001596532",
+    "AMAT": "0000006950",
+    "KLAC": "0000319201",
+    "LRCX": "0000707545",
+    "ASML": "0000937966",
+    "ONTO": "0000704051",
+    "TER": "0000096943",
+    "CEG": "0001868775",
+    "VST": "0001578845",
+    "NEE": "0000753308",
+    "CCJ": "0001140536",
+    "SMR": "0001816017",
+    "EQIX": "0001101239",
+    "DLR": "0001284490",
+    "ALAB": "0001760630",
+    "CRDO": "0001807794",
+}
+
+
 def normalize_symbol(symbol: str) -> str:
     return symbol.strip().upper()
 
@@ -175,6 +218,7 @@ def seed_companies(session) -> None:
                 company.country = metadata["country"]
                 company.is_benchmark = symbol in BENCHMARKS
                 company.is_hyperscaler = symbol in HYPERSCALERS
+                company.cik = COMPANY_CIKS.get(symbol, company.cik)
                 continue
             session.add(
                 Company(
@@ -184,12 +228,13 @@ def seed_companies(session) -> None:
                     sector=sector,
                     industry=metadata["industry"],
                     country=metadata["country"],
-                    cik=None,
+                    cik=COMPANY_CIKS.get(symbol),
                     is_active=True,
                     is_benchmark=symbol in BENCHMARKS,
                     is_hyperscaler=symbol in HYPERSCALERS,
                 )
             )
+
 
 
 def seed_watchlists(session) -> None:
