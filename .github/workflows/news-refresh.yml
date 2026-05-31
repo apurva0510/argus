@@ -6,8 +6,6 @@ on:
     - cron: "0 */3 * * 1-5"
   workflow_dispatch: {}
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
   group: news-refresh
@@ -31,7 +29,7 @@ jobs:
           test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
