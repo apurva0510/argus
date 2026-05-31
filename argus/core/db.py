@@ -12,14 +12,19 @@ class Base(DeclarativeBase):
 
 
 def create_database_engine(database_url: str):
+    # Normalize postgres URLs to use the modern psycopg driver with SQLAlchemy
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
     # Supabase uses PgBouncer in transaction-pooling mode which does not
     # support prepared statements.  Disable them for PostgreSQL connections.
     connect_args: dict = {}
     if database_url.startswith("postgresql"):
         connect_args["prepare_threshold"] = None
-    database_engine = create_engine(
-        database_url, future=True, connect_args=connect_args,
-    )
+
+    database_engine = create_engine(database_url, future=True, connect_args=connect_args)
     event.listen(database_engine, "connect", _enable_sqlite_foreign_keys)
     return database_engine
 
