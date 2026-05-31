@@ -27,14 +27,14 @@ def ensure_project_root_on_path() -> None:
 
 def main() -> None:
     ensure_project_root_on_path()
-    from argus.core.db import engine
+    from argus.core.db import get_engine
     from argus.core.logging import configure_logging
     from argus.core.migrations import run_migrations
     from argus.pipelines.refresh_prices import refresh_prices
 
     args = parse_args()
     configure_logging()
-    run_migrations(engine)
+    run_migrations(get_engine())
     result = refresh_prices(period=args.period, interval=args.interval)
     print(
         "Price backfill finished.",

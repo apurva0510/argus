@@ -1,7 +1,8 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from argus.core import models  # noqa: F401
@@ -68,8 +69,12 @@ def test_postgres_schema_and_price_upsert_smoke(monkeypatch) -> None:
     if not database_url or not allow_drops:
         pytest.skip("Set TEST_DATABASE_URL and ARGUS_ALLOW_POSTGRES_TEST_DROPS=1 to run")
 
-    engine = create_database_engine(database_url)
+    base_engine = create_database_engine(database_url)
+    schema_name = f"argus_test_{uuid4().hex}"
+    engine = base_engine.execution_options(schema_translate_map={None: schema_name})
     try:
+        with base_engine.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         with Session(engine) as session:
@@ -101,5 +106,9 @@ def test_postgres_schema_and_price_upsert_smoke(monkeypatch) -> None:
 
             assert session.query(func.count(PriceBar.id)).scalar() == 1
     finally:
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
+        try:
+            Base.metadata.drop_all(bind=engine)
+        finally:
+            with base_engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+            base_engine.dispose()

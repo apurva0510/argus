@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import sqlite3
 
 from sqlalchemy import create_engine, event
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from argus.core.settings import settings
@@ -19,12 +20,16 @@ def create_database_engine(database_url: str):
         database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
     # Supabase uses PgBouncer in transaction-pooling mode which does not
-    # support prepared statements.  Disable them for PostgreSQL connections.
+    # support prepared statements or SQLAlchemy connection pooling. Use
+    # NullPool for Postgres to avoid persistent pooled DB connections.
     connect_args: dict = {}
+    engine_kwargs: dict = {"future": True}
     if database_url.startswith("postgresql"):
         connect_args["prepare_threshold"] = None
+        # disable pooling when using a transaction pooler like PgBouncer
+        engine_kwargs["poolclass"] = NullPool
 
-    database_engine = create_engine(database_url, future=True, connect_args=connect_args)
+    database_engine = create_engine(database_url, connect_args=connect_args, **engine_kwargs)
     event.listen(database_engine, "connect", _enable_sqlite_foreign_keys)
     return database_engine
 
@@ -45,33 +50,45 @@ class _EngineProxy:
 
     def __init__(self):
         self._engine = None
+        self._database_url = None
 
     def _ensure(self):
-        if self._engine is None:
+        if self._engine is None or self._database_url != settings.database_url:
+            if self._engine is not None:
+                self._engine.dispose()
             self._engine = create_database_engine(settings.database_url)
+            self._database_url = settings.database_url
+        return self._engine
 
     def __getattr__(self, item):
-        self._ensure()
-        return getattr(self._engine, item)
+        return getattr(self._ensure(), item)
 
     def dispose(self):
         if self._engine is not None:
-            return self._engine.dispose()
+            self._engine.dispose()
+            self._engine = None
+            self._database_url = None
 
 
 # Module-level proxy to preserve the public `engine` symbol while deferring
 # actual Engine creation until first use.
 engine = _EngineProxy()
 
-# SessionLocal is created with the proxy engine; SQLAlchemy will call the
-# necessary engine methods on the proxy which will cause the real engine to
-# be instantiated if needed.
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
+_default_session_factory = sessionmaker(autocommit=False, autoflush=False, class_=Session)
+SessionLocal = _default_session_factory
+
+
+def get_engine():
+    """Return the concrete SQLAlchemy Engine behind the module-level proxy."""
+    return engine._ensure()
 
 
 @contextmanager
 def session_scope():
-    session = SessionLocal()
+    if SessionLocal is _default_session_factory:
+        session = SessionLocal(bind=get_engine())
+    else:
+        session = SessionLocal()
     try:
         yield session
         session.commit()
@@ -91,7 +108,7 @@ def get_insert_statement_producer(session):
         dialect_name = session.bind.dialect.name
     except Exception:
         try:
-            dialect_name = engine.dialect.name
+            dialect_name = get_engine().dialect.name
         except Exception:
             dialect_name = "sqlite"
 
