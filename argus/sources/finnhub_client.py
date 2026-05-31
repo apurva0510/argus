@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 import pandas as pd
 import httpx
-from datetime import datetime, UTC
 
 from argus.core.settings import settings
 from argus.sources.base import BaseMarketDataProvider, period_to_timestamps

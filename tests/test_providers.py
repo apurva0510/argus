@@ -3,11 +3,11 @@ import pytest
 import pandas as pd
 import httpx
 import time
-from unittest.mock import MagicMock, patch
-from datetime import date, datetime, timedelta, UTC
+from unittest.mock import MagicMock
+from datetime import date, datetime, UTC
 
 from argus.core.settings import settings
-from argus.sources.factory import get_market_data_provider, PROVIDERS
+from argus.sources.factory import get_market_data_provider
 from argus.sources.yfinance_client import YFinanceProvider
 from argus.sources.finnhub_client import FinnhubProvider
 from argus.sources.twelvedata_client import TwelveDataProvider

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import logging
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 

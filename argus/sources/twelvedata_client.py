@@ -1,16 +1,15 @@
 from __future__ import annotations
 import logging
-import pandas as pd
+import time
+import datetime as dt_mod
+from datetime import datetime, timezone
 import httpx
-from datetime import datetime, UTC, timezone
+import pandas as pd
 
 from argus.core.settings import settings
 from argus.sources.base import BaseMarketDataProvider, period_to_timestamps
 
 logger = logging.getLogger(__name__)
-
-import time
-import datetime as dt_mod
 
 _last_twelvedata_request_time = 0.0
 TWELVEDATA_MIN_INTERVAL = 7.5

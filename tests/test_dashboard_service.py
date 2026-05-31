@@ -297,3 +297,43 @@ def test_load_dashboard_data_uses_latest_metric_per_company(db_session, sqlite_e
     assert data["latest_dates"]["latest_metrics_date"] == "2026-05-30"
     assert set(metrics["symbol"]) == {"ETN", "VRT"}
     assert metrics.set_index("symbol").loc["VRT", "date"] == "2026-05-29"
+
+
+def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:
+    from sqlalchemy.orm import Session, sessionmaker
+    from argus.core import db as db_module
+    from argus.services.dashboard_service import get_dashboard_overview
+    
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    
+    # 1. Create seeded rows in database
+    c1 = Company(symbol="XYZ", name="XYZ Corp", is_active=True)
+    c2 = Company(symbol="ABC", name="ABC Corp", is_active=False)
+    db_session.add_all([c1, c2])
+    db_session.flush()
+    
+    db_session.add(
+        PriceBar(
+            company_id=c1.id,
+            date=date(2026, 5, 29),
+            close=100.0,
+            adj_close=100.0,
+            provider="yfinance",
+            interval="1d"
+        )
+    )
+    db_session.commit()
+    
+    # 2. Run overview function and verify counts
+    overview = get_dashboard_overview()
+    assert overview["tracked_companies"] == 1
+    assert overview["high_priority_count"] == 0
+    assert overview["owned_count"] == 0
+    assert overview["price_bar_count"] == 1
+    assert overview["metrics_count"] == 0
+    assert overview["news_count"] == 0
+    assert overview["filings_count"] == 0

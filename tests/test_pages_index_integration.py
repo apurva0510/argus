@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
 from argus.core.models import Company, PriceBar

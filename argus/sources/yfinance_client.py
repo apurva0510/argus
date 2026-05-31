@@ -62,7 +62,7 @@ def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     return frame
 
 
-from argus.sources.base import BaseMarketDataProvider
+from argus.sources.base import BaseMarketDataProvider  # noqa: E402
 
 class YFinanceProvider(BaseMarketDataProvider):
     @property

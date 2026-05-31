@@ -1,15 +1,14 @@
 from __future__ import annotations
 import logging
-import pandas as pd
+import time
+from datetime import datetime, timezone
 import httpx
-from datetime import datetime, UTC, timezone
+import pandas as pd
 
 from argus.core.settings import settings
 from argus.sources.base import BaseMarketDataProvider, period_to_timestamps
 
 logger = logging.getLogger(__name__)
-
-import time
 
 _last_alphavantage_request_time = 0.0
 ALPHAVANTAGE_MIN_INTERVAL = 12.5
