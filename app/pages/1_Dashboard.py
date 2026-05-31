@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
+import os
 from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.settings import settings
@@ -463,4 +464,7 @@ def render_dashboard() -> None:
     _render_upcoming_earnings(data["upcoming_earnings"])
 
 
-render_dashboard()
+if os.environ.get("PYTEST_CURRENT_TEST") is None:
+    # Only execute the Streamlit page render when not running under pytest.
+    # Pytest imports this module for tests and should avoid executing UI code.
+    render_dashboard()
