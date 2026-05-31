@@ -1,5 +1,13 @@
 import sys
 from pathlib import Path
+import argparse
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Refresh Argus catalyst news from free sources.")
+    parser.add_argument("--force", action="store_true", help="Bypass the recent successful refresh throttle.")
+    parser.add_argument("--max-queries", type=int, default=None, help="Limit broad news queries for this run.")
+    return parser.parse_args()
 
 
 def ensure_project_root_on_path() -> None:
@@ -13,15 +21,18 @@ def main() -> None:
     from argus.core.logging import configure_logging
     from argus.pipelines.refresh_news import refresh_news
 
+    args = parse_args()
     configure_logging()
     print("Starting news refresh job (RSS & GDELT)...")
-    result = refresh_news()
+    result = refresh_news(force=args.force, max_queries=args.max_queries)
     print("News refresh job completed.")
     print(f"Status: {result['status']}")
     print(f"Rows read: {result['rows_read']}")
     print(f"Rows written: {result['rows_written']}")
-    if result.get("failed_symbols"):
-        print(f"Failed symbols: {', '.join(result['failed_symbols'])}")
+    if result.get("failed_queries"):
+        print(f"Failed queries: {', '.join(result['failed_queries'])}")
+    if result.get("failed_providers"):
+        print(f"Failed providers: {', '.join(result['failed_providers'])}")
     if result.get("error_text"):
         print(f"Error: {result['error_text']}")
 

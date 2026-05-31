@@ -2,16 +2,38 @@ from __future__ import annotations
 
 import logging
 import re
-import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import select
 
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, NewsItem, NewsMention
-from argus.sources.gdelt_client import fetch_gdelt_news
-from argus.sources.news_rss_client import fetch_rss_news
+from argus.core.settings import settings
+from argus.sources.gdelt_client import fetch_gdelt_news_query
+from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
 
 logger = logging.getLogger(__name__)
+fetch_rss_news = fetch_rss_news_query
+fetch_gdelt_news = fetch_gdelt_news_query
+
+NEWS_QUERIES = [
+    "data center AI infrastructure power demand grid",
+    "liquid cooling data center AI servers",
+    "optical networking data center AI",
+    "semiconductor equipment AI capex",
+    "nuclear power data center electricity",
+    "hyperscaler capex AI infrastructure",
+]
+
+TRACKING_QUERY_PARAMS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "guccounter",
+}
 
 
 def _utc_now() -> datetime:
@@ -32,7 +54,8 @@ def _finish_job_run(
     status: str,
     rows_read: int,
     rows_written: int,
-    failed_symbols: list[str],
+    failed_queries: list[str],
+    failed_providers: list[str],
     error_text: str | None = None,
 ) -> None:
     with session_scope() as session:
@@ -47,8 +70,33 @@ def _finish_job_run(
         job.rows_written = rows_written
         if error_text:
             job.error_text = error_text
-        elif failed_symbols:
-            job.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
+        elif failed_queries or failed_providers:
+            parts = []
+            if failed_queries:
+                parts.append(f"failed_queries={', '.join(sorted(set(failed_queries)))}")
+            if failed_providers:
+                parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
+            job.error_text = "; ".join(parts)
+
+
+def _last_successful_refresh_at(session) -> datetime | None:
+    return (
+        session.query(JobRun.finished_at)
+        .filter(JobRun.job_name == "refresh_news", JobRun.status == "success")
+        .order_by(JobRun.finished_at.desc())
+        .limit(1)
+        .scalar()
+    )
+
+
+def _should_skip_refresh(session, *, force: bool, now: datetime) -> bool:
+    if force:
+        return False
+    last_success = _last_successful_refresh_at(session)
+    if last_success is None:
+        return False
+    min_age = timedelta(hours=max(0.0, float(settings.news_refresh_min_hours)))
+    return now - last_success < min_age
 
 
 def clean_company_name(name: str) -> str:
@@ -73,6 +121,30 @@ def clean_company_name(name: str) -> str:
             clean = clean[: -len(suffix)].strip()
             break
     return clean
+
+
+def _company_aliases(company: Company) -> list[str]:
+    aliases = []
+    clean_name = clean_company_name(company.name)
+    if clean_name:
+        aliases.append(clean_name)
+
+    static_aliases = {
+        "NVDA": ["nvidia"],
+        "GOOGL": ["alphabet", "google"],
+        "META": ["meta"],
+        "MSFT": ["microsoft"],
+        "AMZN": ["amazon", "aws"],
+        "VRT": ["vertiv"],
+        "GEV": ["ge vernova"],
+        "ETN": ["eaton"],
+        "PWR": ["quanta services"],
+        "ANET": ["arista networks"],
+        "EQIX": ["equinix"],
+        "DLR": ["digital realty"],
+    }
+    aliases.extend(static_aliases.get(company.symbol.upper(), []))
+    return sorted({alias.strip().lower() for alias in aliases if len(alias.strip()) > 3})
 
 
 def detect_mentions_and_keywords(
@@ -124,18 +196,21 @@ def detect_mentions_and_keywords(
         else:
             ticker_match = re.search(r"\b" + re.escape(ticker_lower) + r"\b", text)
 
-        # Match clean company name
-        clean_name = clean_company_name(comp.name)
+        # Match clean company name and common aliases.
         name_match = False
-        if len(clean_name) > 3:  # Avoid matching very short parts of company names
-            name_match = re.search(r"\b" + re.escape(clean_name) + r"\b", text)
+        matched_alias = None
+        for alias in _company_aliases(comp):
+            if re.search(r"\b" + re.escape(alias) + r"\b", text):
+                name_match = True
+                matched_alias = alias
+                break
 
         if ticker_match or name_match:
             matched_comp_kws = []
             if ticker_match:
                 matched_comp_kws.append(comp.symbol)
-            if name_match:
-                matched_comp_kws.append(clean_name.upper())
+            if matched_alias:
+                matched_comp_kws.append(matched_alias.upper())
 
             all_kws = matched_comp_kws + matched_infra
 
@@ -146,8 +221,10 @@ def detect_mentions_and_keywords(
                 ticker_in_title = bool(re.search(r"\b" + re.escape(ticker_lower) + r"\b", title.lower()))
 
             name_in_title = False
-            if len(clean_name) > 3:
-                name_in_title = bool(re.search(r"\b" + re.escape(clean_name) + r"\b", title.lower()))
+            for alias in _company_aliases(comp):
+                if re.search(r"\b" + re.escape(alias) + r"\b", title.lower()):
+                    name_in_title = True
+                    break
 
             is_primary = ticker_in_title or name_in_title
 
@@ -161,22 +238,47 @@ def detect_mentions_and_keywords(
     return mentions
 
 
+def normalize_news_url(url: str | None) -> str:
+    if not url:
+        return ""
+    parsed = urlsplit(url.strip())
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in TRACKING_QUERY_PARAMS
+        ],
+        doseq=True,
+    )
+    path = parsed.path.rstrip("/") or parsed.path
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))
+
+
+def stable_article_key(article: dict) -> str:
+    normalized_url = normalize_news_url(article.get("url"))
+    if normalized_url:
+        return normalized_url
+    published = article.get("published_at")
+    published_key = published.date().isoformat() if hasattr(published, "date") else str(published or "")
+    raw = f"{article.get('title', '').strip().lower()}|{published_key}"
+    return "urn:argus-news:" + sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
     """Inserts a news item and its mentions if it doesn't exist.
 
     If it exists, adds any new company mentions not previously recorded.
     """
     # Check if URL already exists
-    existing_item = (
-        session.query(NewsItem).filter(NewsItem.url == art["url"]).one_or_none()
-    )
+    stable_key = stable_article_key(art)
+    existing_item = session.query(NewsItem).filter(NewsItem.url == stable_key).one_or_none()
 
     if existing_item is None:
         # Create news item
         item = NewsItem(
             title=art["title"][:512],
             summary=art["summary"][:2000] if art["summary"] else None,
-            url=art["url"][:1024],
+            url=stable_key[:1024],
             source_name=art["source_name"][:128] if art["source_name"] else None,
             provider=art["provider"],
             published_at=art["published_at"],
@@ -225,58 +327,75 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         return 1 if written > 0 else 0
 
 
-def refresh_news() -> dict[str, object]:
-    """Fetch and process news articles from RSS and GDELT for all active companies.
+def _fetch_provider_query(provider: str, query: str) -> list[dict]:
+    if provider == "rss":
+        return fetch_rss_news(query)
+    if provider == "gdelt":
+        return fetch_gdelt_news(query, timespan="1d")
+    raise ValueError(f"Unknown news provider: {provider}")
+
+
+def refresh_news(
+    *,
+    force: bool = False,
+    max_queries: int | None = None,
+    queries: list[str] | None = None,
+) -> dict[str, object]:
+    """Fetch and process theme-level news articles from RSS and GDELT.
 
     Detects mentions, maps keywords, and writes to database.
     """
     job_id = _create_job_run()
     rows_written = 0
     rows_read = 0
-    failed_symbols: list[str] = []
+    failed_queries: list[str] = []
+    failed_providers: list[str] = []
     status = "success"
     error_text: str | None = None
 
     try:
         with session_scope() as session:
+            now = _utc_now()
+            if _should_skip_refresh(session, force=force, now=now):
+                status = "skipped"
+                error_text = "Skipped refresh_news because the last successful run is recent."
+                return {
+                    "status": status,
+                    "rows_read": 0,
+                    "rows_written": 0,
+                    "failed_queries": [],
+                    "failed_providers": [],
+                    "error_text": error_text,
+                }
+
             companies = session.scalars(
                 select(Company).where(Company.is_active.is_(True))
             ).all()
 
-            global_unique_articles = {}
+            global_unique_articles: dict[str, dict] = {}
+            selected_queries = list(queries or NEWS_QUERIES)
+            if max_queries is not None:
+                selected_queries = selected_queries[: max(0, max_queries)]
 
-            for i, company in enumerate(companies):
-                fetched_articles = []
+            for query in selected_queries:
+                for provider in ("rss", "gdelt"):
+                    try:
+                        fetched_articles = _fetch_provider_query(provider, query)
+                    except NewsProviderRateLimitError:
+                        logger.exception("Rate limit while fetching %s query: %s", provider, query)
+                        failed_queries.append(query)
+                        failed_providers.append(provider)
+                        continue
+                    except Exception:
+                        logger.exception("Failed to fetch %s news for query: %s", provider, query)
+                        failed_queries.append(query)
+                        failed_providers.append(provider)
+                        continue
 
-                # 1. Fetch RSS news
-                try:
-                    rss_items = fetch_rss_news(company.symbol)
-                    for item in rss_items:
-                        item["provider"] = "rss"
-                        fetched_articles.append(item)
-                except Exception:
-                    logger.exception("Failed to fetch RSS news for %s", company.symbol)
-                    failed_symbols.append(company.symbol)
-
-                # 2. Fetch GDELT news
-                try:
-                    gdelt_items = fetch_gdelt_news(company.symbol, timespan="1d")
-                    for item in gdelt_items:
-                        item["provider"] = "gdelt"
-                        fetched_articles.append(item)
-                except Exception:
-                    logger.exception("Failed to fetch GDELT news for %s", company.symbol)
-                    if company.symbol not in failed_symbols:
-                        failed_symbols.append(company.symbol)
-
-                rows_read += len(fetched_articles)
-
-                # Collect in globally unique dictionary by URL
-                for art in fetched_articles:
-                    global_unique_articles[art["url"]] = art
-
-                if i < len(companies) - 1:
-                    time.sleep(1.0)
+                    rows_read += len(fetched_articles)
+                    for article in fetched_articles:
+                        article["provider"] = provider
+                        global_unique_articles[stable_article_key(article)] = article
 
             # Process globally unique articles
             for art in global_unique_articles.values():
@@ -287,16 +406,12 @@ def refresh_news() -> dict[str, object]:
                 if mentions:
                     rows_written += _upsert_news_item(session, art, mentions)
 
-            if failed_symbols:
-                # If we succeeded for some companies, it's a partial success
-                status = (
-                    "partial_success"
-                    if rows_written > 0 or rows_read > 0
-                    else "failed"
-                )
+            if failed_queries or failed_providers:
+                status = "partial_success" if rows_written > 0 or rows_read > 0 else "failed"
                 logger.warning(
-                    "News refresh experienced failures for symbols: %s",
-                    ",".join(failed_symbols),
+                    "News refresh experienced failures for providers=%s queries=%s",
+                    ",".join(sorted(set(failed_providers))),
+                    ",".join(sorted(set(failed_queries))),
                 )
     except Exception as exc:
         status = "failed"
@@ -308,7 +423,8 @@ def refresh_news() -> dict[str, object]:
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_symbols=failed_symbols,
+            failed_queries=failed_queries,
+            failed_providers=failed_providers,
             error_text=error_text,
         )
 
@@ -316,7 +432,7 @@ def refresh_news() -> dict[str, object]:
         "status": status,
         "rows_read": rows_read,
         "rows_written": rows_written,
-        "failed_symbols": failed_symbols,
+        "failed_queries": failed_queries,
+        "failed_providers": failed_providers,
         "error_text": error_text,
     }
-

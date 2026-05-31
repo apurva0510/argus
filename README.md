@@ -59,7 +59,7 @@ python3 scripts/refresh_filings.py
 python3 scripts/run_alerts.py
 ```
 
-`refresh_filings.py` requires `SEC_USER_AGENT`.
+`refresh_news.py` is throttled by default and skips if a successful run happened recently. Use `--force` to bypass the throttle, or `--max-queries N` to limit broad news queries during testing. `refresh_filings.py` requires `SEC_USER_AGENT`.
 
 8. Or run the daily refresh workflow:
 

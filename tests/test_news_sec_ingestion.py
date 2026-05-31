@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -134,8 +134,8 @@ def test_refresh_news_pipeline(sqlite_engine, monkeypatch) -> None:
     import argus.pipelines.refresh_news as news_module
 
     # Mock RSS
-    def mock_fetch_rss(ticker: str) -> list[dict]:
-        if ticker == "NVDA":
+    def mock_fetch_rss(query: str) -> list[dict]:
+        if "NVDA" in query:
             return [
                 {
                     "title": "NVIDIA is winning the AI race",
@@ -162,7 +162,7 @@ def test_refresh_news_pipeline(sqlite_engine, monkeypatch) -> None:
     with db_module.session_scope() as session:
         session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
 
-    res1 = refresh_news()
+    res1 = refresh_news(force=True, queries=["NVDA"])
     assert res1["status"] == "success"
     assert res1["rows_read"] == 1
     assert res1["rows_written"] == 1
@@ -177,7 +177,7 @@ def test_refresh_news_pipeline(sqlite_engine, monkeypatch) -> None:
         assert "ai" in mention.matched_keywords
 
     # Rerun to check idempotency (should write 0 new items/mentions)
-    res2 = refresh_news()
+    res2 = refresh_news(force=True, queries=["NVDA"])
     assert res2["status"] == "success"
     assert res2["rows_written"] == 0
 
@@ -492,7 +492,7 @@ def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_news as news_module
 
-    def mock_fetch_rss(ticker: str) -> list[dict]:
+    def mock_fetch_rss(query: str) -> list[dict]:
         return [
             {
                 "title": "Duplicate Article about NVDA",
@@ -503,7 +503,7 @@ def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
             }
         ]
 
-    def mock_fetch_gdelt(ticker: str, timespan: str) -> list[dict]:
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
         return [
             {
                 "title": "Duplicate Article about NVDA (Alternate)",
@@ -525,7 +525,7 @@ def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
     with db_module.session_scope() as session:
         session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
 
-    res = refresh_news()
+    res = refresh_news(force=True, queries=["NVDA"])
     assert res["status"] == "success"
     assert res["rows_read"] == 2
     assert res["rows_written"] == 1
@@ -600,9 +600,9 @@ def test_refresh_news_partial_failure(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_news as news_module
 
-    # Mock RSS to succeed for NVDA but fail for MSFT
-    def mock_fetch_rss(ticker: str) -> list[dict]:
-        if ticker == "MSFT":
+    # Mock RSS to succeed for one broad query but fail for another.
+    def mock_fetch_rss(query: str) -> list[dict]:
+        if query == "bad query":
             raise RuntimeError("RSS Fetch Error")
         return [
             {
@@ -614,7 +614,7 @@ def test_refresh_news_partial_failure(sqlite_engine, monkeypatch) -> None:
             }
         ]
 
-    def mock_fetch_gdelt(ticker: str, timespan: str) -> list[dict]:
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
         return []
 
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
@@ -629,13 +629,161 @@ def test_refresh_news_partial_failure(sqlite_engine, monkeypatch) -> None:
         session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
         session.add(Company(symbol="MSFT", name="Microsoft Corp.", is_active=True))
 
-    res = refresh_news()
+    res = refresh_news(force=True, queries=["good query", "bad query"])
     assert res["status"] == "partial_success"
-    assert "MSFT" in res["failed_symbols"]
+    assert "bad query" in res["failed_queries"]
+    assert "rss" in res["failed_providers"]
     assert res["rows_read"] == 1
     assert res["rows_written"] == 1
 
     with db_module.session_scope() as session:
         job = session.query(JobRun).order_by(JobRun.id.desc()).first()
         assert job.status == "partial_success"
-        assert "MSFT" in job.error_text
+        assert "bad query" in job.error_text
+
+
+def test_fetch_rss_news_429_then_failure(monkeypatch) -> None:
+    from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
+    import httpx
+    import time
+
+    calls = 0
+
+    def mock_get(url, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            status_code=429,
+            headers={"Retry-After": "1"},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(httpx, "get", mock_get)
+
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_rss_news_query("data center AI")
+
+    assert calls == 3
+
+
+def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        return [
+            {
+                "title": "NVIDIA AI data center story",
+                "summary": "NVIDIA data center demand.",
+                "url": "https://example.com/story?utm_source=x&utm_campaign=y",
+                "source_name": "Source A",
+                "published_at": datetime(2026, 5, 30, 10, 0, 0),
+            }
+        ]
+
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
+        return [
+            {
+                "title": "NVIDIA AI data center story",
+                "summary": None,
+                "url": "https://example.com/story",
+                "source_name": "Source B",
+                "published_at": datetime(2026, 5, 30, 10, 0, 0),
+            }
+        ]
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+
+    result = refresh_news(force=True, queries=["data center AI"])
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 2
+    assert result["rows_written"] == 1
+    with db_module.session_scope() as session:
+        item = session.query(NewsItem).one()
+        assert item.url == "https://example.com/story"
+
+
+def test_refresh_news_skips_when_recent_success(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    calls = 0
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
+    monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(
+            JobRun(
+                job_name="refresh_news",
+                started_at=datetime(2026, 5, 30, 9, 0, 0),
+                finished_at=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+                status="success",
+            )
+        )
+
+    result = refresh_news(force=False, queries=["data center AI"])
+
+    assert result["status"] == "skipped"
+    assert calls == 0
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job.status == "skipped"
+
+
+def test_refresh_news_force_bypasses_refresh_throttle(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    calls = 0
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
+    monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(
+            JobRun(
+                job_name="refresh_news",
+                started_at=datetime(2026, 5, 30, 9, 0, 0),
+                finished_at=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+                status="success",
+            )
+        )
+
+    result = refresh_news(force=True, queries=["data center AI"])
+
+    assert result["status"] == "success"
+    assert calls == 1
