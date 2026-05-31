@@ -309,11 +309,14 @@ def render_company_detail() -> None:
         if new_status != current_status:
             update_watch_status(company['id'], new_status)
             st.success(f"Status updated to '{new_status}'!")
+            # Clear relevant Streamlit cache
             load_price_history.clear()
             load_index_relative_returns.clear()
             load_company_fundamentals.clear()
             load_company_news.clear()
             load_company_filings.clear()
+            st.cache_data.clear()
+            # Rerun the app
             st.rerun()
             
         # Watchlist Notes Reference
@@ -338,11 +341,14 @@ def render_company_detail() -> None:
             if submit_note and new_note_text.strip():
                 add_company_note(company['id'], new_note_text)
                 st.success("Note saved!")
+                # Clear relevant Streamlit cache
                 load_price_history.clear()
                 load_index_relative_returns.clear()
                 load_company_fundamentals.clear()
                 load_company_news.clear()
                 load_company_filings.clear()
+                st.cache_data.clear()
+                # Rerun the app
                 st.rerun()
                 
         # List notes chronologically

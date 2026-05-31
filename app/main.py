@@ -80,21 +80,43 @@ def render_login_screen():
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
 
-# Determine page navigation mapping based on authentication status
-if not settings.app_password or st.session_state["password_correct"]:
-    pages = [
-        st.Page("pages/1_Dashboard.py", title="Dashboard"),
-        st.Page("pages/2_Watchlists.py", title="Watchlists"),
-        st.Page("pages/3_Company_Detail.py", title="Company Detail"),
-        st.Page("pages/4_Pullback_Finder.py", title="Pullback Finder"),
-        st.Page("pages/5_News_Filings_Alerts.py", title="News Filings Alerts"),
-    ]
-else:
-    pages = [
-        st.Page(render_login_screen, title="Secure Access")
-    ]
+# Check cookie authentication for cross-tab session persistence
+if settings.app_password:
+    cookie_auth = st.context.cookies.get("app_password_auth")
+    if cookie_auth == "1":
+        st.session_state["password_correct"] = True
+
+pages = [
+    st.Page("pages/1_Dashboard.py", title="Dashboard"),
+    st.Page("pages/2_Watchlists.py", title="Watchlists"),
+    st.Page("pages/3_Company_Detail.py", title="Company Detail", url_path="Company_Detail"),
+    st.Page("pages/4_Pullback_Finder.py", title="Pullback Finder"),
+    st.Page("pages/5_News_Filings_Alerts.py", title="News Filings Alerts"),
+]
 
 navigation = st.navigation(pages)
-navigation.run()
+
+if settings.app_password and not st.session_state["password_correct"]:
+    # Hide sidebar for unauthenticated sessions
+    st.markdown(
+        "<style>[data-testid='stSidebar'] { display: none; }</style>",
+        unsafe_allow_html=True,
+    )
+    render_login_screen()
+else:
+    navigation.run()
+    
+    # Set client-side cookie to authorize subsequent tabs/windows
+    if settings.app_password:
+        st.iframe(
+            """
+            <script>
+            if (!parent.document.cookie.includes("app_password_auth=1")) {
+                parent.document.cookie = "app_password_auth=1; path=/; max-age=86400";
+            }
+            </script>
+            """,
+            height=0,
+        )
 
 

@@ -116,6 +116,9 @@ def render_watchlists() -> None:
         st.session_state.ticker_selector_selectbox = nav_ticker
         st.switch_page("pages/3_Company_Detail.py")
 
+    # Format ticker as link for data editor
+    editor_df["ticker"] = editor_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+
     editable = st.data_editor(
         editor_df,
         hide_index=True,
@@ -128,7 +131,7 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.TextColumn("ticker", disabled=True),
+            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True),
@@ -174,7 +177,10 @@ def render_watchlists() -> None:
                 st.error(err)
         if updated_count > 0:
             st.success(f"Saved {updated_count} row(s).")
+            # Clear relevant Streamlit cache
             load_watchlist_data.clear()
+            st.cache_data.clear()
+            # Rerun the app
             st.rerun()
 
 

@@ -209,8 +209,11 @@ def _render_create_alert_form() -> None:
                         st.error(str(exc))
                     else:
                         st.success(f"Alert '{alert_name}' created successfully!")
+                        # Clear relevant Streamlit cache
                         load_alerts.clear()
                         load_alert_history.clear()
+                        st.cache_data.clear()
+                        # Rerun the app
                         st.rerun()
 
 
@@ -253,13 +256,19 @@ def _render_active_alerts() -> None:
                 btn_label = "Disable" if enabled else "Enable"
                 if st.button(btn_label, key=f"toggle_{alert_id}"):
                     toggle_alert(alert_id, new_state)
+                    # Clear relevant Streamlit cache
                     load_alerts.clear()
+                    st.cache_data.clear()
+                    # Rerun the app
                     st.rerun()
             with c4:
                 if st.button("🗑️", key=f"delete_{alert_id}"):
                     delete_alert(alert_id)
+                    # Clear relevant Streamlit cache
                     load_alerts.clear()
                     load_alert_history.clear()
+                    st.cache_data.clear()
+                    # Rerun the app
                     st.rerun()
 
         st.divider()
