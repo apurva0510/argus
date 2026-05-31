@@ -17,6 +17,7 @@ from argus.core.settings import Settings
 from argus.core.models import (
     Alert,
     AlertEvent,
+    AppSetting,
     Company,
     DailyMetric,
     PriceBar,
@@ -105,6 +106,35 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert (data_dir / "lake").is_dir()
     assert (data_dir / "exports").is_dir()
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
+    with Session(test_engine) as session:
+        schema_version = (
+            session.query(AppSetting)
+            .filter(AppSetting.key == "schema_version")
+            .one()
+        )
+        assert schema_version.value == "2"
+    test_engine.dispose()
+
+
+def test_migration_adds_bar_time_to_existing_sqlite_price_bars(tmp_path) -> None:
+    from sqlalchemy import text
+    from argus.core.migrations import run_migrations
+
+    db_path = tmp_path / "old_schema.db"
+    test_engine = create_database_engine(f"sqlite:///{db_path}")
+    with test_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE companies (id INTEGER PRIMARY KEY, symbol VARCHAR(16) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT 1, is_benchmark BOOLEAN NOT NULL DEFAULT 0, is_hyperscaler BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"))
+        conn.execute(text("CREATE TABLE price_bars (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, date DATE NOT NULL, close FLOAT, adj_close FLOAT, provider VARCHAR(32) NOT NULL, interval VARCHAR(16) NOT NULL, created_at DATETIME NOT NULL, CONSTRAINT uq_price_bars UNIQUE (company_id, date, provider, interval), FOREIGN KEY(company_id) REFERENCES companies (id))"))
+        conn.execute(text("INSERT INTO companies (id, symbol, name, is_active, is_benchmark, is_hyperscaler, created_at, updated_at) VALUES (1, 'NVDA', 'NVIDIA', 1, 0, 0, '2026-01-01', '2026-01-01')"))
+        conn.execute(text("INSERT INTO price_bars (id, company_id, date, close, adj_close, provider, interval, created_at) VALUES (1, 1, '2026-01-02', 100.0, 100.0, 'yfinance', '1d', '2026-01-02')"))
+
+    run_migrations(test_engine)
+
+    inspector = inspect(test_engine)
+    assert "bar_time" in {column["name"] for column in inspector.get_columns("price_bars")}
+    with test_engine.connect() as conn:
+        bar_time = conn.execute(text("SELECT bar_time FROM price_bars WHERE id = 1")).scalar_one()
+        assert str(bar_time).startswith("2026-01-02")
     test_engine.dispose()
 
 
@@ -196,7 +226,7 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
         "company_theme_exposure": {"company_id", "theme_id", "exposure_score"},
         "watchlists": {"name", "is_system"},
         "watchlist_items": {"watchlist_id", "company_id", "watch_status"},
-        "price_bars": {"company_id", "date", "provider", "interval"},
+        "price_bars": {"company_id", "date", "bar_time", "provider", "interval"},
         "daily_metrics": {"company_id", "date"},
         "fundamentals_snapshot": {"company_id", "as_of_date", "provider"},
         "news_items": {"title", "url"},
@@ -244,6 +274,7 @@ def test_phase1_schema_keeps_required_column_contract(sqlite_engine) -> None:
             "id",
             "company_id",
             "date",
+            "bar_time",
             "open",
             "high",
             "low",

@@ -6,7 +6,7 @@ import streamlit as st
 from datetime import UTC, datetime
 from app.components.sidebar import render_sidebar_navigation
 
-from argus.core.db import create_database_engine
+from argus.core.app_engine import create_migrated_database_engine
 from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
 from argus.services.dashboard_service import build_stale_reasons
@@ -19,7 +19,7 @@ from argus.services.pullback_finder_service import (
 
 @st.cache_resource
 def get_pullback_engine():
-    return create_database_engine(settings.database_url)
+    return create_migrated_database_engine(settings.database_url)
 
 
 @st.cache_data(ttl=300)

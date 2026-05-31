@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
-from argus.core.db import create_database_engine
+from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.settings import settings
 from argus.services.dashboard_service import (
@@ -24,7 +24,7 @@ from argus.services.dashboard_service import (
 
 @st.cache_resource
 def get_dashboard_engine():
-    return create_database_engine(settings.database_url)
+    return create_migrated_database_engine(settings.database_url)
 
 
 @st.cache_data(ttl=300)
@@ -189,6 +189,7 @@ def render_dashboard() -> None:
     last_news_refresh = parse_optional_datetime(latest_dates.get("last_news_refresh_at"))
     last_filings_refresh = parse_optional_datetime(latest_dates.get("last_filings_refresh_at"))
     latest_price_date = parse_optional_date(latest_dates.get("latest_price_date"))
+    latest_intraday_price_time = parse_optional_datetime(latest_dates.get("latest_intraday_price_time"))
     latest_metrics_date = parse_optional_date(latest_dates.get("latest_metrics_date"))
 
     stale_reasons = build_stale_reasons(
@@ -223,6 +224,14 @@ def render_dashboard() -> None:
         with col_t2:
             st.markdown(f"**Active Companies**: `{data['index_symbol_count']}`")
             st.markdown(f"**Stale Tickers (No recent prices)**: `{data['stale_tickers_count']}`")
+            st.markdown(
+                "**Latest 15m Price Bar**: "
+                f"`{latest_intraday_price_time.isoformat() if latest_intraday_price_time else 'Never'}`"
+            )
+            st.markdown(
+                "**Missing/Stale 15m Tickers**: "
+                f"`{data['intraday_stale_tickers_count']}`"
+            )
 
         st.write("---")
 

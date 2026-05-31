@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, UTC
 import logging
 
 from sqlalchemy import text
@@ -46,9 +47,19 @@ def _finish_job_run(
 
 
 def _load_score_inputs(session) -> list[dict]:
-    rows = session.execute(
-        text(
-            """
+    # Calculate dates in Python to remain DB-agnostic
+    now = datetime.now(UTC).replace(tzinfo=None)
+    news_start_date = now - timedelta(days=7)
+    filing_start_date = (now - timedelta(days=30)).date()
+    current_date = now.date()
+
+    dialect_name = session.bind.dialect.name
+    if dialect_name == "postgresql":
+        earnings_expr = "MIN(ee.event_date - :current_date)"
+    else:
+        earnings_expr = "MIN(JULIANDAY(ee.event_date) - JULIANDAY(:current_date))"
+
+    query_str = f"""
             SELECT
                 dm.id AS daily_metric_id,
                 c.symbol AS symbol,
@@ -80,30 +91,37 @@ def _load_score_inputs(session) -> list[dict]:
                     FROM news_mentions nm
                     JOIN news_items ni ON ni.id = nm.news_id
                     WHERE nm.company_id = c.id
-                        AND ni.published_at >= DATETIME('now', '-7 days')
+                        AND ni.published_at >= :news_start_date
                 ) AS recent_news_count,
                 (
                     SELECT COUNT(*)
                     FROM sec_filings sf
                     WHERE sf.company_id = c.id
-                        AND sf.filing_date >= DATE('now', '-30 days')
+                        AND sf.filing_date >= :filing_start_date
                 ) AS recent_filing_count,
                 (
-                    SELECT MIN(JULIANDAY(ee.event_date) - JULIANDAY('now'))
+                    SELECT {earnings_expr}
                     FROM earnings_events ee
                     WHERE ee.company_id = c.id
-                        AND ee.event_date >= DATE('now')
+                        AND ee.event_date >= :current_date
                 ) AS upcoming_earnings_days
             FROM daily_metrics dm
             JOIN companies c ON c.id = dm.company_id
-            WHERE c.is_active = 1
+            WHERE c.is_active = TRUE
                 AND dm.date = (
                     SELECT MAX(dm2.date)
                     FROM daily_metrics dm2
                     WHERE dm2.company_id = c.id
                 )
-            """
-        )
+    """
+
+    rows = session.execute(
+        text(query_str),
+        {
+            "news_start_date": news_start_date,
+            "filing_start_date": filing_start_date,
+            "current_date": current_date,
+        }
     ).mappings()
 
     return [dict(row) for row in rows]

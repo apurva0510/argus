@@ -1,5 +1,6 @@
 from argus.core import models  # noqa: F401
-from argus.core.db import Base, engine
+from argus.core.db import engine
+from argus.core.migrations import run_migrations
 from argus.core.settings import DATA_DIR
 
 
@@ -8,7 +9,7 @@ def initialize_database() -> None:
     (DATA_DIR / "raw").mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "lake").mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "exports").mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
 
 
 def main() -> None:

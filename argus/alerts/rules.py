@@ -35,9 +35,9 @@ def _latest_fresh_price_bar(session: Session, company: Company) -> PriceBar | No
         .filter(
             PriceBar.company_id == company.id,
             PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == "1d",
+            PriceBar.interval.in_(("15m", "1d")),
         )
-        .order_by(PriceBar.date.desc())
+        .order_by(PriceBar.bar_time.desc(), PriceBar.date.desc())
         .first()
     )
     if not price_bar or price_bar.adj_close is None:
@@ -88,6 +88,8 @@ def check_price_below(session: Session, alert: Alert, company: Company) -> list[
                 "price": pb.adj_close,
                 "threshold": float(threshold),
                 "date": pb.date.isoformat(),
+                "bar_time": pb.bar_time.isoformat() if pb.bar_time else None,
+                "interval": pb.interval,
             }
         ]
     return None
@@ -110,6 +112,8 @@ def check_price_above(session: Session, alert: Alert, company: Company) -> list[
                 "price": pb.adj_close,
                 "threshold": float(threshold),
                 "date": pb.date.isoformat(),
+                "bar_time": pb.bar_time.isoformat() if pb.bar_time else None,
+                "interval": pb.interval,
             }
         ]
     return None

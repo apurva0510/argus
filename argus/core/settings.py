@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -15,7 +16,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_password: str = Field(default="", alias="APP_PASSWORD")
+    app_auth_secret: str = Field(default="", alias="APP_AUTH_SECRET")
     database_url: str = Field(default=f"sqlite:///{DATA_DIR / 'app.db'}", alias="DATABASE_URL")
+    database_password: str = Field(default="", alias="DATABASE_PASSWORD")
     sec_user_agent: str = Field(default="", alias="SEC_USER_AGENT")
     email_host: str = Field(default="", alias="EMAIL_HOST")
     email_port: int = Field(default=587, alias="EMAIL_PORT")
@@ -33,3 +36,36 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Try reading from Streamlit secrets if running inside Streamlit context
+try:
+    import streamlit as st
+    if hasattr(st, "secrets"):
+        for secret_key, setting_name in (
+            ("APP_PASSWORD", "app_password"),
+            ("APP_AUTH_SECRET", "app_auth_secret"),
+            ("DATABASE_URL", "database_url"),
+            ("DATABASE_PASSWORD", "database_password"),
+            ("SEC_USER_AGENT", "sec_user_agent"),
+            ("EMAIL_HOST", "email_host"),
+            ("EMAIL_USERNAME", "email_username"),
+            ("EMAIL_PASSWORD", "email_password"),
+            ("EMAIL_FROM", "email_from"),
+            ("EMAIL_TO", "email_to"),
+        ):
+            if secret_key in st.secrets:
+                setattr(settings, setting_name, st.secrets[secret_key])
+except Exception:
+    pass
+
+if settings.database_password and settings.database_url:
+    encoded_password = quote(settings.database_password, safe="")
+    for placeholder in ("[YOUR-PASSWORD]", "<PASSWORD>", "__DB_PASSWORD__"):
+        settings.database_url = settings.database_url.replace(placeholder, encoded_password)
+
+# Normalize database URL (map postgres:// or postgresql:// to postgresql+psycopg:// for psycopg v3)
+if settings.database_url:
+    if settings.database_url.startswith("postgres://"):
+        settings.database_url = settings.database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif settings.database_url.startswith("postgresql://"):
+        settings.database_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://", 1)

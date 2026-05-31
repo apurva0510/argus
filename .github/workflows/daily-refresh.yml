@@ -1,0 +1,68 @@
+# Argus Daily Refresh — GitHub Actions Workflow
+#
+# Runs the full daily pipeline (prices → metrics → scores → news → filings → alerts)
+# against a Supabase Postgres database on a weekday schedule.
+#
+# Required repository secrets:
+#   DATABASE_URL        – Supabase connection string (postgresql://...)
+#   DATABASE_PASSWORD   – Optional password used when DATABASE_URL contains a placeholder
+#   SEC_USER_AGENT      – SEC EDGAR user-agent header
+#   EMAIL_HOST          – (optional) SMTP host for alert emails
+#   EMAIL_USERNAME      – (optional) SMTP username
+#   EMAIL_PASSWORD      – (optional) SMTP password
+#   EMAIL_TO            – (optional) alert recipient email
+
+name: Daily Close Refresh
+
+on:
+  schedule:
+    # Run once after US market close on weekdays.
+    # 22:30 UTC maps to 5:30 PM ET (standard) / 6:30 PM ET (daylight).
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-close-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      MARKET_DATA_PROVIDER: yfinance
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
+          test -n "$SEC_USER_AGENT" || { echo "::error::SEC_USER_AGENT secret is required"; exit 1; }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run daily refresh
+        run: python scripts/run_daily_refresh.py --period 2y

@@ -50,8 +50,7 @@ def load_watchlist_table(
                     FROM price_bars pb2
                     WHERE pb2.company_id = c.id
                         AND pb2.provider = :provider
-                        AND pb2.interval = '1d'
-                    ORDER BY pb2.date DESC
+                    ORDER BY pb2.bar_time DESC, pb2.date DESC
                     LIMIT 1
                 )
                 LEFT JOIN daily_metrics dm ON dm.id = (

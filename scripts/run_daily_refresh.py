@@ -20,11 +20,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     ensure_project_root_on_path()
+    from argus.core.db import engine
     from argus.core.logging import configure_logging
+    from argus.core.migrations import run_migrations
     from argus.pipelines.run_daily_refresh import run_daily_refresh
 
     args = parse_args()
     configure_logging()
+    run_migrations(engine)
     result = run_daily_refresh(
         period=args.period,
         include_news=not args.skip_news,

@@ -1,10 +1,11 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    event,
     Float,
     ForeignKey,
     Integer,
@@ -99,11 +100,12 @@ class WatchlistItem(Base, TimestampMixin):
 class PriceBar(Base):
     __tablename__ = "price_bars"
     __table_args__ = (
-        UniqueConstraint("company_id", "date", "provider", "interval", name="uq_price_bars"),
+        UniqueConstraint("company_id", "bar_time", "provider", "interval", name="uq_price_bars"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
     date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    bar_time: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)
     open: Mapped[float | None] = mapped_column(Float)
     high: Mapped[float | None] = mapped_column(Float)
     low: Mapped[float | None] = mapped_column(Float)
@@ -113,6 +115,12 @@ class PriceBar(Base):
     provider: Mapped[str] = mapped_column(String(32), default="yfinance", nullable=False)
     interval: Mapped[str] = mapped_column(String(16), default="1d", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+@event.listens_for(PriceBar, "before_insert")
+def _set_price_bar_bar_time(_mapper, _connection, target: PriceBar) -> None:
+    if target.bar_time is None:
+        target.bar_time = datetime.combine(target.date, time.min)
 
 
 class DailyMetric(Base):

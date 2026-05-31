@@ -181,6 +181,39 @@ class TestPriceBelow:
 
         assert result is None
 
+    def test_prefers_fresh_intraday_price_over_daily_bar(self, alert_session, sample_company):
+        today = date.today()
+        alert_session.add_all(
+            [
+                PriceBar(
+                    company_id=sample_company.id,
+                    date=today,
+                    bar_time=datetime.combine(today, datetime.min.time()),
+                    close=95.0,
+                    adj_close=95.0,
+                    provider="yfinance",
+                    interval="1d",
+                ),
+                PriceBar(
+                    company_id=sample_company.id,
+                    date=today,
+                    bar_time=datetime.combine(today, datetime.min.time()) + timedelta(hours=16),
+                    close=80.0,
+                    adj_close=80.0,
+                    provider="yfinance",
+                    interval="15m",
+                ),
+            ]
+        )
+        alert_session.commit()
+
+        alert = _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
+        result = check_price_below(alert_session, alert, sample_company)
+
+        assert result is not None
+        assert result[0]["price"] == 80.0
+        assert result[0]["interval"] == "15m"
+
 
 class TestPriceAbove:
     def test_triggers_when_above(self, alert_session, sample_company, sample_price_bar):

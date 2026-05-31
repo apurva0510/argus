@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import pandas as pd
 from sqlalchemy import inspect
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from argus.analytics.indicators import (
     annualized_volatility,
     compute_return,
@@ -18,7 +17,7 @@ from argus.analytics.indicators import (
     rolling_low,
 )
 from argus.analytics.relative_strength import relative_return
-from argus.core.db import session_scope
+from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, DailyMetric, JobRun, PriceBar, utc_now
 from argus.core.settings import settings
 
@@ -211,7 +210,8 @@ def _bulk_upsert_daily_metrics(session, company_id: int, metrics_frame: pd.DataF
             }
         )
 
-    statement = sqlite_insert(DailyMetric).values(rows)
+    insert_fn = get_insert_statement_producer(session)
+    statement = insert_fn(DailyMetric).values(rows)
     statement = statement.on_conflict_do_update(
         index_elements=["company_id", "date"],
         set_={

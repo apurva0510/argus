@@ -1,0 +1,81 @@
+name: Intraday Prices Metrics Alerts
+
+on:
+  schedule:
+    # Every 15 minutes on weekdays; guarded to run only during US market hours (ET).
+    - cron: "*/15 * * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: intraday-prices
+  cancel-in-progress: true
+
+jobs:
+  intraday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      MARKET_DATA_PROVIDER: yfinance
+
+    steps:
+      - name: Determine if market is open window (ET)
+        id: market_window
+        run: |
+          python - <<'PY'
+          from datetime import datetime, time
+          from zoneinfo import ZoneInfo
+
+          now_et = datetime.now(ZoneInfo("America/New_York"))
+          is_weekday = now_et.weekday() < 5
+          start = time(9, 30)
+          end = time(16, 0)
+          in_window = is_weekday and (start <= now_et.time() <= end)
+          import os
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"run_job={'true' if in_window else 'false'}\n")
+          print(f"now_et={now_et.isoformat()} in_window={in_window}")
+          PY
+
+      - name: Validate required secrets
+        if: steps.market_window.outputs.run_job == 'true'
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
+
+      - name: Checkout repository
+        if: steps.market_window.outputs.run_job == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        if: steps.market_window.outputs.run_job == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.market_window.outputs.run_job == 'true'
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Refresh prices
+        if: steps.market_window.outputs.run_job == 'true'
+        run: python scripts/backfill_prices.py --period 5d --interval 15m
+
+      - name: Compute metrics
+        if: steps.market_window.outputs.run_job == 'true'
+        run: python scripts/compute_metrics.py
+
+      - name: Run alerts
+        if: steps.market_window.outputs.run_job == 'true'
+        run: python scripts/run_alerts.py

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Local-first Streamlit AI infrastructure stock watcher"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dynamic = ["dependencies"]
 
 [project.scripts]
 argus-init-db = "argus.core.init_db:main"
@@ -21,8 +21,13 @@ target-version = "py312"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "postgres: tests that require a disposable PostgreSQL database",
+]
 
 
 [tool.setuptools.packages.find]
 include = ["argus*"]
 
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

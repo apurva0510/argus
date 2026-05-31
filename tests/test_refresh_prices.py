@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 from sqlalchemy.orm import Session, sessionmaker
@@ -53,6 +53,7 @@ def test_refresh_prices_is_idempotent(sqlite_engine, monkeypatch) -> None:
         assert len(bars) == 2
         assert all(bar.provider == "yfinance" for bar in bars)
         assert all(bar.interval == "1d" for bar in bars)
+        assert all(bar.bar_time is not None for bar in bars)
 
         jobs = session.query(JobRun).order_by(JobRun.id.asc()).all()
         assert len(jobs) == 2
@@ -109,6 +110,7 @@ def test_refresh_prices_updates_existing_rows_without_duplicates(
         assert bars[0].adj_close == 104.5
         assert bars[0].provider == "yfinance"
         assert bars[0].interval == "1d"
+        assert bars[0].bar_time == datetime(2025, 1, 2)
 
 
 def test_refresh_prices_deduplicates_duplicate_dates_from_provider_payload(
@@ -328,3 +330,148 @@ def test_refresh_prices_persists_job_run_on_unexpected_failure(sqlite_engine, mo
         assert jobs[0].rows_written == 0
         assert jobs[0].error_text == "upsert failed"
         assert session.query(PriceBar).count() == 0
+
+
+def test_refresh_prices_uses_one_batched_yfinance_call_for_15m(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+
+    captured_calls = []
+
+    def fake_batch(_self, symbols, *, period: str, interval: str) -> dict[str, pd.DataFrame]:
+        captured_calls.append((tuple(symbols), period, interval))
+        return {
+            symbol: pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "bar_time": datetime(2026, 5, 29, 13, 30),
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "adj_close": 100.5,
+                        "volume": 1_000.0,
+                    }
+                ]
+            )
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        for idx in range(39):
+            session.add(Company(symbol=f"T{idx:02d}", name=f"Ticker {idx}", is_active=True))
+
+    result = refresh_prices(interval="15m")
+
+    assert result["status"] == "success"
+    assert captured_calls == [(tuple(f"T{idx:02d}" for idx in range(39)), "5d", "15m")]
+    with db_module.session_scope() as session:
+        bars = session.query(PriceBar).all()
+        assert len(bars) == 39
+        assert {bar.interval for bar in bars} == {"15m"}
+        assert {bar.provider for bar in bars} == {"yfinance"}
+
+
+def test_refresh_prices_15m_upsert_is_idempotent(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+
+    closes_by_run = iter([100.5, 101.5])
+
+    def fake_batch(_self, _symbols, *, period: str, interval: str) -> dict[str, pd.DataFrame]:
+        close = next(closes_by_run)
+        return {
+            "NVDA": pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "bar_time": datetime(2026, 5, 29, 13, 30),
+                        "open": close - 0.5,
+                        "high": close + 0.5,
+                        "low": close - 1.0,
+                        "close": close,
+                        "adj_close": close,
+                        "volume": 1_000.0,
+                    }
+                ]
+            )
+        }
+
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA", is_active=True))
+
+    first = refresh_prices(period="5d", interval="15m")
+    second = refresh_prices(period="5d", interval="15m")
+
+    assert first["status"] == "success"
+    assert second["status"] == "success"
+    with db_module.session_scope() as session:
+        bars = session.query(PriceBar).all()
+        assert len(bars) == 1
+        assert bars[0].close == 101.5
+        assert bars[0].bar_time == datetime(2026, 5, 29, 13, 30)
+        assert bars[0].interval == "15m"
+
+
+def test_refresh_prices_15m_handles_empty_ticker_data(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+
+    def fake_batch(_self, _symbols, *, period: str, interval: str) -> dict[str, pd.DataFrame]:
+        return {
+            "GOOD": pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "bar_time": datetime(2026, 5, 29, 13, 30),
+                        "open": 10.0,
+                        "high": 11.0,
+                        "low": 9.0,
+                        "close": 10.5,
+                        "adj_close": 10.5,
+                        "volume": 100.0,
+                    }
+                ]
+            ),
+            "EMPTY": pd.DataFrame(),
+        }
+
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="GOOD", name="Good Co", is_active=True))
+        session.add(Company(symbol="EMPTY", name="Empty Co", is_active=True))
+
+    result = refresh_prices(period="5d", interval="15m")
+
+    assert result["status"] == "partial_success"
+    assert result["failed_symbols"] == ["EMPTY"]
+    with db_module.session_scope() as session:
+        assert session.query(PriceBar).count() == 1
+
+
+def test_refresh_prices_rejects_long_intraday_periods() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="short day-based period"):
+        refresh_prices(period="2y", interval="15m")
+
+    with pytest.raises(ValueError, match="between 1d and 60d"):
+        refresh_prices(period="90d", interval="15m")

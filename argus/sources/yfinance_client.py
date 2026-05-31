@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from collections.abc import Sequence
 
 import pandas as pd
 import yfinance as yf
@@ -14,6 +15,47 @@ def _normalize_daily_date(value) -> date:
     if isinstance(value, date):
         return value
     return pd.Timestamp(value).date()
+
+
+def _normalize_bar_time(value) -> datetime:
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(UTC).tz_localize(None)
+    return timestamp.to_pydatetime()
+
+
+def _normalize_ohlcv_frame(history: pd.DataFrame, symbol: str, *, interval: str) -> pd.DataFrame:
+    if history.empty:
+        return pd.DataFrame()
+
+    history = history.rename(
+        columns={
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Adj Close": "adj_close",
+            "Volume": "volume",
+        }
+    )
+    if "adj_close" not in history.columns:
+        history["adj_close"] = history.get("close")
+
+    frame = history.reset_index()
+    time_column = "Datetime" if "Datetime" in frame.columns else "Date" if "Date" in frame.columns else frame.columns[0]
+    missing_columns = REQUIRED_COLUMNS - set(frame.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(f"yfinance response for {symbol} missing columns: {missing}")
+
+    if interval == "1d":
+        frame["date"] = frame[time_column].apply(_normalize_daily_date)
+        frame["bar_time"] = frame["date"].apply(lambda value: datetime.combine(value, datetime.min.time()))
+    else:
+        frame["bar_time"] = frame[time_column].apply(_normalize_bar_time)
+        frame["date"] = frame["bar_time"].apply(lambda value: value.date())
+
+    return frame[["date", "bar_time", "open", "high", "low", "close", "adj_close", "volume"]].copy()
 
 
 def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
@@ -37,29 +79,58 @@ def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     if isinstance(history.columns, pd.MultiIndex):
         history.columns = history.columns.get_level_values(0)
 
-    history = history.rename(
-        columns={
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Adj Close": "adj_close",
-            "Volume": "volume",
-        }
+    return _normalize_ohlcv_frame(history, symbol, interval="1d").drop(columns=["bar_time"])
+
+
+def fetch_ohlcv_batch(
+    symbols: Sequence[str],
+    *,
+    period: str,
+    interval: str,
+) -> dict[str, pd.DataFrame]:
+    """Fetch OHLCV bars for many symbols with one yfinance download call."""
+    normalized_symbols = [symbol.upper().strip() for symbol in symbols if symbol.strip()]
+    if not normalized_symbols:
+        return {}
+
+    history = yf.download(
+        tickers=normalized_symbols,
+        period=period,
+        interval=interval,
+        auto_adjust=False,
+        progress=False,
+        threads=True,
+        group_by="column",
     )
-    if "adj_close" not in history.columns:
-        history["adj_close"] = history.get("close")
+    if history.empty:
+        return {symbol: pd.DataFrame() for symbol in normalized_symbols}
 
-    frame = history.reset_index()
-    date_column = "Date" if "Date" in frame.columns else frame.columns[0]
-    missing_columns = REQUIRED_COLUMNS - set(frame.columns)
-    if missing_columns:
-        missing = ", ".join(sorted(missing_columns))
-        raise ValueError(f"yfinance response for {symbol} missing columns: {missing}")
+    frames_by_symbol: dict[str, pd.DataFrame] = {}
+    for symbol in normalized_symbols:
+        try:
+            frames_by_symbol[symbol] = _normalize_ohlcv_frame(
+                _extract_symbol_history(history, symbol, normalized_symbols),
+                symbol,
+                interval=interval,
+            )
+        except ValueError:
+            frames_by_symbol[symbol] = pd.DataFrame()
+    return frames_by_symbol
 
-    frame["date"] = frame[date_column].apply(_normalize_daily_date)
-    frame = frame[["date", "open", "high", "low", "close", "adj_close", "volume"]].copy()
-    return frame
+
+def _extract_symbol_history(
+    history: pd.DataFrame,
+    symbol: str,
+    symbols: Sequence[str],
+) -> pd.DataFrame:
+    if not isinstance(history.columns, pd.MultiIndex):
+        return history.copy() if len(symbols) == 1 else pd.DataFrame()
+
+    if symbol in history.columns.get_level_values(1):
+        return history.xs(symbol, axis=1, level=1, drop_level=True).dropna(how="all")
+    if symbol in history.columns.get_level_values(0):
+        return history.xs(symbol, axis=1, level=0, drop_level=True).dropna(how="all")
+    return pd.DataFrame()
 
 
 from argus.sources.base import BaseMarketDataProvider  # noqa: E402
@@ -75,3 +146,11 @@ class YFinanceProvider(BaseMarketDataProvider):
     def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
         return fetch_daily_ohlcv(symbol, period)
 
+    def fetch_ohlcv_batch(
+        self,
+        symbols: Sequence[str],
+        *,
+        period: str,
+        interval: str,
+    ) -> dict[str, pd.DataFrame]:
+        return fetch_ohlcv_batch(symbols, period=period, interval=interval)

@@ -1,0 +1,46 @@
+name: News Refresh
+
+on:
+  schedule:
+    # Every 3 hours on weekdays.
+    - cron: "0 */3 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: news-refresh
+  cancel-in-progress: true
+
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      MARKET_DATA_PROVIDER: yfinance
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Refresh news
+        run: python scripts/refresh_news.py

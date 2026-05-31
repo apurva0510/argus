@@ -1,0 +1,47 @@
+name: SEC Filings Refresh
+
+on:
+  schedule:
+    # Every 2 hours on weekdays (within requested 1–3 hour range).
+    - cron: "0 */2 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: filings-refresh
+  cancel-in-progress: true
+
+jobs:
+  filings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      MARKET_DATA_PROVIDER: yfinance
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
+          test -n "$SEC_USER_AGENT" || { echo "::error::SEC_USER_AGENT secret is required"; exit 1; }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Refresh SEC filings
+        run: python scripts/refresh_filings.py

@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 # Add project root to sys.path to allow absolute imports of 'app' and 'argus'
 project_root = Path(__file__).resolve().parent.parent
@@ -7,9 +8,39 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import streamlit as st  # noqa: E402
+from argus.core.auth import AUTH_COOKIE_NAME, create_auth_token, validate_auth_token  # noqa: E402
 from argus.core.settings import settings  # noqa: E402
 
 st.set_page_config(page_title="Argus", page_icon="📊", layout="wide")
+
+
+def _auth_secret() -> str:
+    return settings.app_auth_secret or settings.app_password
+
+
+def _set_auth_cookie() -> None:
+    token = create_auth_token(_auth_secret())
+    html = quote(
+        f"""<!doctype html>
+        <html><body>
+        <script>
+        let cookie = "{AUTH_COOKIE_NAME}={token}; path=/; max-age=86400; SameSite=Lax";
+        if (location.protocol === "https:") {{
+            cookie += "; Secure";
+        }}
+        parent.document.cookie = cookie;
+        </script>
+        </body></html>"""
+    )
+    st.iframe(
+        f"data:text/html,{html}",
+        height=1,
+    )
+
+
+def _cookie_is_authenticated() -> bool:
+    token = st.context.cookies.get(AUTH_COOKIE_NAME)
+    return validate_auth_token(token, _auth_secret())
 
 def render_login_screen():
     # Custom styling for premium dark glassmorphism card
@@ -82,8 +113,7 @@ if "password_correct" not in st.session_state:
 
 # Check cookie authentication for cross-tab session persistence
 if settings.app_password:
-    cookie_auth = st.context.cookies.get("app_password_auth")
-    if cookie_auth == "1":
+    if _cookie_is_authenticated():
         st.session_state["password_correct"] = True
 
 pages = [
@@ -105,18 +135,7 @@ if settings.app_password and not st.session_state["password_correct"]:
     render_login_screen()
 else:
     navigation.run()
-    
+
     # Set client-side cookie to authorize subsequent tabs/windows
     if settings.app_password:
-        st.iframe(
-            """
-            <script>
-            if (!parent.document.cookie.includes("app_password_auth=1")) {
-                parent.document.cookie = "app_password_auth=1; path=/; max-age=86400";
-            }
-            </script>
-            """,
-            height=0,
-        )
-
-
+        _set_auth_cookie()

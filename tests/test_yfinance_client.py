@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
 
-from argus.sources.yfinance_client import fetch_daily_ohlcv
+from argus.sources.yfinance_client import fetch_daily_ohlcv, fetch_ohlcv_batch
 
 
 def test_fetch_daily_ohlcv_preserves_adjusted_close(monkeypatch) -> None:
@@ -66,6 +66,80 @@ def test_fetch_daily_ohlcv_calls_yfinance_with_expected_daily_arguments(monkeypa
         "progress": False,
         "threads": False,
     }
+
+
+def test_fetch_ohlcv_batch_calls_yfinance_once_for_15m_multi_ticker(monkeypatch) -> None:
+    index = pd.Index(
+        [pd.Timestamp("2026-05-29 09:30:00", tz="America/New_York")],
+        name="Datetime",
+    )
+    history = pd.DataFrame(
+        [[100.0, 200.0, 101.0, 202.0, 99.0, 198.0, 100.5, 201.0, 100.5, 201.0, 1000, 2000]],
+        columns=pd.MultiIndex.from_product(
+            [["Open", "High", "Low", "Close", "Adj Close", "Volume"], ["NVDA", "MSFT"]]
+        ),
+        index=index,
+    )
+    captured_kwargs = {}
+
+    def fake_download(**kwargs):
+        captured_kwargs.update(kwargs)
+        return history
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", fake_download)
+
+    frames = fetch_ohlcv_batch(["NVDA", "MSFT"], period="5d", interval="15m")
+
+    assert captured_kwargs == {
+        "tickers": ["NVDA", "MSFT"],
+        "period": "5d",
+        "interval": "15m",
+        "auto_adjust": False,
+        "progress": False,
+        "threads": True,
+        "group_by": "column",
+    }
+    assert set(frames) == {"NVDA", "MSFT"}
+    assert frames["NVDA"].loc[0, "bar_time"] == datetime(2026, 5, 29, 13, 30)
+    assert frames["NVDA"].loc[0, "date"] == date(2026, 5, 29)
+    assert frames["MSFT"].loc[0, "close"] == 201.0
+
+
+def test_fetch_ohlcv_batch_returns_empty_frames_for_empty_response(monkeypatch) -> None:
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame())
+
+    frames = fetch_ohlcv_batch(["BAD", "EMPTY"], period="5d", interval="15m")
+
+    assert set(frames) == {"BAD", "EMPTY"}
+    assert frames["BAD"].empty
+    assert frames["EMPTY"].empty
+
+
+def test_fetch_ohlcv_batch_isolates_malformed_ticker_payload(monkeypatch) -> None:
+    index = pd.Index([pd.Timestamp("2026-05-29 09:30:00", tz="America/New_York")], name="Datetime")
+    history = pd.DataFrame(
+        [[100.0, 200.0, 101.0, 202.0, 99.0, 198.0, 100.5, 1000]],
+        columns=pd.MultiIndex.from_tuples(
+            [
+                ("Open", "GOOD"),
+                ("Open", "BAD"),
+                ("High", "GOOD"),
+                ("High", "BAD"),
+                ("Low", "GOOD"),
+                ("Low", "BAD"),
+                ("Close", "GOOD"),
+                ("Volume", "GOOD"),
+            ]
+        ),
+        index=index,
+    )
+
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: history)
+
+    frames = fetch_ohlcv_batch(["GOOD", "BAD"], period="5d", interval="15m")
+
+    assert not frames["GOOD"].empty
+    assert frames["BAD"].empty
 
 
 def test_fetch_daily_ohlcv_falls_back_to_close_when_adjusted_close_missing(monkeypatch) -> None:

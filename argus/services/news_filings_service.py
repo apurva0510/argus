@@ -19,7 +19,17 @@ def get_filtered_news(
 
     Returns a pandas DataFrame.
     """
-    query = """
+    dialect_name = engine.dialect.name
+    if dialect_name == "postgresql":
+        tickers_agg = "string_agg(DISTINCT nm2.ticker, ',')"
+        keywords_agg = "string_agg(DISTINCT nm3.matched_keywords, ',')"
+        date_cast_published = "CAST(ni.published_at AS DATE)"
+    else:
+        tickers_agg = "group_concat(DISTINCT nm2.ticker)"
+        keywords_agg = "group_concat(DISTINCT nm3.matched_keywords)"
+        date_cast_published = "date(ni.published_at)"
+
+    query = f"""
         SELECT DISTINCT
             ni.id,
             ni.published_at,
@@ -29,12 +39,12 @@ def get_filtered_news(
             ni.source_name,
             ni.provider,
             (
-                SELECT group_concat(DISTINCT nm2.ticker)
+                SELECT {tickers_agg}
                 FROM news_mentions nm2
                 WHERE nm2.news_id = ni.id
             ) as tickers,
             (
-                SELECT group_concat(DISTINCT nm3.matched_keywords)
+                SELECT {keywords_agg}
                 FROM news_mentions nm3
                 WHERE nm3.news_id = ni.id
             ) as keywords
@@ -58,11 +68,11 @@ def get_filtered_news(
         params["keyword_like"] = f"%{keyword.strip()}%"
 
     if start_date:
-        query += " AND date(ni.published_at) >= date(:start_date)"
+        query += f" AND {date_cast_published} >= :start_date"
         params["start_date"] = start_date.isoformat()
 
     if end_date:
-        query += " AND date(ni.published_at) <= date(:end_date)"
+        query += f" AND {date_cast_published} <= :end_date"
         params["end_date"] = end_date.isoformat()
 
     query += " ORDER BY ni.published_at DESC LIMIT :limit"

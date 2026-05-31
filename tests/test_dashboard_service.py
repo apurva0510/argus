@@ -213,6 +213,14 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
                 drawdown_52w=-0.45,
             ),
             PriceBar(company_id=etn.id, date=latest_date, adj_close=100.0, provider="yfinance", interval="1d"),
+            PriceBar(
+                company_id=vrt.id,
+                date=latest_date,
+                bar_time=datetime(2026, 5, 29, 16, 0),
+                adj_close=101.0,
+                provider="yfinance",
+                interval="15m",
+            ),
             JobRun(
                 job_name="refresh_prices",
                 started_at=datetime(2026, 5, 29, 20, 0),
@@ -240,6 +248,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["filings_count"] == 1
     assert data["earnings_count"] == 1
     assert data["latest_dates"]["latest_price_date"] == "2026-05-29"
+    assert data["latest_dates"]["latest_intraday_price_time"] == "2026-05-29 16:00:00.000000"
     assert data["latest_dates"]["latest_metrics_date"] == "2026-05-29"
     assert data["latest_dates"]["last_price_refresh_at"] == "2026-05-29 20:01:00.000000"
     assert data["latest_dates"]["last_metrics_refresh_at"] == "2026-05-29 20:03:00.000000"
@@ -253,6 +262,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["recent_news"]["title"].tolist() == ["Power demand update"]
     assert data["recent_filings"]["symbol"].tolist() == ["ETN"]
     assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
+    assert data["intraday_stale_tickers_count"] == 3
 
 
 def test_load_dashboard_data_handles_price_data_without_metrics(db_session, sqlite_engine) -> None:

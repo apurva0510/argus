@@ -44,9 +44,13 @@ cp .env.example .env
 
 Open `.env` in a text editor to configure settings. Key configurations include:
 - `APP_PASSWORD`: Set a shared password to protect the dashboard (leave blank to disable login).
+- `APP_AUTH_SECRET`: Optional signing secret for cross-tab auth cookies. If blank, Argus uses `APP_PASSWORD`.
 - `SEC_USER_AGENT`: Required format for SEC filings (e.g., `Argus/1.0 (contact@example.com)`).
 - `MARKET_DATA_PROVIDER`: Set to `yfinance` (default, free, no key required) or configure optional API keys for `finnhub`, `twelvedata`, or `alphavantage`.
 - SMTP details (`EMAIL_HOST`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`) for email alerts.
+- For Supabase/Postgres, either:
+  - put full credentials in `DATABASE_URL`, or
+  - keep a placeholder in `DATABASE_URL` (`[YOUR-PASSWORD]`, `<PASSWORD>`, or `__DB_PASSWORD__`) and set `DATABASE_PASSWORD`.
 
 ---
 
@@ -71,6 +75,9 @@ Ingest historical pricing data, compute relative metrics (vs. QQQ and NVDA), and
 ```bash
 # Ingest 2 years of daily price history
 python scripts/backfill_prices.py --period 2y
+
+# Refresh recent 15-minute bars during market hours
+python scripts/backfill_prices.py --period 5d --interval 15m
 
 # Compute technical/moving average indicators
 python scripts/compute_metrics.py
@@ -163,23 +170,99 @@ Alternative API providers on free tiers have strict limits (e.g., 5 calls per mi
 
 ---
 
-## ☁️ Deployment Notes (VPS or PaaS)
+## ☁️ Deployment with Supabase Postgres
 
-Since Argus is a local-first application built around a local SQLite database, deploying to ephemeral host providers (like Streamlit Community Cloud) will cause your database to reset every time the server spins down. 
+Argus supports both **local SQLite** (default) and **Supabase Postgres** for production deployment. When `DATABASE_URL` is set, all pipelines and the Streamlit app will use that connection instead of the local SQLite file.
 
-For a persistent, cloud-based setup:
+### 1. Supabase Project Setup
 
-1. **Deploy to a VPS or PaaS with Volume Support**:
-   Use host providers like **Render**, **Railway**, **Fly.io**, or **DigitalOcean** that support attaching a small persistent volume.
-2. **Mount the SQLite Database**:
-   Mount a persistent disk directory to the `data/` folder inside the workspace. Update your `DATABASE_URL` in env variables to point to the mounted path (e.g. `sqlite:////mnt/persistent/app.db`).
-3. **Daily Ingestion Cron**:
-   Configure a simple server-side cron job or task scheduler on the VPS to trigger the orchestrator daily:
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In **Settings → Database**, copy the **Connection string (URI)** — it looks like:
+   ```
+   postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+   ```
+   You can also store this as:
+   - `DATABASE_URL=postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@...`
+   - `DATABASE_PASSWORD=your-actual-password`
+3. Initialize the schema and seed data by running the standard scripts with `DATABASE_URL` set. `init_db.py` creates the current schema and records the schema version used for future hosted upgrades:
+   ```bash
+   DATABASE_URL="postgresql://..." python scripts/init_db.py
+   DATABASE_URL="postgresql://..." python scripts/enable_rls.py
+   DATABASE_URL="postgresql://..." python scripts/seed_companies.py
+   ```
+4. Backfill prices and compute metrics:
+   ```bash
+   DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 2y
+   DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 5d --interval 15m
+   DATABASE_URL="postgresql://..." python scripts/compute_metrics.py
+   DATABASE_URL="postgresql://..." python scripts/compute_scores.py
+   ```
+
+> [!NOTE]
+> Argus automatically normalizes `postgresql://` prefixes to `postgresql+psycopg://` for SQLAlchemy 2.0 compatibility. You do not need to modify the Supabase URI.
+
+### 2. Streamlit Community Cloud Secrets
+
+To deploy the Streamlit app on [Streamlit Community Cloud](https://streamlit.io/cloud):
+
+1. Push your repo to GitHub.
+2. Create a new app on Streamlit Cloud pointing to `app/main.py`.
+3. In the app's **Settings → Secrets**, add a TOML block:
+   ```toml
+   DATABASE_URL = "postgresql://postgres.[ref]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres"
+   DATABASE_PASSWORD = "your-actual-password"
+   APP_PASSWORD = "your-shared-password"
+   APP_AUTH_SECRET = "a-long-random-cookie-signing-secret"
+   SEC_USER_AGENT = "Argus/1.0 (your-email@example.com)"
+   ```
+
+> [!IMPORTANT]
+> Never commit secrets to your repository. The Streamlit secrets panel and GitHub Actions secrets are the only places credentials should live.
+
+> [!IMPORTANT]
+> Run `scripts/enable_rls.py` after schema creation for Supabase deployments. It enables Row Level Security on Argus tables and grants access to the database role used by your `DATABASE_URL`.
+
+### 3. GitHub Actions — Automated Refresh Schedules
+
+Argus includes four workflow files for production scheduling:
+
+- `.github/workflows/intraday-prices.yml`
+  - Every 15 minutes on weekdays
+  - Executes only during US market hours (ET 9:30 AM–4:00 PM)
+  - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → alerts
+- `.github/workflows/news-refresh.yml`
+  - Every 3 hours on weekdays
+  - Runs: news refresh
+- `.github/workflows/filings-refresh.yml`
+  - Every 2 hours on weekdays (within 1–3 hour target window)
+  - Runs: SEC filings refresh
+- `.github/workflows/daily-refresh.yml`
+  - Once after US market close on weekdays
+  - Runs: full daily refresh pipeline with daily bars (`run_daily_refresh.py --period 2y`)
+
+**Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret             | Description                              | Required |
+|--------------------|------------------------------------------|----------|
+| `DATABASE_URL`     | Supabase Postgres connection string      | ✅       |
+| `DATABASE_PASSWORD`| Optional password if URL has placeholder | Optional |
+| `SEC_USER_AGENT`   | SEC EDGAR user-agent header              | ✅       |
+| `EMAIL_HOST`       | SMTP host for alert emails               | Optional |
+| `EMAIL_USERNAME`   | SMTP username                            | Optional |
+| `EMAIL_PASSWORD`   | SMTP password                            | Optional |
+| `EMAIL_TO`         | Alert recipient email address            | Optional |
+
+### 4. Alternative: VPS or PaaS with SQLite
+
+For a persistent SQLite deployment (no Postgres), deploy to a VPS or PaaS with volume support:
+
+1. Use **Render**, **Railway**, **Fly.io**, or **DigitalOcean** with a persistent volume.
+2. Mount a persistent disk to the `data/` folder. Set `DATABASE_URL=sqlite:////mnt/persistent/app.db`.
+3. Configure a cron job for daily ingestion:
    ```cron
    0 18 * * 1-5 /path/to/project/.venv/bin/python /path/to/project/scripts/run_daily_refresh.py --skip-news
    ```
-4. **No Docker Required**:
-   Install Python 3.12 directly, clone the repository, install standard requirements, and run the Streamlit daemon using systemd, PM2, or background execution.
+4. No Docker required — install Python 3.12, clone, install requirements, and run with systemd or PM2.
 
 ---
 

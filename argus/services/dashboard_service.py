@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -18,11 +18,14 @@ LOW_RSI_THRESHOLD = 40.0
 
 def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
     with engine.connect() as conn:
+        dialect_name = engine.dialect.name
+        today = datetime.now(UTC).date()
         latest_dates = pd.read_sql_query(
             text(
                 """
                 SELECT
                     (SELECT MAX(date) FROM price_bars WHERE provider = :provider AND interval = '1d') AS latest_price_date,
+                    (SELECT MAX(bar_time) FROM price_bars WHERE provider = :provider AND interval = '15m') AS latest_intraday_price_time,
                     (SELECT MAX(date) FROM daily_metrics) AS latest_metrics_date,
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_refresh_at,
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at,
@@ -52,7 +55,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                         dm.drawdown_52w
                     FROM daily_metrics dm
                     JOIN companies c ON c.id = dm.company_id
-                    WHERE c.is_active = 1
+                    WHERE c.is_active = TRUE
                         AND dm.date = (
                             SELECT MAX(dm2.date)
                             FROM daily_metrics dm2
@@ -65,18 +68,22 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             )
 
         active_symbol_count = pd.read_sql_query(
-            text("SELECT COUNT(*) AS count FROM companies WHERE is_active = 1"),
+            text("SELECT COUNT(*) AS count FROM companies WHERE is_active = TRUE"),
             conn,
         ).at[0, "count"]
         news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[0, "count"]
         filings_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM sec_filings"), conn).at[0, "count"]
         earnings_count = pd.read_sql_query(
-            text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= DATE('now')"),
+            text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= CURRENT_DATE"),
             conn,
         ).at[0, "count"]
+        if dialect_name == "postgresql":
+            tickers_expr = "string_agg(DISTINCT nm2.ticker, ',')"
+        else:
+            tickers_expr = "group_concat(DISTINCT nm2.ticker)"
         recent_news = pd.read_sql_query(
             text(
-                """
+                f"""
                 SELECT
                     ni.published_at,
                     ni.title,
@@ -84,7 +91,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     ni.source_name,
                     ni.provider,
                     (
-                        SELECT group_concat(DISTINCT nm2.ticker)
+                        SELECT {tickers_expr}
                         FROM news_mentions nm2
                         WHERE nm2.news_id = ni.id
                     ) AS tickers
@@ -124,7 +131,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     ee.source
                 FROM earnings_events ee
                 JOIN companies c ON c.id = ee.company_id
-                WHERE ee.event_date >= DATE('now')
+                WHERE ee.event_date >= CURRENT_DATE
                 ORDER BY ee.event_date ASC, c.symbol ASC
                 LIMIT 5
                 """
@@ -133,24 +140,45 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         )
 
         # Calculate stale tickers count
-        stale_threshold_str = f"-{STALE_DAYS_THRESHOLD} days"
+        stale_threshold_date = today - timedelta(days=STALE_DAYS_THRESHOLD)
         stale_tickers_count = pd.read_sql_query(
             text(
                 """
                 SELECT COUNT(DISTINCT symbol) AS count
                 FROM companies
-                WHERE is_active = 1 AND id NOT IN (
+                WHERE is_active = TRUE AND id NOT IN (
                     SELECT DISTINCT company_id
                     FROM price_bars
                     WHERE provider = :provider
-                      AND date >= DATE('now', :stale_threshold)
+                      AND date >= :stale_threshold_date
                 )
                 """
             ),
             conn,
             params={
                 "provider": settings.market_data_provider,
-                "stale_threshold": stale_threshold_str,
+                "stale_threshold_date": stale_threshold_date,
+            },
+        ).at[0, "count"]
+
+        intraday_stale_tickers_count = pd.read_sql_query(
+            text(
+                """
+                SELECT COUNT(DISTINCT symbol) AS count
+                FROM companies
+                WHERE is_active = TRUE AND id NOT IN (
+                    SELECT DISTINCT company_id
+                    FROM price_bars
+                    WHERE provider = :provider
+                      AND interval = '15m'
+                      AND date >= :stale_threshold_date
+                )
+                """
+            ),
+            conn,
+            params={
+                "provider": settings.market_data_provider,
+                "stale_threshold_date": stale_threshold_date,
             },
         ).at[0, "count"]
 
@@ -187,6 +215,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         "recent_filings": recent_filings,
         "upcoming_earnings": upcoming_earnings,
         "stale_tickers_count": int(stale_tickers_count),
+        "intraday_stale_tickers_count": int(intraday_stale_tickers_count),
         "failed_job": failed_job,
         "provider_status": provider_status,
     }

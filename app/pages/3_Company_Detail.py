@@ -33,12 +33,12 @@ def load_price_history(company_id: int) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_index_relative_returns(start_date) -> pd.DataFrame:
-    from argus.core.db import create_database_engine
+    from argus.core.app_engine import create_migrated_database_engine
     from argus.core.settings import settings
     from sqlalchemy.orm import sessionmaker
     from argus.analytics.index_builder import calculate_equal_weight_index, calculate_relative_performance
     
-    engine = create_database_engine(settings.database_url)
+    engine = create_migrated_database_engine(settings.database_url)
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
         index_df = calculate_equal_weight_index(session)

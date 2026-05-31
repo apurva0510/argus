@@ -12,7 +12,14 @@ class Base(DeclarativeBase):
 
 
 def create_database_engine(database_url: str):
-    database_engine = create_engine(database_url, future=True)
+    # Supabase uses PgBouncer in transaction-pooling mode which does not
+    # support prepared statements.  Disable them for PostgreSQL connections.
+    connect_args: dict = {}
+    if database_url.startswith("postgresql"):
+        connect_args["prepare_threshold"] = None
+    database_engine = create_engine(
+        database_url, future=True, connect_args=connect_args,
+    )
     event.listen(database_engine, "connect", _enable_sqlite_foreign_keys)
     return database_engine
 
@@ -39,3 +46,24 @@ def session_scope():
         raise
     finally:
         session.close()
+
+
+def get_insert_statement_producer(session):
+    """Dynamically resolve the SQLAlchemy insert function depending on database dialect.
+
+    Supports both SQLite and PostgreSQL bulk/idempotent upserts.
+    """
+    try:
+        dialect_name = session.bind.dialect.name
+    except Exception:
+        try:
+            dialect_name = engine.dialect.name
+        except Exception:
+            dialect_name = "sqlite"
+
+    if dialect_name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+        return insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+        return insert

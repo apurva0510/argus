@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, UTC
 from typing import Any
 
 import pandas as pd
@@ -13,9 +14,20 @@ from argus.core.settings import settings
 
 def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
     with engine.connect() as conn:
+        dialect_name = engine.dialect.name
+        now = datetime.now(UTC).replace(tzinfo=None)
+        news_start_date = now - timedelta(days=7)
+        filing_start_date = (now - timedelta(days=30)).date()
+        current_date = now.date()
+
+        if dialect_name == "postgresql":
+            earnings_expr = "MIN(ee.event_date - :current_date)"
+        else:
+            earnings_expr = "MIN(JULIANDAY(ee.event_date) - JULIANDAY(:current_date))"
+
         df = pd.read_sql_query(
             text(
-                """
+                f"""
                 SELECT
                     c.id AS company_id,
                     c.symbol AS ticker,
@@ -44,19 +56,19 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                         FROM news_mentions nm
                         JOIN news_items ni ON ni.id = nm.news_id
                         WHERE nm.company_id = c.id
-                            AND ni.published_at >= DATETIME('now', '-7 days')
+                            AND ni.published_at >= :news_start_date
                     ) AS recent_news_count,
                     (
                         SELECT COUNT(*)
                         FROM sec_filings sf
                         WHERE sf.company_id = c.id
-                            AND sf.filing_date >= DATE('now', '-30 days')
+                            AND sf.filing_date >= :filing_start_date
                     ) AS recent_filing_count,
                     (
-                        SELECT MIN(JULIANDAY(ee.event_date) - JULIANDAY('now'))
+                        SELECT {earnings_expr}
                         FROM earnings_events ee
                         WHERE ee.company_id = c.id
-                            AND ee.event_date >= DATE('now')
+                            AND ee.event_date >= :current_date
                     ) AS upcoming_earnings_days
                 FROM companies c
                 JOIN watchlist_items wi ON wi.company_id = c.id
@@ -66,8 +78,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     FROM price_bars pb2
                     WHERE pb2.company_id = c.id
                         AND pb2.provider = :provider
-                        AND pb2.interval = '1d'
-                    ORDER BY pb2.date DESC
+                    ORDER BY pb2.bar_time DESC, pb2.date DESC
                     LIMIT 1
                 )
                 LEFT JOIN daily_metrics dm ON dm.id = (
@@ -77,12 +88,17 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     ORDER BY dm2.date DESC
                     LIMIT 1
                 )
-                WHERE c.is_active = 1
+                WHERE c.is_active = TRUE
                 ORDER BY c.symbol, w.name
                 """
             ),
             conn,
-            params={"provider": settings.market_data_provider},
+            params={
+                "provider": settings.market_data_provider,
+                "news_start_date": news_start_date,
+                "filing_start_date": filing_start_date,
+                "current_date": current_date,
+            },
         )
 
     if df.empty:

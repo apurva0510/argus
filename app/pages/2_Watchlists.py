@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
-from argus.core.db import create_database_engine
+from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
@@ -13,7 +13,7 @@ from argus.services.watchlist_service import load_watchlist_table, normalize_not
 
 @st.cache_resource
 def get_watchlist_engine():
-    return create_database_engine(settings.database_url)
+    return create_migrated_database_engine(settings.database_url)
 
 
 @st.cache_data(ttl=300)

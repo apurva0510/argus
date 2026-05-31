@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from sqlalchemy import select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-from argus.core.db import session_scope
+from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, SecFiling
 from argus.core.settings import settings
 from argus.sources.sec_client import fetch_filings
@@ -67,7 +65,8 @@ def _upsert_filing_rows(session, company_id: int, filings: list[dict]) -> int:
             "is_new": True,
         })
 
-    statement = sqlite_insert(SecFiling).values(values)
+    insert_fn = get_insert_statement_producer(session)
+    statement = insert_fn(SecFiling).values(values)
     # We update metadata on conflict, but do not overwrite is_new so we don't
     # mark already-read filings back to "new" on subsequent runs.
     statement = statement.on_conflict_do_update(
