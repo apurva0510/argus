@@ -40,6 +40,36 @@ def _fmt_score(value: float | None) -> str:
     return f"{value:.1f}"
 
 
+def render_explanation_card(ticker: str, company: str, explanation: str, score: float) -> str:
+    """Renders a custom HTML/CSS card for displaying pullback explanation and reason."""
+    return f"""
+    <div style="
+        background: rgba(22, 27, 34, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(56, 139, 253, 0.4);
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(240, 246, 252, 0.1); padding-bottom: 8px;">
+            <div style="font-size: 18px; font-weight: 600; color: #58a6ff;">
+                🔍 Candidate Detail: <span style="color: #f0f6fc;">{ticker}</span> <span style="font-size: 14px; font-weight: normal; color: #8b949e;">({company})</span>
+            </div>
+            <div style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(56, 139, 253, 0.3);">
+                Score: {score:.1f}
+            </div>
+        </div>
+        <div style="color: #c9d1d9; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">
+            {explanation}
+        </div>
+    </div>
+    """
+
+
 def render_pullback_finder() -> None:
     render_sidebar_navigation()
     st.title("Pullback Finder")
@@ -156,17 +186,38 @@ def render_pullback_finder() -> None:
         style_positive_green_negative_red,
         subset=["drawdown", "200DMA", "vs QQQ 3M"]
     )
-    st.dataframe(
+    event = st.dataframe(
         styled_table_df,
         hide_index=True,
         width="stretch",
         column_config={
             "rank": st.column_config.NumberColumn("rank", width="small"),
             "score": st.column_config.NumberColumn("score", format="%.1f"),
-            "explanation": st.column_config.TextColumn("reason / explanation", width="large"),
+            "explanation": st.column_config.TextColumn("reason / explanation", width=600),
             "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
         },
+        on_select="rerun",
+        selection_mode="single-row",
     )
+
+    st.caption("💡 *Tip: Click on any row in the table above to view the full, wrapped reason/explanation below.*")
+
+    if event and event.selection and event.selection.rows:
+        selected_row_idx = event.selection.rows[0]
+        selected_row = table_df.iloc[selected_row_idx]
+        
+        # Extract symbol from link
+        import re
+        ticker_symbol = selected_row["ticker"]
+        match = re.search(r"ticker=(.*)", ticker_symbol)
+        if match:
+            ticker_symbol = match.group(1)
+            
+        company_name = selected_row["company"]
+        explanation_text = selected_row["explanation"]
+        score_val = selected_row["score"]
+        
+        st.html(render_explanation_card(ticker_symbol, company_name, explanation_text, score_val))
 
     with st.expander("Score component breakdown"):
         breakdown_df = display_df[
