@@ -87,19 +87,20 @@ def render_login_screen():
         st.markdown('<div class="login-title">Argus Platform</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-subtitle">Enter password to access the research dashboard</div>', unsafe_allow_html=True)
         
-        password_input = st.text_input(
-            "Password", 
-            type="password", 
-            placeholder="••••••••",
-            label_visibility="collapsed"
-        )
-        
-        if st.button("Unlock Dashboard", use_container_width=True):
-            if password_input == settings.app_password:
-                st.session_state["password_correct"] = True
-                st.rerun()
-            else:
-                st.error("❌ Incorrect password.")
+        with st.form("login_form", border=False, clear_on_submit=False):
+            password_input = st.text_input(
+                "Password", 
+                type="password", 
+                placeholder="••••••••",
+                label_visibility="collapsed"
+            )
+            
+            if st.form_submit_button("Unlock Dashboard", use_container_width=True):
+                if password_input == settings.app_password:
+                    st.session_state["password_correct"] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password.")
 
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False

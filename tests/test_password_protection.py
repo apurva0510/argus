@@ -37,7 +37,7 @@ def test_password_protection_rejects_forged_cookie(monkeypatch):
     mock_st = MagicMock()
     mock_st.session_state = {}
     mock_st.context.cookies.get.return_value = "1"
-    mock_st.button.return_value = False
+    mock_st.form_submit_button.return_value = False
     mock_st.text_input.return_value = ""
     mock_st.columns.return_value = (MagicMock(), MagicMock(), MagicMock())
     mock_navigation = MagicMock()
@@ -82,7 +82,7 @@ def test_password_protection_active_correct(monkeypatch):
     
     mock_st = MagicMock()
     mock_st.session_state = {}
-    mock_st.button.return_value = True
+    mock_st.form_submit_button.return_value = True
     mock_st.text_input.return_value = "secure123"
     
     # Mock st.columns to return a 3-tuple of MagicMocks to allow unpacking
@@ -110,7 +110,7 @@ def test_password_protection_active_incorrect(monkeypatch):
     
     mock_st = MagicMock()
     mock_st.session_state = {}
-    mock_st.button.return_value = True
+    mock_st.form_submit_button.return_value = True
     mock_st.text_input.return_value = "wrong_password"
     
     # Mock st.columns to return a 3-tuple of MagicMocks to allow unpacking
