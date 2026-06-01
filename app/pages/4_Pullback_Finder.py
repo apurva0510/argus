@@ -15,6 +15,7 @@ from argus.services.pullback_finder_service import (
     get_filter_options,
     load_pullback_candidates,
 )
+from app.components.tables import style_positive_green_negative_red
 
 
 @st.cache_resource
@@ -30,7 +31,7 @@ def load_pullback_data() -> pd.DataFrame:
 def _fmt_pct(value: float | None, digits: int = 1) -> str:
     if value is None or pd.isna(value):
         return "n/a"
-    return f"{value * 100:.{digits}f}%"
+    return f"{value * 100:+.{digits}f}%"
 
 
 def _fmt_score(value: float | None) -> str:
@@ -151,8 +152,12 @@ def render_pullback_finder() -> None:
     ]
 
     st.subheader("Ranked pullback candidates")
+    styled_table_df = table_df.style.map(
+        style_positive_green_negative_red,
+        subset=["drawdown", "200DMA", "vs QQQ 3M"]
+    )
     st.dataframe(
-        table_df,
+        styled_table_df,
         hide_index=True,
         width="stretch",
         column_config={
@@ -187,8 +192,12 @@ def render_pullback_finder() -> None:
                 "score_risk_penalty": "risk penalty",
             }
         )
+        styled_breakdown_df = breakdown_df.style.map(
+            style_positive_green_negative_red,
+            subset=["risk penalty"]
+        )
         st.dataframe(
-            breakdown_df, 
+            styled_breakdown_df, 
             hide_index=True, 
             width="stretch",
             column_config={"ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)")}

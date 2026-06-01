@@ -21,6 +21,8 @@ from argus.services.dashboard_service import (
     rank_top_losers,
     summarize_core_returns,
 )
+from app.components.metrics import render_metric_card, render_plain_metric_card
+from app.components.tables import style_positive_green_negative_red
 
 
 @st.cache_resource
@@ -262,15 +264,15 @@ def render_dashboard() -> None:
     core_1m = core_returns["return_1m"]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Tracked Symbols", int(data["index_symbol_count"]))
-    col2.metric("AI Infra Core 1D", _fmt_plain_pct(core_1d), delta=_fmt_pct(core_1d), delta_color="normal")
-    col3.metric("AI Infra Core 1W", _fmt_plain_pct(core_1w), delta=_fmt_pct(core_1w), delta_color="normal")
-    col4.metric("AI Infra Core 1M", _fmt_plain_pct(core_1m), delta=_fmt_pct(core_1m), delta_color="normal")
+    col1.markdown(render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count")), unsafe_allow_html=True)
+    col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
+    col3.markdown(render_metric_card("AI Infra Core 1W", core_1w), unsafe_allow_html=True)
+    col4.markdown(render_metric_card("AI Infra Core 1M", core_1m), unsafe_allow_html=True)
 
+    st.write("---")
     st.caption("AI Infra Core is a simple equal-weight average excluding benchmarks and optional aggressive names.")
 
     # Render Index section
-    st.write("---")
     st.subheader("📈 AI Infra Core Index Performance")
     
     tf = st.radio("Chart Timeframe", ["1M", "3M", "6M", "1Y", "All"], index=3, horizontal=True, key="index_tf_radio")
@@ -335,8 +337,12 @@ def render_dashboard() -> None:
             df_view["Return"] = df_view["return"].apply(lambda r: f"{r * 100:+.2f}%")
             df_view["Index Contribution"] = df_view["contribution"].apply(lambda c: f"{c * 100:+.2f}%")
             df_view = df_view.rename(columns={"symbol": "Ticker", "name": "Company"})
+            styled_df = df_view[["Ticker", "Company", "Return", "Index Contribution"]].style.map(
+                style_positive_green_negative_red,
+                subset=["Return", "Index Contribution"]
+            )
             st.dataframe(
-                df_view[["Ticker", "Company", "Return", "Index Contribution"]],
+                styled_df,
                 hide_index=True,
                 width='stretch',
             )
@@ -405,8 +411,12 @@ def render_dashboard() -> None:
             gainers_view = gainers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
             gainers_view["Ticker"] = gainers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             gainers_view["1D %"] = gainers_view["1D %"].apply(_fmt_pct)
+            styled_gainers = gainers_view[["Ticker", "Company", "1D %"]].style.map(
+                style_positive_green_negative_red,
+                subset=["1D %"]
+            )
             st.dataframe(
-                gainers_view,
+                styled_gainers,
                 hide_index=True,
                 width="stretch",
                 column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
@@ -420,8 +430,12 @@ def render_dashboard() -> None:
             ).copy()
             drawdowns_view["Ticker"] = drawdowns_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             drawdowns_view["Drawdown %"] = drawdowns_view["Drawdown %"].apply(_fmt_pct)
+            styled_drawdowns = drawdowns_view[["Ticker", "Company", "Drawdown %"]].style.map(
+                style_positive_green_negative_red,
+                subset=["Drawdown %"]
+            )
             st.dataframe(
-                drawdowns_view,
+                styled_drawdowns,
                 hide_index=True,
                 width="stretch",
                 column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
@@ -434,8 +448,12 @@ def render_dashboard() -> None:
             losers_view = losers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
             losers_view["Ticker"] = losers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
             losers_view["1D %"] = losers_view["1D %"].apply(_fmt_pct)
+            styled_losers = losers_view[["Ticker", "Company", "1D %"]].style.map(
+                style_positive_green_negative_red,
+                subset=["1D %"]
+            )
             st.dataframe(
-                losers_view,
+                styled_losers,
                 hide_index=True,
                 width="stretch",
                 column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}

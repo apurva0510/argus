@@ -9,6 +9,7 @@ from argus.core.app_engine import create_migrated_database_engine
 from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
 from argus.services.watchlist_service import load_watchlist_table, normalize_note_value, update_watchlist_items
+from app.components.tables import style_positive_green_negative_red
 
 
 @st.cache_resource
@@ -119,8 +120,13 @@ def render_watchlists() -> None:
     # Format ticker as link for data editor
     editor_df["ticker"] = editor_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
 
+    styled_editor_df = editor_df.style.map(
+        style_positive_green_negative_red,
+        subset=["1D %", "1W %", "1M %", "3M %", "YTD %", "drawdown from 52W high"]
+    )
+
     editable = st.data_editor(
-        editor_df,
+        styled_editor_df,
         hide_index=True,
         width="stretch",
         column_config={
@@ -134,17 +140,17 @@ def render_watchlists() -> None:
             "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
-            "price": st.column_config.NumberColumn("price", disabled=True),
+            "price": st.column_config.NumberColumn("price", disabled=True, format="$%.2f"),
             "1D %": st.column_config.TextColumn("1D %", disabled=True),
             "1W %": st.column_config.TextColumn("1W %", disabled=True),
             "1M %": st.column_config.TextColumn("1M %", disabled=True),
             "3M %": st.column_config.TextColumn("3M %", disabled=True),
             "YTD %": st.column_config.TextColumn("YTD %", disabled=True),
-            "52W high": st.column_config.NumberColumn("52W high", disabled=True),
+            "52W high": st.column_config.NumberColumn("52W high", disabled=True, format="$%.2f"),
             "drawdown from 52W high": st.column_config.TextColumn("drawdown from 52W high", disabled=True),
-            "50DMA": st.column_config.NumberColumn("50DMA", disabled=True),
-            "200DMA": st.column_config.NumberColumn("200DMA", disabled=True),
-            "RSI 14": st.column_config.NumberColumn("RSI 14", disabled=True),
+            "50DMA": st.column_config.NumberColumn("50DMA", disabled=True, format="$%.2f"),
+            "200DMA": st.column_config.NumberColumn("200DMA", disabled=True, format="$%.2f"),
+            "RSI 14": st.column_config.NumberColumn("RSI 14", disabled=True, format="%.1f"),
         },
         key="watchlists_editor",
     )

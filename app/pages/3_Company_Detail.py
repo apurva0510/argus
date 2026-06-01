@@ -22,6 +22,7 @@ from argus.services.company_service import (
     update_watch_status,
     get_watchlist_notes,
 )
+from app.components.metrics import render_metric_card, render_plain_metric_card
 
 get_relative_perf_df = build_relative_performance_frame
 
@@ -151,17 +152,21 @@ def render_company_detail() -> None:
     ma_200 = metrics.get("ma_200") if metrics else None
     
     with m_col1:
-        st.metric("Price", _fmt_price(latest_price))
-        st.metric("1D Return", _fmt_pct(ret_1d))
+        st.markdown(render_plain_metric_card("Price", latest_price, "${:.2f}"), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(render_metric_card("1D Return", ret_1d), unsafe_allow_html=True)
     with m_col2:
-        st.metric("1M Return", _fmt_pct(ret_1m))
-        st.metric("YTD Return", _fmt_pct(ret_ytd))
+        st.markdown(render_metric_card("1M Return", ret_1m), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(render_metric_card("YTD Return", ret_ytd), unsafe_allow_html=True)
     with m_col3:
-        st.metric("RSI (14)", f"{rsi:.1f}" if rsi is not None else "n/a")
-        st.metric("52W Drawdown", _fmt_pct(drawdown))
+        st.markdown(render_plain_metric_card("RSI (14)", rsi, "{:.1f}"), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(render_metric_card("52W Drawdown", drawdown), unsafe_allow_html=True)
     with m_col4:
-        st.metric("50 DMA", _fmt_price(ma_50))
-        st.metric("200 DMA", _fmt_price(ma_200))
+        st.markdown(render_plain_metric_card("50 DMA", ma_50, "${:.2f}"), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(render_plain_metric_card("200 DMA", ma_200, "${:.2f}"), unsafe_allow_html=True)
         
     st.write("---")
     
