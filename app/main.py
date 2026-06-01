@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-from urllib.parse import quote
 
 # Add project root to sys.path to allow absolute imports of 'app' and 'argus'
 project_root = Path(__file__).resolve().parent.parent
@@ -20,22 +19,16 @@ def _auth_secret() -> str:
 
 def _set_auth_cookie() -> None:
     token = create_auth_token(_auth_secret())
-    html = quote(
-        f"""<!doctype html>
-        <html><body>
-        <script>
-        let cookie = "{AUTH_COOKIE_NAME}={token}; path=/; max-age=86400; SameSite=Lax";
-        if (location.protocol === "https:") {{
-            cookie += "; Secure";
-        }}
-        parent.document.cookie = cookie;
-        </script>
-        </body></html>"""
-    )
-    st.iframe(
-        f"data:text/html,{html}",
-        height=1,
-    )
+    script = f"""
+    <script>
+    let cookie = "{AUTH_COOKIE_NAME}={token}; path=/; max-age=86400; SameSite=Lax";
+    if (window.location.protocol === "https:") {{
+        cookie += "; Secure";
+    }}
+    document.cookie = cookie;
+    </script>
+    """
+    st.html(script, unsafe_allow_javascript=True)
 
 
 def _cookie_is_authenticated() -> bool:

@@ -73,8 +73,8 @@ def test_password_protection_accepts_signed_cookie(monkeypatch):
         mock_st.context.cookies.get.assert_called_with(AUTH_COOKIE_NAME)
         assert mock_st.session_state["password_correct"] is True
         mock_navigation.run.assert_called_once()
-        mock_st.iframe.assert_called()
-        assert "data:text/html" in mock_st.iframe.call_args.args[0]
+        mock_st.html.assert_called()
+        assert "document.cookie" in mock_st.html.call_args.args[0]
 
 def test_password_protection_active_correct(monkeypatch):
     """If APP_PASSWORD is set and correct password is provided, session state is updated and app reruns."""
