@@ -20,15 +20,18 @@ def get_watchlist_engine():
 @st.cache_data(ttl=300)
 def load_watchlist_data(
     theme: str | None,
-    ticker_query: str,
+    tickers: tuple[str, ...],
     watch_statuses: tuple[str, ...],
 ) -> pd.DataFrame:
-    return load_watchlist_table(
+    df = load_watchlist_table(
         get_watchlist_engine(),
         theme=theme,
-        ticker_query=ticker_query,
+        ticker_query=None,
         watch_statuses=list(watch_statuses) if watch_statuses else None,
     )
+    if tickers:
+        df = df[df["ticker"].isin(tickers)]
+    return df
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -43,6 +46,7 @@ def render_watchlists() -> None:
 
     theme_options_df = load_watchlist_table(get_watchlist_engine())
     theme_options = sorted(theme_options_df["theme"].dropna().unique().tolist()) if not theme_options_df.empty else []
+    ticker_options = sorted(theme_options_df["ticker"].dropna().unique().tolist()) if not theme_options_df.empty else []
 
     top1, top2, top3 = st.columns([2, 2, 3])
     with top1:
@@ -54,7 +58,11 @@ def render_watchlists() -> None:
             default=sorted(WATCH_STATUSES),
         )
     with top3:
-        ticker_query = st.text_input("Ticker Filter", placeholder="e.g., NVDA")
+        selected_tickers = st.multiselect(
+            "Ticker Filter",
+            options=ticker_options,
+            placeholder="Select tickers...",
+        )
 
     if st.button("Refresh table"):
         load_watchlist_data.clear()
@@ -62,7 +70,7 @@ def render_watchlists() -> None:
 
     df = load_watchlist_data(
         None if selected_theme == "All" else selected_theme,
-        ticker_query,
+        tuple(selected_tickers),
         tuple(selected_statuses),
     )
     if df.empty:
