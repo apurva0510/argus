@@ -113,7 +113,8 @@ def _dedupe_companies(df: pd.DataFrame) -> pd.DataFrame:
     working["_watch_priority"] = working["watch_status"].map(priority).fillna(0)
     working = working.sort_values(["ticker", "_watch_priority"], ascending=[True, False])
     deduped = working.drop_duplicates(subset=["ticker"], keep="first").drop(columns=["_watch_priority"])
-    return deduped.reset_index(drop=True)
+    sorted_df = deduped.sort_values(["opportunity_score", "ticker"], ascending=[False, True])
+    return sorted_df.reset_index(drop=True)
 
 
 def _score_candidates(df: pd.DataFrame) -> pd.DataFrame:

@@ -524,3 +524,80 @@ def test_watchlist_update_propagates_to_opportunity_score(sqlite_engine, db_sess
     assert score_2 == pytest.approx(score_1 + 2.0)
 
 
+def test_load_pullback_candidates_sorting_by_score(sqlite_engine, db_session) -> None:
+    from argus.core.models import Company, Watchlist, WatchlistItem, PriceBar, DailyMetric
+    from argus.services.pullback_finder_service import load_pullback_candidates
+    from datetime import date
+
+    # Clean existing companies/data to avoid interference
+    db_session.query(WatchlistItem).delete()
+    db_session.query(PriceBar).delete()
+    db_session.query(DailyMetric).delete()
+    db_session.query(Company).delete()
+    db_session.query(Watchlist).delete()
+    db_session.commit()
+
+    # Create 3 companies
+    c_low = Company(symbol="AAA", name="Low Score Company", sector="Tech", is_active=True)
+    c_high = Company(symbol="ZZZ", name="High Score Company", sector="Tech", is_active=True)
+    c_mid = Company(symbol="MMM", name="Mid Score Company", sector="Tech", is_active=True)
+    db_session.add_all([c_low, c_high, c_mid])
+    db_session.flush()
+
+    w = Watchlist(name="Tech", is_system=True)
+    db_session.add(w)
+    db_session.flush()
+
+    # Add to watchlist (owned has priority, watch is mid, ignore is low)
+    wi_low = WatchlistItem(watchlist_id=w.id, company_id=c_low.id, watch_status="ignore")
+    wi_high = WatchlistItem(watchlist_id=w.id, company_id=c_high.id, watch_status="high_priority")
+    wi_mid = WatchlistItem(watchlist_id=w.id, company_id=c_mid.id, watch_status="watch")
+    db_session.add_all([wi_low, wi_high, wi_mid])
+
+    # Price bars
+    pb_low = PriceBar(company_id=c_low.id, date=date(2026, 5, 29), adj_close=10.0, provider="yfinance", interval="1d")
+    pb_high = PriceBar(company_id=c_high.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d")
+    pb_mid = PriceBar(company_id=c_mid.id, date=date(2026, 5, 29), adj_close=50.0, provider="yfinance", interval="1d")
+    db_session.add_all([pb_low, pb_high, pb_mid])
+
+    # Daily Metrics (high drawdown + high watchlist priority => high score)
+    dm_low = DailyMetric(
+        company_id=c_low.id,
+        date=date(2026, 5, 29),
+        drawdown_52w=-0.01,
+        rsi_14=70.0,
+        distance_from_200dma=-0.25,
+        relative_return_vs_qqq_3m=-0.15,
+        return_1w=-0.10,
+    )
+    dm_high = DailyMetric(
+        company_id=c_high.id,
+        date=date(2026, 5, 29),
+        drawdown_52w=-0.28,
+        rsi_14=32.0,
+        distance_from_200dma=0.04,
+        relative_return_vs_qqq_3m=0.08,
+        return_1w=-0.02,
+    )
+    dm_mid = DailyMetric(
+        company_id=c_mid.id,
+        date=date(2026, 5, 29),
+        drawdown_52w=-0.15,
+        rsi_14=45.0,
+        distance_from_200dma=0.01,
+        relative_return_vs_qqq_3m=0.01,
+        return_1w=-0.04,
+    )
+    db_session.add_all([dm_low, dm_high, dm_mid])
+    db_session.commit()
+
+    candidates = load_pullback_candidates(sqlite_engine)
+    assert len(candidates) == 3
+
+    # The order must be sorted descending by opportunity score
+    # High score should be first (c_high), then mid (c_mid), then low (c_low)
+    tickers = candidates["ticker"].tolist()
+    assert tickers == ["ZZZ", "MMM", "AAA"]
+
+
+
