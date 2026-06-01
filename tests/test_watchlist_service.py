@@ -159,6 +159,37 @@ def test_load_watchlist_table_filters(sqlite_engine, db_session) -> None:
     assert df_status.empty
 
 
+def test_load_watchlist_table_omits_unused_filter_params(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _traceback):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    def fake_read_sql_query(sql, conn, params):
+        captured["sql"] = str(sql)
+        captured["params"] = params
+        return pd.DataFrame()
+
+    monkeypatch.setattr(
+        "argus.services.watchlist_service.pd.read_sql_query",
+        fake_read_sql_query,
+    )
+
+    load_watchlist_table(_Engine())
+
+    assert ":theme" not in captured["sql"]
+    assert ":ticker_query" not in captured["sql"]
+    assert captured["params"] == {"provider": "yfinance"}
+
+
 def test_load_watchlist_table_includes_custom_watchlists(sqlite_engine, db_session) -> None:
     company = Company(symbol="ETN", name="Eaton", is_active=True)
     custom_watchlist = Watchlist(name="Dad Picks", is_system=False)

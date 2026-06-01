@@ -20,10 +20,20 @@ def load_watchlist_table(
     watch_statuses: list[str] | None = None,
 ) -> pd.DataFrame:
     ticker_query = (ticker_query or "").strip()
+    params = {"provider": settings.market_data_provider}
+    filters: list[str] = []
+    if theme is not None:
+        filters.append("w.name = :theme")
+        params["theme"] = theme
+    if ticker_query:
+        filters.append("UPPER(c.symbol) LIKE '%' || UPPER(:ticker_query) || '%'")
+        params["ticker_query"] = ticker_query
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
     with engine.connect() as conn:
         df = pd.read_sql_query(
             text(
-                """
+                f"""
                 SELECT
                     wi.id AS watchlist_item_id,
                     c.symbol AS ticker,
@@ -58,15 +68,14 @@ def load_watchlist_table(
                     FROM daily_metrics dm2
                     WHERE dm2.company_id = c.id
                     ORDER BY dm2.date DESC
-                    LIMIT 1
+                        LIMIT 1
                 )
-                WHERE (:theme IS NULL OR w.name = :theme)
-                    AND (:ticker_query = '' OR UPPER(c.symbol) LIKE '%' || UPPER(:ticker_query) || '%')
+                {where_clause}
                 ORDER BY w.name, c.symbol
                 """
             ),
             conn,
-            params={"theme": theme, "ticker_query": ticker_query, "provider": settings.market_data_provider},
+            params=params,
         )
 
     if watch_statuses:
