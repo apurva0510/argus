@@ -177,7 +177,6 @@ def render_pullback_finder() -> None:
             "200DMA",
             "vs QQQ 3M",
             "theme score",
-            "explanation",
         ]
     ]
 
@@ -193,7 +192,6 @@ def render_pullback_finder() -> None:
         column_config={
             "rank": st.column_config.NumberColumn("rank", width="small"),
             "score": st.column_config.NumberColumn("score", format="%.1f"),
-            "explanation": st.column_config.TextColumn("reason / explanation", width=600),
             "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
         },
         on_select="rerun",
@@ -204,7 +202,7 @@ def render_pullback_finder() -> None:
 
     if event and event.selection and event.selection.rows:
         selected_row_idx = event.selection.rows[0]
-        selected_row = table_df.iloc[selected_row_idx]
+        selected_row = display_df.iloc[selected_row_idx]
         
         # Extract symbol from link
         import re
