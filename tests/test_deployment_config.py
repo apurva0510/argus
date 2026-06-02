@@ -1,5 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
+from datetime import UTC, datetime, time
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import func, text
@@ -14,17 +16,92 @@ from scripts.enable_rls import _quote_identifier
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_intraday_workflow_writes_to_github_output_env() -> None:
+def _is_news_window_utc(utc_dt: datetime) -> bool:
+    now_et = utc_dt.astimezone(ZoneInfo("America/New_York"))
+    is_weekday = now_et.weekday() < 5
+    open_start = time(8, 30)
+    open_end = time(9, 0)
+    close_start = time(17, 0)
+    close_end = time(17, 30)
+    return is_weekday and (
+        open_start <= now_et.time() < open_end
+        or close_start <= now_et.time() < close_end
+    )
+
+
+def test_intraday_workflow_runs_every_30_minutes_through_5pm_et() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "intraday-prices.yml").read_text(
         encoding="utf-8"
     )
 
-    assert 'cron: "*/30 12-21 * * 1-5"' in workflow
+    assert "GitHub cron is UTC-only" in workflow
+    assert "covers the requested" in workflow
+    assert 'cron: "*/30 12-22 * * 1-5"' in workflow
+    assert 'ZoneInfo("America/New_York")' in workflow
     assert "start = time(8, 30)" in workflow
-    assert "end = time(16, 30)" in workflow
+    assert "end = time(17, 0)" in workflow
     assert 'os.environ["GITHUB_OUTPUT"]' in workflow
     assert 'open("$GITHUB_OUTPUT"' not in workflow
     assert "python scripts/backfill_prices.py --period 5d --interval 15m" in workflow
+
+
+def test_daily_close_workflow_runs_at_530pm_et_with_manual_override() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "daily-refresh.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "GitHub cron is UTC-only" in workflow
+    assert "cover 5:30 PM ET in both" in workflow
+    assert 'cron: "30 21,22 * * 1-5"' in workflow
+    assert 'ZoneInfo("America/New_York")' in workflow
+    assert 'os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"' in workflow
+    assert "start = time(17, 30)" in workflow
+    assert "end = time(18, 0)" in workflow
+    assert "is_manual or in_window" in workflow
+    assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
+    assert "python scripts/run_daily_refresh.py --period 2y --skip-news" in workflow
+
+
+def test_news_workflow_runs_only_at_market_open_and_close_et() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "news-refresh.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "GitHub cron is UTC-only" in workflow
+    assert "market-open news" in workflow
+    assert "market-close news" in workflow
+    assert 'cron: "30 12,13 * * 1-5"' in workflow
+    assert 'cron: "0 21,22 * * 1-5"' in workflow
+    assert 'ZoneInfo("America/New_York")' in workflow
+    assert "open_start = time(8, 30)" in workflow
+    assert "open_end = time(9, 0)" in workflow
+    assert "close_start = time(17, 0)" in workflow
+    assert "close_end = time(17, 30)" in workflow
+    assert "steps.news_refresh_window.outputs.run_job == 'true'" in workflow
+
+
+def test_news_workflow_utc_schedule_candidates_enter_et_windows() -> None:
+    assert _is_news_window_utc(datetime(2026, 6, 1, 12, 30, tzinfo=UTC))
+    assert _is_news_window_utc(datetime(2026, 6, 1, 21, 0, tzinfo=UTC))
+    assert _is_news_window_utc(datetime(2026, 1, 5, 13, 30, tzinfo=UTC))
+    assert _is_news_window_utc(datetime(2026, 1, 5, 22, 0, tzinfo=UTC))
+
+    assert not _is_news_window_utc(datetime(2026, 6, 1, 21, 30, tzinfo=UTC))
+    assert not _is_news_window_utc(datetime(2026, 1, 5, 22, 30, tzinfo=UTC))
+
+
+def test_ir_feeds_workflow_runs_once_daily_after_close_et() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ir-feeds-refresh.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "GitHub cron is UTC-only" in workflow
+    assert "cover 6:30 PM ET" in workflow
+    assert 'cron: "30 22,23 * * 1-5"' in workflow
+    assert 'ZoneInfo("America/New_York")' in workflow
+    assert "start = time(18, 30)" in workflow
+    assert "end = time(19, 0)" in workflow
+    assert "python scripts/refresh_ir_feeds.py" in workflow
 
 
 def test_daily_refresh_cli_allows_partial_success_without_failing_workflow() -> None:
@@ -39,6 +116,7 @@ def test_scheduled_workflows_validate_database_url_secret() -> None:
     for workflow_name in (
         "daily-refresh.yml",
         "filings-refresh.yml",
+        "ir-feeds-refresh.yml",
         "intraday-prices.yml",
         "news-refresh.yml",
     ):

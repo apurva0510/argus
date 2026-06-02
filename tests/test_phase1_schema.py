@@ -44,6 +44,7 @@ REQUIRED_TABLES = {
     "alert_events",
     "user_notes",
     "job_runs",
+    "provider_health",
     "app_settings",
 }
 
@@ -112,7 +113,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
             .filter(AppSetting.key == "schema_version")
             .one()
         )
-        assert schema_version.value == "2"
+        assert schema_version.value == "3"
     test_engine.dispose()
 
 

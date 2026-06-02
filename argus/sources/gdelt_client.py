@@ -45,16 +45,6 @@ def _rate_limit() -> None:
     _last_gdelt_request_at = time.monotonic()
 
 
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    retry_after = response.headers.get("Retry-After")
-    if not retry_after:
-        return None
-    try:
-        return max(0.0, float(retry_after))
-    except ValueError:
-        return None
-
-
 def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
     """Fetch news for a broad query from GDELT Doc 2.0 API.
 
@@ -86,14 +76,7 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
                 logger.warning("GDELT API returned 404 for %s. Returning empty list.", query_clean)
                 return []
             if response.status_code == 429:
-                if attempt == max_retries:
-                    raise NewsProviderRateLimitError("gdelt", query_clean)
-                wait = _retry_after_seconds(response)
-                if wait is None:
-                    wait = 2.0**attempt
-                logger.warning("GDELT rate limit for %s. Retrying in %.1f seconds.", query_clean, wait)
-                time.sleep(wait)
-                continue
+                raise NewsProviderRateLimitError("gdelt", query_clean)
             response.raise_for_status()
             break
         except httpx.TimeoutException as exc:

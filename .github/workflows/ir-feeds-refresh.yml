@@ -1,20 +1,18 @@
-name: News Refresh
+name: IR Feeds Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. These UTC times cover one market-open news
-    # refresh and one market-close news refresh in both EDT and EST.
-    - cron: "30 12,13 * * 1-5"
-    - cron: "0 21,22 * * 1-5"
+    # GitHub cron is UTC-only. These two UTC times cover 6:30 PM ET in both
+    # EDT and EST; the Python gate below is the source of truth.
+    - cron: "30 22,23 * * 1-5"
   workflow_dispatch: {}
 
-
 concurrency:
-  group: news-refresh
+  group: ir-feeds-refresh
   cancel-in-progress: true
 
 jobs:
-  news:
+  ir-feeds:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -22,12 +20,11 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
       APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
-      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
-      - name: Determine if news refresh window (ET)
-        id: news_refresh_window
+      - name: Determine if IR refresh window (ET)
+        id: ir_refresh_window
         run: |
           python - <<'PY'
           from datetime import datetime, time
@@ -37,14 +34,9 @@ jobs:
           is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
           now_et = datetime.now(ZoneInfo("America/New_York"))
           is_weekday = now_et.weekday() < 5
-          open_start = time(8, 30)
-          open_end = time(9, 0)
-          close_start = time(17, 0)
-          close_end = time(17, 30)
-          in_window = is_weekday and (
-              open_start <= now_et.time() < open_end
-              or close_start <= now_et.time() < close_end
-          )
+          start = time(18, 30)
+          end = time(19, 0)
+          in_window = is_weekday and (start <= now_et.time() < end)
           run_job = is_manual or in_window
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"run_job={'true' if run_job else 'false'}\n")
@@ -52,28 +44,28 @@ jobs:
           PY
 
       - name: Validate required secrets
-        if: steps.news_refresh_window.outputs.run_job == 'true'
+        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: |
           test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
 
       - name: Checkout repository
-        if: steps.news_refresh_window.outputs.run_job == 'true'
+        if: steps.ir_refresh_window.outputs.run_job == 'true'
         uses: actions/checkout@v6
 
       - name: Set up Python 3.12
-        if: steps.news_refresh_window.outputs.run_job == 'true'
+        if: steps.ir_refresh_window.outputs.run_job == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
-        if: steps.news_refresh_window.outputs.run_job == 'true'
+        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Refresh news
-        if: steps.news_refresh_window.outputs.run_job == 'true'
-        run: python scripts/refresh_news.py
+      - name: Refresh IR feeds
+        if: steps.ir_refresh_window.outputs.run_job == 'true'
+        run: python scripts/refresh_ir_feeds.py

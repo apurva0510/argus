@@ -1,8 +1,8 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, JobRun, NewsItem, NewsMention, SecFiling
+from argus.core.models import Company, JobRun, NewsItem, NewsMention, ProviderHealth, SecFiling
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
 from argus.sources.gdelt_client import parse_gdelt_date
@@ -213,8 +213,8 @@ def test_detect_mentions_and_keywords_case_sensitive_short_tickers() -> None:
     assert tickers == {"SO", "IT"}
 
 
-def test_fetch_rss_news_retries(monkeypatch) -> None:
-    from argus.sources.news_rss_client import fetch_rss_news
+def test_fetch_rss_news_raises_on_first_429(monkeypatch) -> None:
+    from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news
     import httpx
 
     call_count = 0
@@ -222,39 +222,19 @@ def test_fetch_rss_news_retries(monkeypatch) -> None:
     def mock_get(url, *args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count < 3:
-            # First two calls trigger a 429
-            return httpx.Response(status_code=429, request=httpx.Request("GET", url))
-        # Third call succeeds
-        rss_content = b"""<?xml version="1.0" encoding="UTF-8" ?>
-        <rss version="2.0">
-        <channel>
-            <title>Yahoo Finance RSS</title>
-            <item>
-                <title>Test Success Article</title>
-                <link>https://finance.yahoo.com/test</link>
-                <description>A test description.</description>
-                <pubDate>Sat, 30 May 2026 10:00:00 -0400</pubDate>
-            </item>
-        </channel>
-        </rss>
-        """
-        return httpx.Response(status_code=200, content=rss_content, request=httpx.Request("GET", url))
+        return httpx.Response(status_code=429, request=httpx.Request("GET", url))
 
-    # Mock time.sleep to run immediately in tests
-    import time
-    monkeypatch.setattr(time, "sleep", lambda x: None)
     monkeypatch.setattr(httpx, "get", mock_get)
 
-    items = fetch_rss_news("AAPL")
-    assert call_count == 3
-    assert len(items) == 1
-    assert items[0]["title"] == "Test Success Article"
-    assert items[0]["url"] == "https://finance.yahoo.com/test"
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_rss_news("AAPL")
+
+    assert call_count == 1
 
 
-def test_fetch_gdelt_news_retries(monkeypatch) -> None:
+def test_fetch_gdelt_news_raises_on_first_429(monkeypatch) -> None:
     from argus.sources.gdelt_client import fetch_gdelt_news
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
     import httpx
 
     call_count = 0
@@ -262,37 +242,14 @@ def test_fetch_gdelt_news_retries(monkeypatch) -> None:
     def mock_get(url, *args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count < 3:
-            # First two calls trigger a 429 rate limit
-            return httpx.Response(status_code=429, request=httpx.Request("GET", url))
-        # Third call succeeds
-        import json
-        dummy_data = {
-            "articles": [
-                {
-                    "title": "Test GDELT Success",
-                    "url": "https://gdelt.org/test",
-                    "domain": "gdelt.org",
-                    "seendate": "20260530T100000Z"
-                }
-            ]
-        }
-        return httpx.Response(
-            status_code=200,
-            content=json.dumps(dummy_data).encode("utf-8"),
-            request=httpx.Request("GET", url)
-        )
+        return httpx.Response(status_code=429, request=httpx.Request("GET", url))
 
-    # Mock time.sleep to run immediately in tests
-    import time
-    monkeypatch.setattr(time, "sleep", lambda x: None)
     monkeypatch.setattr(httpx, "get", mock_get)
 
-    items = fetch_gdelt_news("AAPL")
-    assert call_count == 3
-    assert len(items) == 1
-    assert items[0]["title"] == "Test GDELT Success"
-    assert items[0]["url"] == "https://gdelt.org/test"
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_gdelt_news("AAPL")
+
+    assert call_count == 1
 
 
 # SEC User-Agent requirement test
@@ -642,10 +599,97 @@ def test_refresh_news_partial_failure(sqlite_engine, monkeypatch) -> None:
         assert "bad query" in job.error_text
 
 
-def test_fetch_rss_news_429_then_failure(monkeypatch) -> None:
+def test_refresh_news_429_marks_provider_unhealthy_and_skips_remaining_queries(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
+
+    rss_calls = 0
+    gdelt_calls = 0
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        nonlocal rss_calls
+        rss_calls += 1
+        raise NewsProviderRateLimitError("rss", query)
+
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
+        nonlocal gdelt_calls
+        gdelt_calls += 1
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
+    monkeypatch.setattr(news_module.settings, "provider_disable_hours", 24.0)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+
+    result = refresh_news(force=True, queries=["first query", "second query"])
+
+    assert result["status"] == "partial_success"
+    assert rss_calls == 1
+    assert gdelt_calls == 2
+    assert "rss" in result["failed_providers"]
+    assert "RSS disabled until tomorrow due to rate limit" in result["error_text"]
+
+    with db_module.session_scope() as session:
+        health = session.query(ProviderHealth).filter_by(provider="rss").one()
+        assert health.status == "unhealthy"
+        assert health.failure_count == 1
+        assert health.disabled_until is not None
+        assert health.last_error == "RSS disabled until tomorrow due to rate limit"
+
+
+def test_refresh_news_skips_provider_disabled_from_previous_429(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    calls = 0
+
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+        session.add(
+            ProviderHealth(
+                provider="gdelt",
+                status="unhealthy",
+                failure_count=1,
+                disabled_until=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=23),
+                last_error="GDELT disabled until tomorrow due to rate limit",
+            )
+        )
+
+    result = refresh_news(force=True, queries=["data center AI"])
+
+    assert result["status"] == "partial_success"
+    assert calls == 0
+    assert "gdelt" in result["failed_providers"]
+    assert "GDELT disabled until tomorrow due to rate limit" in result["error_text"]
+
+
+def test_fetch_rss_news_429_does_not_retry(monkeypatch) -> None:
     from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
     import httpx
-    import time
 
     calls = 0
 
@@ -658,13 +702,12 @@ def test_fetch_rss_news_429_then_failure(monkeypatch) -> None:
             request=httpx.Request("GET", url),
         )
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     monkeypatch.setattr(httpx, "get", mock_get)
 
     with pytest.raises(NewsProviderRateLimitError):
         fetch_rss_news_query("data center AI")
 
-    assert calls == 3
+    assert calls == 1
 
 
 def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -> None:
@@ -850,3 +893,82 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engi
         
         # Verify NewsMention count is exactly 1 (not 2)
         assert session.query(NewsMention).count() == 1
+
+
+def test_refresh_ir_feeds_stores_company_ir_news(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ir_feeds as ir_module
+
+    def mock_fetch_ir_feed(symbol: str, url: str) -> list[dict]:
+        assert symbol == "CRWD"
+        assert url == "https://example.com/crwd-ir.xml"
+        return [
+            {
+                "title": "CrowdStrike announces platform update",
+                "summary": "Investor relations release for cybersecurity customers.",
+                "url": "https://example.com/crwd-release",
+                "source_name": "CRWD investor relations",
+                "provider": "ir_feed",
+                "published_at": datetime(2026, 5, 30, 10, 0, 0),
+            }
+        ]
+
+    monkeypatch.setattr(ir_module, "IR_FEED_URLS", {"CRWD": "https://example.com/crwd-ir.xml"})
+    monkeypatch.setattr(ir_module, "fetch_ir_feed", mock_fetch_ir_feed)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="CRWD", name="CrowdStrike Holdings, Inc.", is_active=True))
+
+    result = ir_module.refresh_ir_feeds()
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 1
+    assert result["rows_written"] == 1
+    with db_module.session_scope() as session:
+        item = session.query(NewsItem).one()
+        mention = session.query(NewsMention).one()
+        assert item.provider == "ir_feed"
+        assert item.source_name == "CRWD investor relations"
+        assert mention.ticker == "CRWD"
+
+
+def test_refresh_ir_feeds_429_marks_provider_unhealthy(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ir_feeds as ir_module
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
+
+    calls = 0
+
+    def mock_fetch_ir_feed(symbol: str, url: str) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        raise NewsProviderRateLimitError("ir_feed", symbol)
+
+    monkeypatch.setattr(ir_module, "IR_FEED_URLS", {"CRWD": "https://example.com/crwd-ir.xml"})
+    monkeypatch.setattr(ir_module, "fetch_ir_feed", mock_fetch_ir_feed)
+    monkeypatch.setattr(ir_module.settings, "provider_disable_hours", 24.0)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="CRWD", name="CrowdStrike Holdings, Inc.", is_active=True))
+
+    result = ir_module.refresh_ir_feeds()
+
+    assert result["status"] == "partial_success"
+    assert calls == 1
+    assert "IR feeds disabled until tomorrow due to rate limit" in result["error_text"]
+    with db_module.session_scope() as session:
+        health = session.query(ProviderHealth).filter_by(provider="ir_feed").one()
+        assert health.status == "unhealthy"
+        assert health.failure_count == 1
+        assert health.disabled_until is not None
+        assert health.last_error == "IR feeds disabled until tomorrow due to rate limit"

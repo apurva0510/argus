@@ -28,16 +28,6 @@ def _rate_limit() -> None:
     _last_rss_request_at = time.monotonic()
 
 
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    retry_after = response.headers.get("Retry-After")
-    if not retry_after:
-        return None
-    try:
-        return max(0.0, float(retry_after))
-    except ValueError:
-        return None
-
-
 def _get_with_retries(url: str, *, query: str, timeout: float = 10.0) -> httpx.Response | None:
     headers = {
         "User-Agent": (
@@ -61,14 +51,7 @@ def _get_with_retries(url: str, *, query: str, timeout: float = 10.0) -> httpx.R
             logger.warning("RSS feed for %s not found (404). Returning empty list.", query)
             return None
         if response.status_code == 429:
-            if attempt == max_retries:
-                raise NewsProviderRateLimitError("rss", query)
-            wait = _retry_after_seconds(response)
-            if wait is None:
-                wait = 2.0**attempt
-            logger.warning("RSS rate limit for %s. Retrying in %.1f seconds.", query, wait)
-            time.sleep(wait)
-            continue
+            raise NewsProviderRateLimitError("rss", query)
 
         try:
             response.raise_for_status()

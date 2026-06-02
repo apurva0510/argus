@@ -18,11 +18,14 @@ def ensure_project_root_on_path() -> None:
 
 def main() -> None:
     ensure_project_root_on_path()
+    from argus.core.db import get_engine
     from argus.core.logging import configure_logging
+    from argus.core.migrations import run_migrations
     from argus.pipelines.refresh_news import refresh_news
 
     args = parse_args()
     configure_logging()
+    run_migrations(get_engine())
     print("Starting news refresh job (RSS & GDELT)...")
     result = refresh_news(force=args.force, max_queries=args.max_queries)
     print("News refresh job completed.")
@@ -34,7 +37,7 @@ def main() -> None:
     if result.get("failed_providers"):
         print(f"Failed providers: {', '.join(result['failed_providers'])}")
     if result.get("error_text"):
-        print(f"Error: {result['error_text']}")
+        print(f"Warning: {result['error_text']}")
 
 
 if __name__ == "__main__":

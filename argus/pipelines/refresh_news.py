@@ -10,6 +10,12 @@ from sqlalchemy import select
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, NewsItem, NewsMention
 from argus.core.settings import settings
+from argus.pipelines.provider_health import (
+    disabled_message,
+    is_provider_available,
+    mark_provider_rate_limited,
+    mark_provider_success,
+)
 from argus.sources.gdelt_client import fetch_gdelt_news_query
 from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
 
@@ -368,8 +374,10 @@ def refresh_news(
     rows_read = 0
     failed_queries: list[str] = []
     failed_providers: list[str] = []
+    disabled_providers: set[str] = set()
     status = "success"
     error_text: str | None = None
+    health_messages: list[str] = []
 
     try:
         with session_scope() as session:
@@ -397,10 +405,22 @@ def refresh_news(
 
             for query in selected_queries:
                 for provider in ("rss", "gdelt"):
+                    if provider in disabled_providers or not is_provider_available(session, provider, now):
+                        failed_providers.append(provider)
+                        message = disabled_message(provider)
+                        if message not in health_messages:
+                            health_messages.append(message)
+                            logger.warning(message)
+                        continue
+
                     try:
                         fetched_articles = _fetch_provider_query(provider, query)
-                    except NewsProviderRateLimitError:
-                        logger.exception("Rate limit while fetching %s query: %s", provider, query)
+                    except NewsProviderRateLimitError as exc:
+                        message = mark_provider_rate_limited(session, provider, _utc_now())
+                        disabled_providers.add(provider)
+                        logger.warning("%s: %s", message, exc)
+                        if message not in health_messages:
+                            health_messages.append(message)
                         failed_queries.append(query)
                         failed_providers.append(provider)
                         continue
@@ -410,6 +430,7 @@ def refresh_news(
                         failed_providers.append(provider)
                         continue
 
+                    mark_provider_success(session, provider, _utc_now())
                     rows_read += len(fetched_articles)
                     for article in fetched_articles:
                         article["provider"] = provider
@@ -425,12 +446,17 @@ def refresh_news(
                     rows_written += _upsert_news_item(session, art, mentions)
 
             if failed_queries or failed_providers:
-                status = "partial_success" if rows_written > 0 or rows_read > 0 else "failed"
+                if health_messages:
+                    status = "partial_success"
+                else:
+                    status = "partial_success" if rows_written > 0 or rows_read > 0 else "failed"
                 logger.warning(
                     "News refresh experienced failures for providers=%s queries=%s",
                     ",".join(sorted(set(failed_providers))),
                     ",".join(sorted(set(failed_queries))),
                 )
+                if health_messages:
+                    error_text = "; ".join(health_messages)
     except Exception as exc:
         status = "failed"
         error_text = str(exc)

@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting
 
 
-CURRENT_SCHEMA_VERSION = "2"
+CURRENT_SCHEMA_VERSION = "3"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
