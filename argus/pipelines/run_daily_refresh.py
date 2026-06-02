@@ -12,6 +12,8 @@ from argus.pipelines.compute_scores import compute_opportunity_scores
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import refresh_news
 from argus.pipelines.refresh_prices import refresh_prices
+from argus.pipelines.refresh_earnings import refresh_earnings
+from argus.pipelines.refresh_fundamentals import refresh_fundamentals
 from argus.pipelines.run_alerts import run_alerts
 
 logger = logging.getLogger(__name__)
@@ -63,12 +65,23 @@ def build_daily_refresh_steps(
     include_news: bool = True,
     include_filings: bool = True,
     include_alerts: bool = True,
+    include_fundamentals: bool = True,
+    include_earnings: bool = True,
 ) -> list[PipelineStep]:
     steps: list[PipelineStep] = [
         ("refresh_prices", lambda: refresh_prices(period=period)),
+    ]
+
+    if include_fundamentals:
+        steps.append(("refresh_fundamentals", refresh_fundamentals))
+
+    if include_earnings:
+        steps.append(("refresh_earnings", refresh_earnings))
+
+    steps.extend([
         ("compute_daily_metrics", compute_daily_metrics),
         ("compute_opportunity_scores", compute_opportunity_scores),
-    ]
+    ])
 
     if include_news:
         steps.append(("refresh_news", refresh_news))
@@ -91,6 +104,8 @@ def run_daily_refresh(
     include_news: bool = True,
     include_filings: bool = True,
     include_alerts: bool = True,
+    include_fundamentals: bool = True,
+    include_earnings: bool = True,
     steps: list[PipelineStep] | None = None,
 ) -> dict[str, object]:
     """Run the daily refresh workflow without requiring Streamlit page load jobs."""
@@ -107,6 +122,8 @@ def run_daily_refresh(
             include_news=include_news,
             include_filings=include_filings,
             include_alerts=include_alerts,
+            include_fundamentals=include_fundamentals,
+            include_earnings=include_earnings,
         ):
             try:
                 result = step_fn()
