@@ -4,7 +4,6 @@ import logging
 from datetime import UTC, datetime
 from sqlalchemy import select
 import yfinance as yf
-import pandas as pd
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, FundamentalsSnapshot
