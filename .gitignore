@@ -199,3 +199,5 @@ data/exports/
 # macOS
 .DS_Store
 docs/
+*.sql
+

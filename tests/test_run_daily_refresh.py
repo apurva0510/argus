@@ -44,7 +44,15 @@ def test_run_daily_refresh_reports_partial_success(sqlite_engine, monkeypatch) -
     result = run_daily_refresh(
         steps=[
             ("ok", lambda: {"status": "success", "rows_read": 1, "rows_written": 1}),
-            ("bad", lambda: {"status": "failed", "rows_read": 2, "rows_written": 0, "error_text": "boom"}),
+            (
+                "bad",
+                lambda: {
+                    "status": "failed",
+                    "rows_read": 2,
+                    "rows_written": 0,
+                    "error_text": "boom",
+                },
+            ),
         ]
     )
 
@@ -77,6 +85,7 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
         "refresh_prices",
         "compute_daily_metrics",
         "compute_opportunity_scores",
+        "refresh_index",
     ]
 
 
@@ -98,5 +107,5 @@ def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
         "refresh_earnings",
         "compute_daily_metrics",
         "compute_opportunity_scores",
+        "refresh_index",
     ]
-

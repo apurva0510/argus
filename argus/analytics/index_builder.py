@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 import pandas as pd
 from sqlalchemy.orm import Session
-from argus.core.models import Company, PriceBar
+from argus.core.models import Company, PriceBar, IndexValue
 from argus.core.settings import settings
 
 
@@ -14,6 +14,7 @@ def get_default_index_symbols(session: Session) -> list[str]:
     and optional aggressive names (ALAB, CRDO) by default.
     """
     from argus.core.seed import BENCHMARKS, OPTIONAL_AGGRESSIVE_SYMBOLS
+
     companies = session.query(Company).filter(Company.is_active.is_(True)).all()
     excluded = BENCHMARKS | OPTIONAL_AGGRESSIVE_SYMBOLS
     return [c.symbol for c in companies if c.symbol not in excluded]
@@ -25,10 +26,27 @@ def calculate_equal_weight_index(
     base_value: float = 100.0,
 ) -> pd.DataFrame:
     """
-    Build an equal-weight index from price_bars using adjusted close prices.
-    Returns a DataFrame with columns: ['date', 'index_value']
-    Gracefully handles tickers with missing histories or different start dates.
+    Build an equal-weight index. If symbols is None and the pre-calculated
+    index_values table has data, we load it directly from the database for speed.
+    Otherwise, we calculate it dynamically from price_bars.
     """
+    if symbols is None:
+        try:
+            query = session.query(IndexValue.date, IndexValue.index_value).order_by(
+                IndexValue.date.asc()
+            )
+            df_pre = pd.read_sql_query(query.statement, session.connection())
+            if not df_pre.empty:
+                df_pre.columns = ["date", "index_value"]
+                df_pre["date"] = pd.to_datetime(df_pre["date"]).dt.date
+                return df_pre
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Could not read pre-calculated index_values: %s", exc
+            )
+
     if symbols is None:
         symbols = get_default_index_symbols(session)
 
@@ -53,7 +71,7 @@ def calculate_equal_weight_index(
 
     # Convert date to datetime to facilitate formatting/sorting
     df["date"] = pd.to_datetime(df["date"])
-    
+
     # Pivot so each column represents a ticker, and the index represents dates
     pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
     pivot_df = pivot_df.sort_index().astype(float)
@@ -145,8 +163,8 @@ def calculate_relative_performance(
             base_val = merged.loc[first_valid, f"{symbol}_close"]
             if base_val and base_val != 0:
                 merged.loc[first_valid:, f"{symbol.lower()}_ret"] = (
-                    (merged.loc[first_valid:, f"{symbol}_close"] / base_val - 1.0) * 100.0
-                )
+                    merged.loc[first_valid:, f"{symbol}_close"] / base_val - 1.0
+                ) * 100.0
 
     # Clean up intermediate close price columns
     cols_to_keep = ["date", "index_ret", "qqq_ret", "nvda_ret"]
@@ -213,12 +231,14 @@ def calculate_top_contributors(
                 ret = 0.0
 
         contrib = ret / n_constituents
-        records.append({
-            "symbol": sym,
-            "name": comp_names.get(sym, sym),
-            "return": ret,
-            "contribution": contrib,
-        })
+        records.append(
+            {
+                "symbol": sym,
+                "name": comp_names.get(sym, sym),
+                "return": ret,
+                "contribution": contrib,
+            }
+        )
 
     res_df = pd.DataFrame(records)
     if not res_df.empty:

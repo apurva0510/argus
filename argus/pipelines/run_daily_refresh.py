@@ -14,7 +14,9 @@ from argus.pipelines.refresh_news import refresh_news
 from argus.pipelines.refresh_prices import refresh_prices
 from argus.pipelines.refresh_earnings import refresh_earnings
 from argus.pipelines.refresh_fundamentals import refresh_fundamentals
+from argus.pipelines.refresh_index import refresh_index
 from argus.pipelines.run_alerts import run_alerts
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +80,13 @@ def build_daily_refresh_steps(
     if include_earnings:
         steps.append(("refresh_earnings", refresh_earnings))
 
-    steps.extend([
-        ("compute_daily_metrics", compute_daily_metrics),
-        ("compute_opportunity_scores", compute_opportunity_scores),
-    ])
+    steps.extend(
+        [
+            ("compute_daily_metrics", compute_daily_metrics),
+            ("compute_opportunity_scores", compute_opportunity_scores),
+            ("refresh_index", refresh_index),
+        ]
+    )
 
     if include_news:
         steps.append(("refresh_news", refresh_news))

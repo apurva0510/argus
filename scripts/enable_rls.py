@@ -38,6 +38,8 @@ TABLES = [
     "alerts",
     "user_notes",
     "alert_events",
+    "provider_health",
+    "index_values",
 ]
 
 
@@ -55,7 +57,9 @@ def main() -> None:
         database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
     engine = create_engine(
-        database_url, future=True, connect_args={"prepare_threshold": None},
+        database_url,
+        future=True,
+        connect_args={"prepare_threshold": None},
     )
 
     with engine.connect() as conn:
@@ -63,13 +67,13 @@ def main() -> None:
         quoted_role = _quote_identifier(db_role)
         for table in TABLES:
             conn.execute(text(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY"))
-            conn.execute(text(
-                f"DROP POLICY IF EXISTS argus_full_access ON public.{table}"
-            ))
-            conn.execute(text(
-                f"CREATE POLICY argus_full_access ON public.{table} "
-                f"FOR ALL TO {quoted_role} USING (true) WITH CHECK (true)"
-            ))
+            conn.execute(text(f"DROP POLICY IF EXISTS argus_full_access ON public.{table}"))
+            conn.execute(
+                text(
+                    f"CREATE POLICY argus_full_access ON public.{table} "
+                    f"FOR ALL TO {quoted_role} USING (true) WITH CHECK (true)"
+                )
+            )
             print(f"  ✓ {table}: RLS enabled, {db_role} policy created")
 
         conn.commit()
