@@ -19,9 +19,20 @@ def test_intraday_workflow_writes_to_github_output_env() -> None:
         encoding="utf-8"
     )
 
+    assert 'cron: "*/30 12-21 * * 1-5"' in workflow
+    assert "start = time(8, 30)" in workflow
+    assert "end = time(16, 30)" in workflow
     assert 'os.environ["GITHUB_OUTPUT"]' in workflow
     assert 'open("$GITHUB_OUTPUT"' not in workflow
     assert "python scripts/backfill_prices.py --period 5d --interval 15m" in workflow
+
+
+def test_daily_refresh_cli_allows_partial_success_without_failing_workflow() -> None:
+    script = (PROJECT_ROOT / "scripts" / "run_daily_refresh.py").read_text(encoding="utf-8")
+
+    assert "Warning: {result['error_text']}" in script
+    assert 'result.get("status") == "failed"' in script
+    assert 'sys.exit(1)' in script
 
 
 def test_scheduled_workflows_validate_database_url_secret() -> None:

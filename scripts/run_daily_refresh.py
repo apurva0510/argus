@@ -42,7 +42,8 @@ def main() -> None:
     for step_name, step_result in result["results"].items():
         print(f"- {step_name}: {step_result.get('status', 'unknown')}")
     if result.get("error_text"):
-        print(f"Error: {result['error_text']}")
+        print(f"Warning: {result['error_text']}")
+    if result.get("status") == "failed":
         sys.exit(1)
 
 

@@ -2,8 +2,9 @@ name: Intraday Prices Metrics Alerts
 
 on:
   schedule:
-    # Every 15 minutes on weekdays; guarded to run only during US market hours (ET).
-    - cron: "*/15 * * * 1-5"
+    # Every 30 minutes on weekdays across a broad UTC range; guarded below
+    # to run only from 8:30 AM through 4:30 PM America/New_York.
+    - cron: "*/30 12-21 * * 1-5"
   workflow_dispatch: {}
 
 
@@ -37,8 +38,8 @@ jobs:
 
           now_et = datetime.now(ZoneInfo("America/New_York"))
           is_weekday = now_et.weekday() < 5
-          start = time(9, 30)
-          end = time(16, 0)
+          start = time(8, 30)
+          end = time(16, 30)
           in_window = is_weekday and (start <= now_et.time() <= end)
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:

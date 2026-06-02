@@ -215,7 +215,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
             PriceBar(company_id=etn.id, date=latest_date, adj_close=100.0, provider="yfinance", interval="1d"),
             PriceBar(
                 company_id=vrt.id,
-                date=latest_date,
+                date=date.today(),
                 bar_time=datetime(2026, 5, 29, 16, 0),
                 adj_close=101.0,
                 provider="yfinance",
@@ -235,7 +235,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
             ),
             NewsItem(title="Power demand update", url="https://example.com/news"),
             SecFiling(company_id=etn.id, accession_no="0001", form="8-K"),
-            EarningsEvent(company_id=etn.id, event_date=date(2026, 6, 1)),
+            EarningsEvent(company_id=etn.id, event_date=date.today() + timedelta(days=7)),
         ]
     )
     db_session.commit()
