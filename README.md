@@ -90,6 +90,10 @@ python scripts/compute_metrics.py
 
 # Calculate opportunity and pullback scores
 python scripts/compute_scores.py
+
+# Pre-calculate AI Infra Core Index values
+python scripts/refresh_index.py
+
 ```
 
 ### 3. (Optional) Ingest News, IR Feeds & SEC Filings
@@ -221,6 +225,7 @@ Argus supports both **local SQLite** (default) and **Supabase Postgres** for pro
    DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 5d --interval 15m
    DATABASE_URL="postgresql://..." python scripts/compute_metrics.py
    DATABASE_URL="postgresql://..." python scripts/compute_scores.py
+   DATABASE_URL="postgresql://..." python scripts/refresh_index.py
    ```
 
 > [!NOTE]
