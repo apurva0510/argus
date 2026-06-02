@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.auth_links import company_detail_url
 from app.components.sidebar import render_sidebar_navigation
 from argus.core.app_engine import create_migrated_database_engine
 
@@ -126,7 +127,7 @@ def render_watchlists() -> None:
         st.switch_page("pages/3_Company_Detail.py")
 
     # Format ticker as link for data editor
-    editor_df["ticker"] = editor_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+    editor_df["ticker"] = editor_df["ticker"].apply(company_detail_url)
 
     styled_editor_df = editor_df.style.map(
         style_positive_green_negative_red,
@@ -145,7 +146,7 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
+            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)"),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True, format="$%.2f"),

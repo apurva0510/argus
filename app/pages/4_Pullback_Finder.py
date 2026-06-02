@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from datetime import UTC, datetime
+from app.auth_links import company_detail_url
 from app.components.sidebar import render_sidebar_navigation
 
 from argus.core.app_engine import create_migrated_database_engine
@@ -153,7 +154,7 @@ def render_pullback_finder() -> None:
 
     display_df = filtered.copy()
     display_df["rank"] = range(1, len(display_df) + 1)
-    display_df["ticker"] = display_df["ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+    display_df["ticker"] = display_df["ticker"].apply(company_detail_url)
     display_df["score"] = display_df["opportunity_score"].round(1)
     display_df["drawdown"] = display_df["drawdown_52w"].apply(_fmt_pct)
     display_df["rsi"] = display_df["rsi_14"].apply(lambda value: "n/a" if pd.isna(value) else f"{value:.1f}")
@@ -192,7 +193,7 @@ def render_pullback_finder() -> None:
         column_config={
             "rank": st.column_config.NumberColumn("rank", width="small"),
             "score": st.column_config.NumberColumn("score", format="%.1f"),
-            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)"),
+            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)"),
         },
         on_select="rerun",
         selection_mode="single-row",
@@ -207,7 +208,7 @@ def render_pullback_finder() -> None:
         # Extract symbol from link
         import re
         ticker_symbol = selected_row["ticker"]
-        match = re.search(r"ticker=(.*)", ticker_symbol)
+        match = re.search(r"ticker=([^&]+)", ticker_symbol)
         if match:
             ticker_symbol = match.group(1)
             
@@ -249,7 +250,7 @@ def render_pullback_finder() -> None:
             styled_breakdown_df, 
             hide_index=True, 
             width="stretch",
-            column_config={"ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=(.*)")}
+            column_config={"ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")}
         )
 
 

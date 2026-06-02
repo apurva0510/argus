@@ -8,7 +8,8 @@ import time
 
 
 AUTH_COOKIE_NAME = "app_password_auth"
-DEFAULT_AUTH_TTL_SECONDS = 24 * 60 * 60
+AUTH_QUERY_PARAM = "auth"
+DEFAULT_AUTH_TTL_SECONDS = 6 * 60 * 60
 
 
 def create_auth_token(secret: str, *, now: int | None = None, ttl_seconds: int = DEFAULT_AUTH_TTL_SECONDS) -> str:
@@ -38,6 +39,14 @@ def validate_auth_token(token: str | None, secret: str, *, now: int | None = Non
     expected_signature = _sign(payload, secret)
     current_time = int(now if now is not None else time.time())
     return hmac.compare_digest(supplied_signature, expected_signature) and current_time <= expires_at
+
+
+def append_auth_token_to_url(url: str, token: str | None) -> str:
+    if not token:
+        return url
+
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}{AUTH_QUERY_PARAM}={token}"
 
 
 def _sign(payload: str, secret: str) -> str:

@@ -1,4 +1,6 @@
 from datetime import date, timedelta
+from pathlib import Path
+
 import pytest
 from sqlalchemy.orm import Session
 from argus.core.models import Company, PriceBar
@@ -75,3 +77,14 @@ def test_dashboard_and_detail_pages_load_index_data(sqlite_engine, monkeypatch, 
     assert rel_returns.iloc[0]["index_ret"] == pytest.approx(0.0)
     assert rel_returns.iloc[1]["index_ret"] == pytest.approx(10.0)
     assert rel_returns.iloc[2]["index_ret"] == pytest.approx(21.0)
+
+
+def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_label() -> None:
+    dashboard_source = (Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "company_detail_url" in dashboard_source
+    assert 'st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")' in dashboard_source
+    assert "**Missing/Stale 30m Tickers**" in dashboard_source
+    assert "**Missing/Stale 15m Tickers**" not in dashboard_source

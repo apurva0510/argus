@@ -1,7 +1,7 @@
 import sys
 from unittest.mock import MagicMock, patch, call
 
-from argus.core.auth import AUTH_COOKIE_NAME, create_auth_token
+from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_token
 
 def test_password_protection_bypass(monkeypatch):
     """If APP_PASSWORD is not set, check_password() returns True immediately and skips login UI."""
@@ -9,6 +9,7 @@ def test_password_protection_bypass(monkeypatch):
     
     mock_st = MagicMock()
     mock_st.session_state = {}
+    mock_st.query_params = {}
     
     with patch.dict("sys.modules", {"streamlit": mock_st}):
         if "app.main" in sys.modules:
@@ -36,6 +37,7 @@ def test_password_protection_rejects_forged_cookie(monkeypatch):
 
     mock_st = MagicMock()
     mock_st.session_state = {}
+    mock_st.query_params = {}
     mock_st.context.cookies.get.return_value = "1"
     mock_st.form_submit_button.return_value = False
     mock_st.text_input.return_value = ""
@@ -54,12 +56,13 @@ def test_password_protection_rejects_forged_cookie(monkeypatch):
 
 
 def test_password_protection_accepts_signed_cookie(monkeypatch):
-    """A signed cookie should authenticate a new tab without re-entering the password."""
+    """A signed legacy cookie should still authenticate a new tab without re-entering the password."""
     monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
     monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
 
     mock_st = MagicMock()
     mock_st.session_state = {}
+    mock_st.query_params = {}
     mock_st.context.cookies.get.return_value = create_auth_token("secure123")
     mock_navigation = MagicMock()
     mock_st.navigation.return_value = mock_navigation
@@ -72,9 +75,31 @@ def test_password_protection_accepts_signed_cookie(monkeypatch):
 
         mock_st.context.cookies.get.assert_called_with(AUTH_COOKIE_NAME)
         assert mock_st.session_state["password_correct"] is True
+        assert "auth_token" in mock_st.session_state
         mock_navigation.run.assert_called_once()
-        mock_st.html.assert_called()
-        assert "document.cookie" in mock_st.html.call_args.args[0]
+
+
+def test_password_protection_accepts_signed_query_token(monkeypatch):
+    """A signed auth query token should authenticate a hosted new tab without a password prompt."""
+    monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
+    monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
+
+    mock_st = MagicMock()
+    mock_st.session_state = {}
+    mock_st.query_params = {AUTH_QUERY_PARAM: create_auth_token("secure123")}
+    mock_st.context.cookies.get.return_value = None
+    mock_navigation = MagicMock()
+    mock_st.navigation.return_value = mock_navigation
+
+    with patch.dict("sys.modules", {"streamlit": mock_st}):
+        if "app.main" in sys.modules:
+            del sys.modules["app.main"]
+
+        import app.main  # noqa: F401
+
+        assert mock_st.session_state["password_correct"] is True
+        assert mock_st.session_state["auth_token"] == mock_st.query_params[AUTH_QUERY_PARAM]
+        mock_navigation.run.assert_called_once()
 
 def test_password_protection_active_correct(monkeypatch):
     """If APP_PASSWORD is set and correct password is provided, session state is updated and app reruns."""
@@ -82,6 +107,7 @@ def test_password_protection_active_correct(monkeypatch):
     
     mock_st = MagicMock()
     mock_st.session_state = {}
+    mock_st.query_params = {}
     mock_st.form_submit_button.return_value = True
     mock_st.text_input.return_value = "secure123"
     
@@ -102,6 +128,8 @@ def test_password_protection_active_correct(monkeypatch):
         
         # Check login logic set correct state
         assert mock_st.session_state["password_correct"] is True
+        assert AUTH_QUERY_PARAM in mock_st.query_params
+        assert "auth_token" in mock_st.session_state
         mock_st.rerun.assert_called_once()
 
 def test_password_protection_active_incorrect(monkeypatch):
@@ -110,6 +138,7 @@ def test_password_protection_active_incorrect(monkeypatch):
     
     mock_st = MagicMock()
     mock_st.session_state = {}
+    mock_st.query_params = {}
     mock_st.form_submit_button.return_value = True
     mock_st.text_input.return_value = "wrong_password"
     

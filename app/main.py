@@ -7,7 +7,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import streamlit as st  # noqa: E402
-from argus.core.auth import AUTH_COOKIE_NAME, create_auth_token, validate_auth_token  # noqa: E402
+from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_token, validate_auth_token  # noqa: E402
 from argus.core.settings import settings  # noqa: E402
 
 st.set_page_config(page_title="Argus", page_icon="📊", layout="wide")
@@ -17,23 +17,30 @@ def _auth_secret() -> str:
     return settings.app_auth_secret or settings.app_password
 
 
-def _set_auth_cookie() -> None:
-    token = create_auth_token(_auth_secret())
-    script = f"""
-    <script>
-    let cookie = "{AUTH_COOKIE_NAME}={token}; path=/; max-age=86400; SameSite=Lax";
-    if (window.location.protocol === "https:") {{
-        cookie += "; Secure";
-    }}
-    document.cookie = cookie;
-    </script>
-    """
-    st.html(script, unsafe_allow_javascript=True)
+def _query_param_value(name: str) -> str | None:
+    value = getattr(st, "query_params", {}).get(name)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value if isinstance(value, str) else None
 
 
 def _cookie_is_authenticated() -> bool:
     token = st.context.cookies.get(AUTH_COOKIE_NAME)
     return validate_auth_token(token, _auth_secret())
+
+
+def _query_token_is_authenticated() -> bool:
+    token = _query_param_value(AUTH_QUERY_PARAM)
+    if validate_auth_token(token, _auth_secret()):
+        st.session_state["auth_token"] = token
+        return True
+    return False
+
+
+def _issue_auth_query_token() -> None:
+    token = create_auth_token(_auth_secret())
+    st.session_state["auth_token"] = token
+    st.query_params[AUTH_QUERY_PARAM] = token
 
 def render_login_screen():
     # Custom styling for premium dark glassmorphism card
@@ -98,6 +105,7 @@ def render_login_screen():
             if st.form_submit_button("Unlock Dashboard", use_container_width=True):
                 if password_input == settings.app_password:
                     st.session_state["password_correct"] = True
+                    _issue_auth_query_token()
                     st.rerun()
                 else:
                     st.error("❌ Incorrect password.")
@@ -107,8 +115,10 @@ if "password_correct" not in st.session_state:
 
 # Check cookie authentication for cross-tab session persistence
 if settings.app_password:
-    if _cookie_is_authenticated():
+    if _query_token_is_authenticated() or _cookie_is_authenticated():
         st.session_state["password_correct"] = True
+        if "auth_token" not in st.session_state:
+            st.session_state["auth_token"] = create_auth_token(_auth_secret())
 
 pages = [
     st.Page("pages/1_Dashboard.py", title="Dashboard"),
@@ -129,7 +139,3 @@ if settings.app_password and not st.session_state["password_correct"]:
     render_login_screen()
 else:
     navigation.run()
-
-    # Set client-side cookie to authorize subsequent tabs/windows
-    if settings.app_password:
-        _set_auth_cookie()

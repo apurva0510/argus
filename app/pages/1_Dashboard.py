@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
+from app.auth_links import company_detail_url
 import os
 from argus.core.app_engine import create_migrated_database_engine
 
@@ -232,7 +233,7 @@ def render_dashboard() -> None:
                 f"`{latest_intraday_price_time.isoformat() if latest_intraday_price_time else 'Never'}`"
             )
             st.markdown(
-                "**Missing/Stale 15m Tickers**: "
+                "**Missing/Stale 30m Tickers**: "
                 f"`{data['intraday_stale_tickers_count']}`"
             )
 
@@ -337,6 +338,7 @@ def render_dashboard() -> None:
             df_view["Return"] = df_view["return"].apply(lambda r: f"{r * 100:+.2f}%")
             df_view["Index Contribution"] = df_view["contribution"].apply(lambda c: f"{c * 100:+.2f}%")
             df_view = df_view.rename(columns={"symbol": "Ticker", "name": "Company"})
+            df_view["Ticker"] = df_view["Ticker"].apply(company_detail_url)
             styled_df = df_view[["Ticker", "Company", "Return", "Index Contribution"]].style.map(
                 style_positive_green_negative_red,
                 subset=["Return", "Index Contribution"]
@@ -345,6 +347,7 @@ def render_dashboard() -> None:
                 styled_df,
                 hide_index=True,
                 width='stretch',
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")},
             )
             
         with c_tab1:
@@ -409,7 +412,7 @@ def render_dashboard() -> None:
             st.info("No 1D return data available for the latest metrics date.")
         else:
             gainers_view = gainers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
-            gainers_view["Ticker"] = gainers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+            gainers_view["Ticker"] = gainers_view["Ticker"].apply(company_detail_url)
             gainers_view["1D %"] = gainers_view["1D %"].apply(_fmt_pct)
             styled_gainers = gainers_view[["Ticker", "Company", "1D %"]].style.map(
                 style_positive_green_negative_red,
@@ -419,7 +422,7 @@ def render_dashboard() -> None:
                 styled_gainers,
                 hide_index=True,
                 width="stretch",
-                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
             )
         st.subheader("Biggest Drawdowns From 52W High")
         if drawdowns.empty:
@@ -428,7 +431,7 @@ def render_dashboard() -> None:
             drawdowns_view = drawdowns.rename(
                 columns={"symbol": "Ticker", "name": "Company", "drawdown_52w": "Drawdown %"}
             ).copy()
-            drawdowns_view["Ticker"] = drawdowns_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+            drawdowns_view["Ticker"] = drawdowns_view["Ticker"].apply(company_detail_url)
             drawdowns_view["Drawdown %"] = drawdowns_view["Drawdown %"].apply(_fmt_pct)
             styled_drawdowns = drawdowns_view[["Ticker", "Company", "Drawdown %"]].style.map(
                 style_positive_green_negative_red,
@@ -438,7 +441,7 @@ def render_dashboard() -> None:
                 styled_drawdowns,
                 hide_index=True,
                 width="stretch",
-                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
             )
     with right:
         st.subheader("Top 5 Losers (1D)")
@@ -446,7 +449,7 @@ def render_dashboard() -> None:
             st.info("No 1D return data available for the latest metrics date.")
         else:
             losers_view = losers.rename(columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}).copy()
-            losers_view["Ticker"] = losers_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+            losers_view["Ticker"] = losers_view["Ticker"].apply(company_detail_url)
             losers_view["1D %"] = losers_view["1D %"].apply(_fmt_pct)
             styled_losers = losers_view[["Ticker", "Company", "1D %"]].style.map(
                 style_positive_green_negative_red,
@@ -456,20 +459,20 @@ def render_dashboard() -> None:
                 styled_losers,
                 hide_index=True,
                 width="stretch",
-                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
             )
         st.subheader("RSI Below 40")
         if rsi_below_40.empty:
             st.info("No symbols with RSI below 40 on the latest metrics date.")
         else:
             rsi_view = rsi_below_40.rename(columns={"symbol": "Ticker", "name": "Company", "rsi_14": "RSI 14"}).copy()
-            rsi_view["Ticker"] = rsi_view["Ticker"].apply(lambda t: f"/Company_Detail?ticker={t}")
+            rsi_view["Ticker"] = rsi_view["Ticker"].apply(company_detail_url)
             rsi_view["RSI 14"] = rsi_view["RSI 14"].round(1)
             st.dataframe(
                 rsi_view,
                 hide_index=True,
                 width="stretch",
-                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=(.*)")}
+                column_config={"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
             )
 
     st.subheader("Recent News")
