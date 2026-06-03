@@ -18,8 +18,11 @@ from argus.core.models import (
     Alert,
     AlertEvent,
     AppSetting,
+    CapexObservation,
     Company,
     DailyMetric,
+    MacroObservation,
+    MacroSeries,
     PriceBar,
     Watchlist,
     WatchlistItem,
@@ -44,6 +47,9 @@ REQUIRED_TABLES = {
     "alert_events",
     "user_notes",
     "job_runs",
+    "macro_series",
+    "macro_observations",
+    "capex_observations",
     "provider_health",
     "app_settings",
 }
@@ -113,7 +119,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
             .filter(AppSetting.key == "schema_version")
             .one()
         )
-        assert schema_version.value == "3"
+        assert schema_version.value == "5"
     test_engine.dispose()
 
 
@@ -184,6 +190,8 @@ def test_phase1_unique_constraints_exist() -> None:
         "fundamentals_snapshot": {"uq_fundamentals_snapshot"},
         "news_mentions": {"uq_news_mentions"},
         "earnings_events": {"uq_earnings_events"},
+        "macro_observations": {"uq_macro_observations"},
+        "capex_observations": {"uq_capex_observations"},
         "alert_events": {"uq_alert_events_dedupe_key"},
     }
 
@@ -206,6 +214,9 @@ def test_phase1_lookup_indexes_exist(sqlite_engine) -> None:
         "news_mentions": {("news_id",), ("company_id",)},
         "sec_filings": {("company_id",), ("form",)},
         "earnings_events": {("company_id",), ("event_date",)},
+        "macro_series": {("code",)},
+        "macro_observations": {("series_code",), ("observation_date",)},
+        "capex_observations": {("company_id",), ("fiscal_period_end",)},
         "alerts": {("company_id",), ("watchlist_id",)},
         "alert_events": {("alert_id",), ("company_id",)},
         "user_notes": {("company_id",)},
@@ -234,6 +245,9 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
         "news_mentions": {"news_id", "company_id", "is_primary_match"},
         "sec_filings": {"company_id", "accession_no", "form", "is_new"},
         "earnings_events": {"company_id", "event_date", "source"},
+        "macro_series": {"code", "name", "source"},
+        "macro_observations": {"series_code", "observation_date", "value", "provider"},
+        "capex_observations": {"company_id", "fiscal_period_end", "capex_amount", "currency"},
         "alerts": {"name", "rule_type", "channel", "is_enabled"},
         "alert_events": {"alert_id", "event_type", "dedupe_key"},
         "user_notes": {"company_id", "note_text"},
@@ -417,6 +431,43 @@ def test_daily_metrics_are_unique_per_company_and_date() -> None:
             session.commit()
 
 
+def test_macro_observations_are_unique_per_series_and_date() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        session.add(MacroSeries(code="DGS10", name="10-Year Treasury Yield"))
+        session.add_all(
+            [
+                MacroObservation(series_code="DGS10", observation_date=date(2026, 1, 1), value=4.0),
+                MacroObservation(series_code="DGS10", observation_date=date(2026, 1, 1), value=4.1),
+            ]
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_capex_observations_are_unique_per_company_and_period() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        company = Company(symbol="MSFT", name="Microsoft")
+        session.add(company)
+        session.flush()
+        period_end = date(2026, 3, 31)
+        session.add_all(
+            [
+                CapexObservation(company_id=company.id, fiscal_period_end=period_end, capex_amount=1.0),
+                CapexObservation(company_id=company.id, fiscal_period_end=period_end, capex_amount=2.0),
+            ]
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
 def test_alert_events_require_unique_dedupe_keys() -> None:
     engine = create_database_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -439,6 +490,23 @@ def test_alert_events_require_unique_dedupe_keys() -> None:
                 AlertEvent(alert_id=alert.id, event_type="price_below", dedupe_key="same-key"),
                 AlertEvent(alert_id=alert.id, event_type="price_below", dedupe_key="same-key"),
             ]
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_macro_observation_foreign_key_is_enforced() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        session.add(
+            MacroObservation(
+                series_code="NONEXISTENT",
+                observation_date=date(2026, 1, 1),
+                value=4.0,
+            )
         )
 
         with pytest.raises(IntegrityError):

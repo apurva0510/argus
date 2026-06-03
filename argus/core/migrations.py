@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting
 
 
-CURRENT_SCHEMA_VERSION = "3"
+CURRENT_SCHEMA_VERSION = "5"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -20,6 +20,7 @@ def run_migrations(database_engine: Engine) -> None:
     Postgres needs an explicit version marker so future schema changes have a
     safe upgrade path instead of relying on create_all alone.
     """
+    _migrate_macro_tables_for_foreign_key(database_engine)
     Base.metadata.create_all(bind=database_engine)
     _migrate_price_bars_bar_time(database_engine)
     with Session(database_engine) as session:
@@ -34,6 +35,36 @@ def run_migrations(database_engine: Engine) -> None:
         else:
             schema_version.value = CURRENT_SCHEMA_VERSION
         session.commit()
+
+
+def _migrate_macro_tables_for_foreign_key(database_engine: Engine) -> None:
+    inspector = inspect(database_engine)
+    table_names = inspector.get_table_names()
+    if "app_settings" not in table_names:
+        return
+
+    version = None
+    with Session(database_engine) as session:
+        schema_version = (
+            session.query(AppSetting)
+            .filter(AppSetting.key == SCHEMA_VERSION_KEY)
+            .one_or_none()
+        )
+        if schema_version:
+            version = schema_version.value
+
+    if version is not None:
+        try:
+            v_num = int(version)
+        except ValueError:
+            v_num = 0
+
+        if v_num < 5:
+            with database_engine.begin() as conn:
+                if "macro_observations" in table_names:
+                    conn.execute(text("DROP TABLE macro_observations"))
+                if "macro_series" in table_names:
+                    conn.execute(text("DROP TABLE macro_series"))
 
 
 def _migrate_price_bars_bar_time(database_engine: Engine) -> None:

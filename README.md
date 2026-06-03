@@ -111,7 +111,19 @@ python scripts/refresh_ir_feeds.py
 python scripts/refresh_filings.py
 ```
 
-### 4. Evaluate Alert Rules
+### 4. (Optional) Refresh Macro & Capex Context
+
+Refresh free FRED macro indicators and manually enter quarterly hyperscaler capex:
+
+```bash
+# Refresh Treasury yields and inflation indicators from FRED
+python scripts/refresh_macro.py
+
+# Add a manual quarterly capex observation
+python scripts/add_capex_observation.py --ticker MSFT --period-end 2026-03-31 --capex 10000000000 --source-label "Q1 earnings"
+```
+
+### 5. Evaluate Alert Rules
 
 Evaluate watchlist metrics against your enabled alert parameters (sends emails for triggers):
 
@@ -119,7 +131,7 @@ Evaluate watchlist metrics against your enabled alert parameters (sends emails f
 python scripts/run_alerts.py
 ```
 
-### 5. Orchestrated Daily Refresh
+### 6. Orchestrated Daily Refresh
 
 Instead of running individual scripts, use the daily orchestrator to sync prices, compute metrics/scores, retrieve filings, and evaluate alerts in one command. Scheduled production news refreshes run separately at market open and market close to avoid rate limits:
 
@@ -133,6 +145,7 @@ Useful daily workflow flags:
 - `--skip-news`: Skip fetching news headlines.
 - `--skip-filings`: Skip checking SEC filings.
 - `--skip-alerts`: Skip checking alert triggers.
+- `--skip-macro`: Skip FRED macro refresh.
 
 ---
 
@@ -271,7 +284,7 @@ Argus includes five workflow files for production scheduling:
   - Runs: selected investor-relations feed refresh for cybersecurity and optical/networking names
 - `.github/workflows/daily-refresh.yml`
   - Once after US market close on weekdays at 5:30 PM ET
-  - Runs: daily bars, metrics, scores, index, filings, and alerts (`run_daily_refresh.py --period 2y --skip-news`)
+  - Runs: daily bars, macro indicators, metrics, scores, index, filings, and alerts (`run_daily_refresh.py --period 2y --skip-news`)
 
 **Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
 

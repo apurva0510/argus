@@ -15,6 +15,7 @@ from argus.pipelines.refresh_prices import refresh_prices
 from argus.pipelines.refresh_earnings import refresh_earnings
 from argus.pipelines.refresh_fundamentals import refresh_fundamentals
 from argus.pipelines.refresh_index import refresh_index
+from argus.pipelines.refresh_macro import refresh_macro
 from argus.pipelines.run_alerts import run_alerts
 
 
@@ -69,10 +70,14 @@ def build_daily_refresh_steps(
     include_alerts: bool = True,
     include_fundamentals: bool = True,
     include_earnings: bool = True,
+    include_macro: bool = True,
 ) -> list[PipelineStep]:
     steps: list[PipelineStep] = [
         ("refresh_prices", lambda: refresh_prices(period=period)),
     ]
+
+    if include_macro:
+        steps.append(("refresh_macro", refresh_macro))
 
     if include_fundamentals:
         steps.append(("refresh_fundamentals", refresh_fundamentals))
@@ -111,6 +116,7 @@ def run_daily_refresh(
     include_alerts: bool = True,
     include_fundamentals: bool = True,
     include_earnings: bool = True,
+    include_macro: bool = True,
     steps: list[PipelineStep] | None = None,
 ) -> dict[str, object]:
     """Run the daily refresh workflow without requiring Streamlit page load jobs."""
@@ -129,6 +135,7 @@ def run_daily_refresh(
             include_alerts=include_alerts,
             include_fundamentals=include_fundamentals,
             include_earnings=include_earnings,
+            include_macro=include_macro,
         ):
             try:
                 result = step_fn()

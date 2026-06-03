@@ -107,6 +107,32 @@ def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
     return f"{value * 100:.{digits}f}%"
 
 
+def _fmt_bps(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value:+.0f} bps"
+
+
+def _fmt_yield_obs(observation: object) -> str:
+    if not isinstance(observation, dict) or observation.get("value") is None:
+        return "n/a"
+    return f"{float(observation['value']):.2f}%"
+
+
+def _fmt_currency(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    abs_value = abs(float(value))
+    sign = "-" if float(value) < 0 else ""
+    if abs_value >= 1_000_000_000_000:
+        return f"{sign}${abs_value / 1_000_000_000_000:.2f}T"
+    if abs_value >= 1_000_000_000:
+        return f"{sign}${abs_value / 1_000_000_000:.2f}B"
+    if abs_value >= 1_000_000:
+        return f"{sign}${abs_value / 1_000_000:.2f}M"
+    return f"{sign}${abs_value:,.0f}"
+
+
 def _ticker_link_column_config() -> dict[str, object]:
     return {"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
 
@@ -234,6 +260,64 @@ def _render_theme_counts(theme_counts: object) -> None:
     )
 
 
+def _render_macro_capex_context(context: object) -> None:
+    if not isinstance(context, dict):
+        return
+
+    latest_yields = context.get("latest_yields") or {}
+    inflation = context.get("inflation") or {}
+    capex = context.get("capex") or {}
+    has_data = any(
+        [
+            latest_yields.get("dgs10"),
+            latest_yields.get("dgs30"),
+            inflation.get("core_cpi_yoy") is not None,
+            capex.get("latest_total") is not None,
+        ]
+    )
+
+    st.subheader("Macro & Capex Pressure")
+    if not has_data:
+        st.info(
+            "Macro context will appear after running `python scripts/refresh_macro.py` "
+            "and adding quarterly hyperscaler capex observations."
+        )
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.markdown(
+        render_plain_metric_card("Pressure", context.get("pressure_label", "n/a")),
+        unsafe_allow_html=True,
+    )
+    col2.markdown(
+        render_plain_metric_card("10Y Treasury", _fmt_yield_obs(latest_yields.get("dgs10"))),
+        unsafe_allow_html=True,
+    )
+    col3.markdown(
+        render_plain_metric_card("Core CPI YoY", _fmt_plain_pct(inflation.get("core_cpi_yoy"))),
+        unsafe_allow_html=True,
+    )
+    col4.markdown(
+        render_plain_metric_card("Hyperscaler Capex", _fmt_currency(capex.get("latest_total"))),
+        unsafe_allow_html=True,
+    )
+    st.caption(str(context.get("explanation") or ""))
+
+    detail = pd.DataFrame(
+        [
+            {"Metric": "30Y Treasury", "Value": _fmt_yield_obs(latest_yields.get("dgs30"))},
+            {"Metric": "2Y Treasury", "Value": _fmt_yield_obs(latest_yields.get("dgs2"))},
+            {"Metric": "Fed Funds", "Value": _fmt_yield_obs(latest_yields.get("fed_funds"))},
+            {"Metric": "10Y 1M Change", "Value": _fmt_bps(latest_yields.get("dgs10_1m_bps"))},
+            {"Metric": "10Y 3M Change", "Value": _fmt_bps(latest_yields.get("dgs10_3m_bps"))},
+            {"Metric": "CPI YoY", "Value": _fmt_plain_pct(inflation.get("cpi_yoy"))},
+            {"Metric": "PPI YoY", "Value": _fmt_plain_pct(inflation.get("ppi_yoy"))},
+            {"Metric": "Capex YoY", "Value": _fmt_pct(capex.get("capex_yoy"))},
+        ]
+    )
+    st.dataframe(detail, hide_index=True, width="stretch")
+
+
 def render_dashboard() -> None:
     render_sidebar_navigation()
     st.title("Dashboard")
@@ -322,6 +406,8 @@ def render_dashboard() -> None:
             )
         else:
             st.success("No failed background jobs found.")
+
+    _render_macro_capex_context(data.get("macro_capex_context"))
 
     if metrics_df.empty:
         st.info(

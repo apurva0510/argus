@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from io import StringIO
+import logging
+
+import httpx
+import pandas as pd
+
+from argus.core.db import get_insert_statement_producer, session_scope
+from argus.core.models import JobRun, MacroObservation, MacroSeries
+
+logger = logging.getLogger(__name__)
+
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+
+
+@dataclass(frozen=True)
+class MacroSeriesDefinition:
+    code: str
+    name: str
+    frequency: str
+    units: str
+    description: str
+
+
+MACRO_SERIES: tuple[MacroSeriesDefinition, ...] = (
+    MacroSeriesDefinition("DGS10", "10-Year Treasury Yield", "daily", "percent", "10-year Treasury constant maturity rate"),
+    MacroSeriesDefinition("DGS30", "30-Year Treasury Yield", "daily", "percent", "30-year Treasury constant maturity rate"),
+    MacroSeriesDefinition("DGS2", "2-Year Treasury Yield", "daily", "percent", "2-year Treasury constant maturity rate"),
+    MacroSeriesDefinition("FEDFUNDS", "Effective Federal Funds Rate", "monthly", "percent", "Effective federal funds rate"),
+    MacroSeriesDefinition("CPIAUCSL", "CPI", "monthly", "index", "Consumer Price Index for All Urban Consumers"),
+    MacroSeriesDefinition("CPILFESL", "Core CPI", "monthly", "index", "Consumer Price Index less food and energy"),
+    MacroSeriesDefinition("PPIACO", "Producer Price Index", "monthly", "index", "Producer Price Index by commodity, all commodities"),
+)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _create_job_run() -> int:
+    with session_scope() as session:
+        job = JobRun(job_name="refresh_macro", started_at=_utc_now(), status="running")
+        session.add(job)
+        session.flush()
+        return job.id
+
+
+def _finish_job_run(
+    job_id: int,
+    *,
+    status: str,
+    rows_read: int,
+    rows_written: int,
+    failed_series: list[str],
+    error_text: str | None = None,
+) -> None:
+    with session_scope() as session:
+        job = session.get(JobRun, job_id)
+        if job is None:
+            job = JobRun(id=job_id, job_name="refresh_macro", started_at=_utc_now(), status=status)
+            session.add(job)
+
+        job.finished_at = _utc_now()
+        job.status = status
+        job.rows_read = rows_read
+        job.rows_written = rows_written
+        if error_text:
+            job.error_text = error_text
+        elif failed_series:
+            job.error_text = f"Failed series: {', '.join(sorted(failed_series))}"
+
+
+def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
+    insert_fn = get_insert_statement_producer(session)
+    statement = insert_fn(MacroSeries).values(
+        {
+            "code": definition.code,
+            "name": definition.name,
+            "source": "fred",
+            "frequency": definition.frequency,
+            "units": definition.units,
+            "description": definition.description,
+        }
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=["code"],
+        set_={
+            "name": statement.excluded.name,
+            "source": statement.excluded.source,
+            "frequency": statement.excluded.frequency,
+            "units": statement.excluded.units,
+            "description": statement.excluded.description,
+        },
+    )
+    session.execute(statement)
+
+
+def _upsert_observations(session, series_code: str, observations: pd.DataFrame) -> int:
+    if observations.empty:
+        return 0
+
+    values = [
+        {
+            "series_code": series_code,
+            "observation_date": row["observation_date"],
+            "value": row["value"],
+            "provider": "fred",
+        }
+        for row in observations.to_dict(orient="records")
+    ]
+    insert_fn = get_insert_statement_producer(session)
+    statement = insert_fn(MacroObservation).values(values)
+    statement = statement.on_conflict_do_update(
+        index_elements=["series_code", "observation_date"],
+        set_={
+            "value": statement.excluded.value,
+            "provider": statement.excluded.provider,
+        },
+    )
+    session.execute(statement)
+    return len(values)
+
+
+def parse_fred_csv(series_code: str, csv_text: str) -> pd.DataFrame:
+    frame = pd.read_csv(StringIO(csv_text))
+    if "observation_date" in frame.columns:
+        date_column = "observation_date"
+    elif "DATE" in frame.columns:
+        date_column = "DATE"
+    else:
+        date_column = frame.columns[0]
+
+    if series_code not in frame.columns:
+        raise ValueError(f"FRED CSV missing expected series column {series_code}")
+
+    parsed = frame[[date_column, series_code]].rename(
+        columns={date_column: "observation_date", series_code: "value"}
+    )
+    parsed["value"] = pd.to_numeric(parsed["value"].replace(".", pd.NA), errors="coerce")
+    parsed["observation_date"] = pd.to_datetime(parsed["observation_date"], errors="coerce").dt.date
+    parsed = parsed.dropna(subset=["observation_date", "value"])
+    return parsed
+
+
+def fetch_fred_series(series_code: str, *, client: httpx.Client | None = None) -> pd.DataFrame:
+    owns_client = client is None
+    headers = {"User-Agent": "Argus/0.1 (research tool)"}
+    active_client = client or httpx.Client(timeout=20.0, headers=headers)
+    try:
+        kwargs = {}
+        if not owns_client:
+            kwargs["headers"] = headers
+        response = active_client.get(FRED_CSV_URL, params={"id": series_code}, **kwargs)
+        response.raise_for_status()
+        return parse_fred_csv(series_code, response.text)
+    finally:
+        if owns_client:
+            active_client.close()
+
+
+def refresh_macro(
+    *,
+    series_codes: list[str] | None = None,
+    client: httpx.Client | None = None,
+) -> dict[str, object]:
+    job_id = _create_job_run()
+    rows_read = 0
+    rows_written = 0
+    failed_series: list[str] = []
+    status = "success"
+    error_text: str | None = None
+    definitions = {definition.code: definition for definition in MACRO_SERIES}
+    selected_codes = series_codes or [definition.code for definition in MACRO_SERIES]
+
+    try:
+        with session_scope() as session:
+            for code in selected_codes:
+                definition = definitions.get(code)
+                if definition is None:
+                    failed_series.append(code)
+                    logger.warning("Unknown macro series code: %s", code)
+                    continue
+
+                try:
+                    _upsert_macro_series(session, definition)
+                    observations = fetch_fred_series(code, client=client)
+                    rows_read += len(observations)
+                    rows_written += _upsert_observations(session, code, observations)
+                except Exception as exc:
+                    logger.warning("Failed to refresh macro series %s: %s", code, exc)
+                    failed_series.append(code)
+
+            if failed_series:
+                status = "partial_success" if rows_written else "failed"
+    except Exception as exc:
+        status = "failed"
+        error_text = str(exc)
+        logger.exception("Macro refresh pipeline failed")
+    finally:
+        _finish_job_run(
+            job_id,
+            status=status,
+            rows_read=rows_read,
+            rows_written=rows_written,
+            failed_series=failed_series,
+            error_text=error_text,
+        )
+
+    return {
+        "status": status,
+        "rows_read": rows_read,
+        "rows_written": rows_written,
+        "failed_series": failed_series,
+        "error_text": error_text,
+    }

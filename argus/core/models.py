@@ -240,6 +240,64 @@ class IndexValue(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
+class MacroSeries(Base):
+    __tablename__ = "macro_series"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="fred", nullable=False)
+    frequency: Mapped[str | None] = mapped_column(String(32))
+    units: Mapped[str | None] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
+class MacroObservation(Base):
+    __tablename__ = "macro_observations"
+    __table_args__ = (
+        UniqueConstraint("series_code", "observation_date", name="uq_macro_observations"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_code: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("macro_series.code", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    observation_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), default="fred", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class CapexObservation(Base):
+    __tablename__ = "capex_observations"
+    __table_args__ = (
+        UniqueConstraint("company_id", "fiscal_period_end", name="uq_capex_observations"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    fiscal_period_end: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    capex_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
+    source_label: Mapped[str | None] = mapped_column(String(128))
+    source_url: Mapped[str | None] = mapped_column(String(1024))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
 class Alert(Base, TimestampMixin):
     __tablename__ = "alerts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

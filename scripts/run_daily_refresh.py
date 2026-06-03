@@ -15,6 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-news", action="store_true", help="Skip RSS/GDELT news refresh")
     parser.add_argument("--skip-filings", action="store_true", help="Skip SEC filings refresh")
     parser.add_argument("--skip-alerts", action="store_true", help="Skip alert evaluation")
+    parser.add_argument("--skip-macro", action="store_true", help="Skip FRED macro refresh")
     return parser.parse_args()
 
 
@@ -33,6 +34,7 @@ def main() -> None:
         include_news=not args.skip_news,
         include_filings=not args.skip_filings,
         include_alerts=not args.skip_alerts,
+        include_macro=not args.skip_macro,
     )
 
     print("Daily refresh finished.")

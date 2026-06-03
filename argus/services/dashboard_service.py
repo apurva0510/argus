@@ -20,6 +20,7 @@ from argus.core.models import (
     WatchlistItem,
 )
 from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS, AI_INFRA_CORE_INDEX_SYMBOLS
+from argus.services.macro_capex_service import load_macro_capex_context_from_engine
 
 STALE_DAYS_THRESHOLD = 3
 LOW_RSI_THRESHOLD = 40.0
@@ -255,6 +256,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         "intraday_stale_tickers_count": int(intraday_stale_tickers_count),
         "failed_job": failed_job,
         "provider_status": provider_status,
+        "macro_capex_context": load_macro_capex_context_from_engine(engine),
     }
 
 

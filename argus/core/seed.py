@@ -67,8 +67,8 @@ AI_INFRA_CORE_INDEX_SYMBOLS = {
 WATCH_STATUSES = {"ignore", "watch", "high_priority", "owned"}
 WATCH_STATUS_BY_SYMBOL = {
     "NVDA": "high_priority",
-    "MSFT": "owned",
-    "AMZN": "high_priority",
+    "MSFT": "high_priority",
+    "AMZN": "owned",
     "GOOGL": "watch",
     "META": "watch",
     "QQQ": "watch",

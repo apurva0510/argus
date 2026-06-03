@@ -78,6 +78,7 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
             include_alerts=False,
             include_fundamentals=False,
             include_earnings=False,
+            include_macro=False,
         )
     ]
 
@@ -103,6 +104,7 @@ def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
 
     assert step_names == [
         "refresh_prices",
+        "refresh_macro",
         "refresh_fundamentals",
         "refresh_earnings",
         "compute_daily_metrics",

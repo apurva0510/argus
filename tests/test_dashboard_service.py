@@ -170,6 +170,8 @@ def test_load_dashboard_data_handles_empty_database(sqlite_engine) -> None:
     assert data["recent_news"].empty
     assert data["recent_filings"].empty
     assert data["upcoming_earnings"].empty
+    assert data["macro_capex_context"]["pressure_label"] == "Low"
+    assert data["macro_capex_context"]["capex"]["latest_total"] is None
 
 
 def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
@@ -296,6 +298,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["recent_filings"]["symbol"].tolist() == ["ETN"]
     assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
     assert data["intraday_stale_tickers_count"] == 4
+    assert data["macro_capex_context"]["pressure_label"] == "Low"
     theme_counts = data["theme_counts"].set_index(["theme_family", "theme"])["company_count"].to_dict()
     assert theme_counts[("AI Infrastructure", "Power and Grid")] == 1
     assert theme_counts[("Emerging Compute", "Quantum Computing")] == 1
