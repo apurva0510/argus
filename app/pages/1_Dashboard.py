@@ -315,7 +315,12 @@ def _render_macro_capex_context(context: object) -> None:
             {"Metric": "Capex YoY", "Value": _fmt_pct(capex.get("capex_yoy"))},
         ]
     )
-    st.dataframe(detail, hide_index=True, width="stretch")
+    from app.components.tables import style_positive_green_negative_red
+    styled_detail = detail.style.map(
+        style_positive_green_negative_red,
+        subset=["Value"]
+    )
+    st.dataframe(styled_detail, hide_index=True, width="stretch")
 
 
 def render_dashboard() -> None:
@@ -411,12 +416,43 @@ def render_dashboard() -> None:
         else:
             st.success("No failed background jobs found.")
 
+    # Render Overview cards at the top
+    st.subheader("📊 AI Infrastructure Core Overview")
+    if metrics_df.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.markdown(
+            render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
+            unsafe_allow_html=True,
+        )
+        col2.markdown(render_metric_card("AI Infra Core 1D", None), unsafe_allow_html=True)
+        col3.markdown(render_metric_card("AI Infra Core 1W", None), unsafe_allow_html=True)
+        col4.markdown(render_metric_card("AI Infra Core 1M", None), unsafe_allow_html=True)
+        st.write("---")
+    else:
+        core_returns = summarize_core_returns(metrics_df)
+        core_1d = core_returns["return_1d"]
+        core_1w = core_returns["return_1w"]
+        core_1m = core_returns["return_1m"]
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.markdown(
+            render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
+            unsafe_allow_html=True,
+        )
+        col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
+        col3.markdown(render_metric_card("AI Infra Core 1W", core_1w), unsafe_allow_html=True)
+        col4.markdown(render_metric_card("AI Infra Core 1M", core_1m), unsafe_allow_html=True)
+
+        st.caption(
+            "AI Infra Core is a simple equal-weight average excluding benchmarks, optional aggressive names, and Quantum Computing names."
+        )
+        st.write("---")
+
+    # Render Macro & Capex section below
     _render_macro_capex_context(data.get("macro_capex_context"))
+    st.write("---")
 
     if metrics_df.empty:
-        st.info(
-            "No daily metrics available yet. Run price backfill and metrics computation scripts."
-        )
         st.subheader("Recent News")
         st.info("News feed will appear here after news ingestion is implemented.")
         st.subheader("Recent Filings")
@@ -425,25 +461,6 @@ def render_dashboard() -> None:
         st.info("Earnings events will appear here after earnings ingestion is implemented.")
         _render_theme_counts(data.get("theme_counts"))
         return
-
-    core_returns = summarize_core_returns(metrics_df)
-    core_1d = core_returns["return_1d"]
-    core_1w = core_returns["return_1w"]
-    core_1m = core_returns["return_1m"]
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.markdown(
-        render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
-        unsafe_allow_html=True,
-    )
-    col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
-    col3.markdown(render_metric_card("AI Infra Core 1W", core_1w), unsafe_allow_html=True)
-    col4.markdown(render_metric_card("AI Infra Core 1M", core_1m), unsafe_allow_html=True)
-
-    st.write("---")
-    st.caption(
-        "AI Infra Core is a simple equal-weight average excluding benchmarks, optional aggressive names, and Quantum Computing names."
-    )
 
     # Render Index section
     st.subheader("📈 AI Infra Core Index Performance")
