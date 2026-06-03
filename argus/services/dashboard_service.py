@@ -40,7 +40,8 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_refresh_at,
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at,
                     (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_news') AS last_news_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings') AS last_filings_refresh_at
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings') AS last_filings_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_macro') AS last_macro_refresh_at
                 """
             ),
             conn,

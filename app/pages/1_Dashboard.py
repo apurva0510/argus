@@ -335,6 +335,7 @@ def render_dashboard() -> None:
     last_metrics_refresh = parse_optional_datetime(latest_dates.get("last_metrics_refresh_at"))
     last_news_refresh = parse_optional_datetime(latest_dates.get("last_news_refresh_at"))
     last_filings_refresh = parse_optional_datetime(latest_dates.get("last_filings_refresh_at"))
+    last_macro_refresh = parse_optional_datetime(latest_dates.get("last_macro_refresh_at"))
     latest_price_date = parse_optional_date(latest_dates.get("latest_price_date"))
     latest_intraday_price_time = parse_optional_datetime(
         latest_dates.get("latest_intraday_price_time")
@@ -385,6 +386,9 @@ def render_dashboard() -> None:
             )
             st.markdown(
                 f"**Last Filings Refresh**: `{last_filings_refresh.isoformat() if last_filings_refresh else 'Never'}`"
+            )
+            st.markdown(
+                f"**Last Macro Refresh**: `{last_macro_refresh.isoformat() if last_macro_refresh else 'Never'}`"
             )
         with col_t2:
             st.markdown(f"**Active Companies**: `{data['active_company_count']}`")

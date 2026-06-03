@@ -160,6 +160,7 @@ def test_load_dashboard_data_handles_empty_database(sqlite_engine) -> None:
 
     assert data["latest_dates"]["latest_price_date"] is None
     assert data["latest_dates"]["latest_metrics_date"] is None
+    assert data["latest_dates"]["last_macro_refresh_at"] is None
     assert data["latest_metrics"].empty
     assert data["active_company_count"] == 0
     assert data["index_constituent_count"] == 0
@@ -266,6 +267,12 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
                 finished_at=datetime(2026, 5, 29, 20, 3),
                 status="success",
             ),
+            JobRun(
+                job_name="refresh_macro",
+                started_at=datetime(2026, 5, 29, 20, 4),
+                finished_at=datetime(2026, 5, 29, 20, 5),
+                status="success",
+            ),
             NewsItem(title="Power demand update", url="https://example.com/news"),
             SecFiling(company_id=etn.id, accession_no="0001", form="8-K"),
             EarningsEvent(company_id=etn.id, event_date=date.today() + timedelta(days=7)),
@@ -287,6 +294,7 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["latest_dates"]["latest_metrics_date"] == "2026-05-29"
     assert data["latest_dates"]["last_price_refresh_at"] == "2026-05-29 20:01:00.000000"
     assert data["latest_dates"]["last_metrics_refresh_at"] == "2026-05-29 20:03:00.000000"
+    assert data["latest_dates"]["last_macro_refresh_at"] == "2026-05-29 20:05:00.000000"
     assert set(metrics["symbol"]) == {"ETN", "VRT", "QQQ", "PWR"}
     assert -0.99 not in metrics["return_1d"].tolist()
 
