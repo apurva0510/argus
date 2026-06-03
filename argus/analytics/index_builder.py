@@ -10,14 +10,13 @@ from argus.core.settings import settings
 def get_default_index_symbols(session: Session) -> list[str]:
     """
     Get the default constituent symbols for the AI Infra Core Index.
-    Excludes benchmark-only names (NVDA, MSFT, AMZN, GOOGL, META, QQQ)
-    and optional aggressive names (ALAB, CRDO) by default.
+    Excludes benchmark-only names, optional aggressive names, and Emerging
+    Compute names by default so the index remains an AI Infrastructure index.
     """
-    from argus.core.seed import BENCHMARKS, OPTIONAL_AGGRESSIVE_SYMBOLS
+    from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS
 
     companies = session.query(Company).filter(Company.is_active.is_(True)).all()
-    excluded = BENCHMARKS | OPTIONAL_AGGRESSIVE_SYMBOLS
-    return [c.symbol for c in companies if c.symbol not in excluded]
+    return [c.symbol for c in companies if c.symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS]
 
 
 def calculate_equal_weight_index(

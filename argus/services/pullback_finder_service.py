@@ -35,6 +35,21 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     c.sector AS sector,
                     c.is_benchmark AS is_benchmark,
                     c.is_hyperscaler AS is_hyperscaler,
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM company_theme_exposure cte_family
+                            JOIN themes t_family ON t_family.id = cte_family.theme_id
+                            LEFT JOIN themes p_family ON p_family.id = t_family.parent_theme_id
+                            WHERE cte_family.company_id = c.id
+                                AND (
+                                    t_family.code = 'emerging_compute'
+                                    OR p_family.code = 'emerging_compute'
+                                )
+                        )
+                        THEN 'Emerging Compute'
+                        ELSE 'AI Infrastructure'
+                    END AS theme_family,
                     w.name AS theme,
                     wi.watch_status AS watch_status,
                     pb.adj_close AS price,
@@ -163,6 +178,7 @@ def apply_pullback_filters(
     df: pd.DataFrame,
     *,
     sector: str | None = None,
+    theme_family: str | None = None,
     theme: str | None = None,
     watch_statuses: list[str] | None = None,
     min_drawdown: float | None = None,
@@ -179,6 +195,9 @@ def apply_pullback_filters(
 
     if sector:
         filtered = filtered[filtered["sector"] == sector]
+
+    if theme_family:
+        filtered = filtered[filtered["theme_family"] == theme_family]
 
     if theme:
         filtered = filtered[filtered["theme"] == theme]
@@ -213,12 +232,19 @@ def apply_pullback_filters(
 
 def get_filter_options(df: pd.DataFrame) -> dict[str, list[str]]:
     if df.empty:
-        return {"sectors": [], "themes": []}
+        return {"sectors": [], "theme_families": [], "themes": []}
 
     return {
-        "sectors": sorted(df["sector"].dropna().unique().tolist()),
-        "themes": sorted(df["theme"].dropna().unique().tolist()),
+        "sectors": _sorted_unique(df, "sector"),
+        "theme_families": _sorted_unique(df, "theme_family"),
+        "themes": _sorted_unique(df, "theme"),
     }
+
+
+def _sorted_unique(df: pd.DataFrame, column: str) -> list[str]:
+    if column not in df:
+        return []
+    return sorted(df[column].dropna().unique().tolist())
 
 
 def _drawdown_magnitude(value: Any) -> float:

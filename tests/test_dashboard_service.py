@@ -3,7 +3,17 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import pytest
 
-from argus.core.models import Company, DailyMetric, EarningsEvent, JobRun, NewsItem, PriceBar, SecFiling
+from argus.core.models import (
+    Company,
+    CompanyThemeExposure,
+    DailyMetric,
+    EarningsEvent,
+    JobRun,
+    NewsItem,
+    PriceBar,
+    SecFiling,
+    Theme,
+)
 from argus.services.dashboard_service import (
     build_stale_reasons,
     filter_low_rsi,
@@ -151,6 +161,8 @@ def test_load_dashboard_data_handles_empty_database(sqlite_engine) -> None:
     assert data["latest_dates"]["latest_price_date"] is None
     assert data["latest_dates"]["latest_metrics_date"] is None
     assert data["latest_metrics"].empty
+    assert data["active_company_count"] == 0
+    assert data["index_constituent_count"] == 0
     assert data["index_symbol_count"] == 0
     assert data["news_count"] == 0
     assert data["filings_count"] == 0
@@ -170,11 +182,30 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     inactive = Company(symbol="OLD", name="Inactive", is_active=False)
     db_session.add_all([etn, vrt, qqq, pwr, inactive])
     db_session.flush()
+    ai_theme = Theme(code="ai_infrastructure", name="AI Infrastructure")
+    emerging_theme = Theme(code="emerging_compute", name="Emerging Compute")
+    power_theme = Theme(
+        code="power_grid",
+        name="Power and Grid",
+        parent_theme_id=ai_theme.id,
+    )
+    quantum_theme = Theme(
+        code="quantum_computing",
+        name="Quantum Computing",
+        parent_theme_id=emerging_theme.id,
+    )
+    ionq = Company(symbol="IONQ", name="IonQ", is_active=True)
+    db_session.add_all([ai_theme, emerging_theme, power_theme, quantum_theme, ionq])
+    db_session.flush()
+    power_theme.parent_theme_id = ai_theme.id
+    quantum_theme.parent_theme_id = emerging_theme.id
 
     older_date = date(2026, 5, 28)
     latest_date = date(2026, 5, 29)
     db_session.add_all(
         [
+            CompanyThemeExposure(company_id=etn.id, theme_id=power_theme.id, exposure_score=4.0),
+            CompanyThemeExposure(company_id=ionq.id, theme_id=quantum_theme.id, exposure_score=5.0),
             DailyMetric(company_id=etn.id, date=older_date, return_1d=-0.99),
             DailyMetric(
                 company_id=etn.id,
@@ -243,7 +274,9 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     data = load_dashboard_data_from_engine(sqlite_engine)
     metrics = data["latest_metrics"]
 
-    assert data["index_symbol_count"] == 4
+    assert data["active_company_count"] == 5
+    assert data["index_constituent_count"] == 3
+    assert data["index_symbol_count"] == 5
     assert data["news_count"] == 1
     assert data["filings_count"] == 1
     assert data["earnings_count"] == 1
@@ -262,7 +295,10 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["recent_news"]["title"].tolist() == ["Power demand update"]
     assert data["recent_filings"]["symbol"].tolist() == ["ETN"]
     assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
-    assert data["intraday_stale_tickers_count"] == 3
+    assert data["intraday_stale_tickers_count"] == 4
+    theme_counts = data["theme_counts"].set_index(["theme_family", "theme"])["company_count"].to_dict()
+    assert theme_counts[("AI Infrastructure", "Power and Grid")] == 1
+    assert theme_counts[("Emerging Compute", "Quantum Computing")] == 1
 
 
 def test_load_dashboard_data_handles_price_data_without_metrics(db_session, sqlite_engine) -> None:
@@ -285,6 +321,8 @@ def test_load_dashboard_data_handles_price_data_without_metrics(db_session, sqli
     assert data["latest_dates"]["latest_price_date"] == "2026-05-29"
     assert data["latest_dates"]["latest_metrics_date"] is None
     assert data["latest_metrics"].empty
+    assert data["active_company_count"] == 1
+    assert data["index_constituent_count"] == 1
     assert data["index_symbol_count"] == 1
 
 

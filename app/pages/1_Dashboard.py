@@ -107,6 +107,25 @@ def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
     return f"{value * 100:.{digits}f}%"
 
 
+def _ticker_link_column_config() -> dict[str, object]:
+    return {"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
+
+
+def _link_ticker_series(series: pd.Series) -> pd.Series:
+    return series.apply(lambda ticker: company_detail_url(ticker) if ticker else "")
+
+
+def _ticker_markdown(ticker: str) -> str:
+    return f"[{ticker}]({company_detail_url(ticker)})"
+
+
+def _split_tickers(value: object) -> list[str]:
+    if value is None or pd.isna(value):
+        return [""]
+    tickers = [ticker.strip() for ticker in str(value).split(",") if ticker.strip()]
+    return tickers or [""]
+
+
 def _render_recent_news(news_df: pd.DataFrame) -> None:
     if news_df.empty:
         st.info(
@@ -124,11 +143,17 @@ def _render_recent_news(news_df: pd.DataFrame) -> None:
         }
     ).copy()
     view["Published"] = pd.to_datetime(view["Published"]).dt.strftime("%Y-%m-%d %H:%M")
+    view["Ticker"] = view["Tickers"].apply(_split_tickers)
+    view = view.explode("Ticker")
+    view["Ticker"] = _link_ticker_series(view["Ticker"])
     st.dataframe(
-        view[["Published", "Headline", "Source", "Tickers", "Link"]],
+        view[["Published", "Headline", "Source", "Ticker", "Link"]],
         hide_index=True,
         width="stretch",
-        column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open")},
+        column_config={
+            **_ticker_link_column_config(),
+            "Link": st.column_config.LinkColumn("Link", display_text="Open"),
+        },
     )
 
 
@@ -149,11 +174,15 @@ def _render_recent_filings(filings_df: pd.DataFrame) -> None:
         }
     ).copy()
     view["Filed"] = pd.to_datetime(view["Filed"]).dt.strftime("%Y-%m-%d")
+    view["Ticker"] = _link_ticker_series(view["Ticker"])
     st.dataframe(
         view[["Filed", "Ticker", "Company", "Form", "Filing"]],
         hide_index=True,
         width="stretch",
-        column_config={"Filing": st.column_config.LinkColumn("Filing", display_text="Open")},
+        column_config={
+            **_ticker_link_column_config(),
+            "Filing": st.column_config.LinkColumn("Filing", display_text="Open"),
+        },
     )
 
 
@@ -177,8 +206,29 @@ def _render_upcoming_earnings(earnings_df: pd.DataFrame) -> None:
     if "Fiscal Period" in view.columns:
         view["Fiscal Period"] = view["Fiscal Period"].fillna("n/a").replace("", "n/a")
 
+    view["Ticker"] = _link_ticker_series(view["Ticker"])
     st.dataframe(
         view[["Date", "Ticker", "Company", "Fiscal Period", "Source"]],
+        hide_index=True,
+        width="stretch",
+        column_config=_ticker_link_column_config(),
+    )
+
+
+def _render_theme_counts(theme_counts: object) -> None:
+    if not isinstance(theme_counts, pd.DataFrame) or theme_counts.empty:
+        return
+
+    st.subheader("Theme Coverage")
+    theme_counts_view = theme_counts.rename(
+        columns={
+            "theme_family": "Theme Family",
+            "theme": "Theme",
+            "company_count": "Companies",
+        }
+    )
+    st.dataframe(
+        theme_counts_view[["Theme Family", "Theme", "Companies"]],
         hide_index=True,
         width="stretch",
     )
@@ -253,7 +303,7 @@ def render_dashboard() -> None:
                 f"**Last Filings Refresh**: `{last_filings_refresh.isoformat() if last_filings_refresh else 'Never'}`"
             )
         with col_t2:
-            st.markdown(f"**Active Companies**: `{data['index_symbol_count']}`")
+            st.markdown(f"**Active Companies**: `{data['active_company_count']}`")
             st.markdown(f"**Stale Tickers (No recent prices)**: `{data['stale_tickers_count']}`")
             st.markdown(
                 "**Latest 15m Price Bar**: "
@@ -283,6 +333,7 @@ def render_dashboard() -> None:
         st.info("SEC filings will appear here after filings ingestion is implemented.")
         st.subheader("Upcoming Earnings")
         st.info("Earnings events will appear here after earnings ingestion is implemented.")
+        _render_theme_counts(data.get("theme_counts"))
         return
 
     core_returns = summarize_core_returns(metrics_df)
@@ -292,7 +343,7 @@ def render_dashboard() -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     col1.markdown(
-        render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count")),
+        render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
         unsafe_allow_html=True,
     )
     col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
@@ -301,7 +352,7 @@ def render_dashboard() -> None:
 
     st.write("---")
     st.caption(
-        "AI Infra Core is a simple equal-weight average excluding benchmarks and optional aggressive names."
+        "AI Infra Core is a simple equal-weight average excluding benchmarks, optional aggressive names, and Quantum Computing names."
     )
 
     # Render Index section
@@ -371,8 +422,8 @@ def render_dashboard() -> None:
                 - **Type**: Equal-weighted index of **{index_data["constituent_count"]}** AI infrastructure suppliers.
                 - **Base Level**: 100.0 rebased dynamically to the start of the timeframe.
                 - **Calculation**: Average daily return is calculated across all active constituents for each day, and cumulative returns are compounded daily.
-                - **Missing History**: IPOs (e.g. `GEV`, `ALAB`) and tickers with missing history are handled dynamically by only calculating returns when daily price data exists.
-                - **Exclusions**: Excludes benchmark-only names (`QQQ`, `NVDA`, `MSFT`, `AMZN`, `GOOGL`, `META`) and optional aggressive symbols (`ALAB`, `CRDO`) by default.
+                - **Missing History**: IPOs (e.g. {_ticker_markdown("GEV")}, {_ticker_markdown("ALAB")}) and tickers with missing history are handled dynamically by only calculating returns when daily price data exists.
+                - **Exclusions**: Excludes benchmark-only names ({_ticker_markdown("QQQ")}, {_ticker_markdown("NVDA")}, {_ticker_markdown("MSFT")}, {_ticker_markdown("AMZN")}, {_ticker_markdown("GOOGL")}, {_ticker_markdown("META")}) and optional aggressive symbols ({_ticker_markdown("ALAB")}, {_ticker_markdown("CRDO")}) by default.
                 - **Contributions**: Constituent return contributions are calculated as `Stock Period Return / N`. Due to daily rebalancing, the sum of these simple contributions may slightly deviate from the compounded cumulative return shown in the chart.
                 """
             )
@@ -390,7 +441,7 @@ def render_dashboard() -> None:
                 lambda c: f"{c * 100:+.2f}%"
             )
             df_view = df_view.rename(columns={"symbol": "Ticker", "name": "Company"})
-            df_view["Ticker"] = df_view["Ticker"].apply(company_detail_url)
+            df_view["Ticker"] = _link_ticker_series(df_view["Ticker"])
             styled_df = df_view[["Ticker", "Company", "Return", "Index Contribution"]].style.map(
                 style_positive_green_negative_red, subset=["Return", "Index Contribution"]
             )
@@ -398,9 +449,7 @@ def render_dashboard() -> None:
                 styled_df,
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")
-                },
+                column_config=_ticker_link_column_config(),
             )
 
         with c_tab1:
@@ -467,7 +516,7 @@ def render_dashboard() -> None:
             gainers_view = gainers.rename(
                 columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}
             ).copy()
-            gainers_view["Ticker"] = gainers_view["Ticker"].apply(company_detail_url)
+            gainers_view["Ticker"] = _link_ticker_series(gainers_view["Ticker"])
             gainers_view["1D %"] = gainers_view["1D %"].apply(_fmt_pct)
             styled_gainers = gainers_view[["Ticker", "Company", "1D %"]].style.map(
                 style_positive_green_negative_red, subset=["1D %"]
@@ -476,9 +525,7 @@ def render_dashboard() -> None:
                 styled_gainers,
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")
-                },
+                column_config=_ticker_link_column_config(),
             )
         st.subheader("Biggest Drawdowns From 52W High")
         if drawdowns.empty:
@@ -487,7 +534,7 @@ def render_dashboard() -> None:
             drawdowns_view = drawdowns.rename(
                 columns={"symbol": "Ticker", "name": "Company", "drawdown_52w": "Drawdown %"}
             ).copy()
-            drawdowns_view["Ticker"] = drawdowns_view["Ticker"].apply(company_detail_url)
+            drawdowns_view["Ticker"] = _link_ticker_series(drawdowns_view["Ticker"])
             drawdowns_view["Drawdown %"] = drawdowns_view["Drawdown %"].apply(_fmt_pct)
             styled_drawdowns = drawdowns_view[["Ticker", "Company", "Drawdown %"]].style.map(
                 style_positive_green_negative_red, subset=["Drawdown %"]
@@ -496,9 +543,7 @@ def render_dashboard() -> None:
                 styled_drawdowns,
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")
-                },
+                column_config=_ticker_link_column_config(),
             )
     with right:
         st.subheader("Top 5 Losers (1D)")
@@ -508,7 +553,7 @@ def render_dashboard() -> None:
             losers_view = losers.rename(
                 columns={"symbol": "Ticker", "name": "Company", "return_1d": "1D %"}
             ).copy()
-            losers_view["Ticker"] = losers_view["Ticker"].apply(company_detail_url)
+            losers_view["Ticker"] = _link_ticker_series(losers_view["Ticker"])
             losers_view["1D %"] = losers_view["1D %"].apply(_fmt_pct)
             styled_losers = losers_view[["Ticker", "Company", "1D %"]].style.map(
                 style_positive_green_negative_red, subset=["1D %"]
@@ -517,9 +562,7 @@ def render_dashboard() -> None:
                 styled_losers,
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")
-                },
+                column_config=_ticker_link_column_config(),
             )
         st.subheader("RSI Below 40")
         if rsi_below_40.empty:
@@ -528,15 +571,13 @@ def render_dashboard() -> None:
             rsi_view = rsi_below_40.rename(
                 columns={"symbol": "Ticker", "name": "Company", "rsi_14": "RSI 14"}
             ).copy()
-            rsi_view["Ticker"] = rsi_view["Ticker"].apply(company_detail_url)
+            rsi_view["Ticker"] = _link_ticker_series(rsi_view["Ticker"])
             rsi_view["RSI 14"] = rsi_view["RSI 14"].round(1)
             st.dataframe(
                 rsi_view,
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")
-                },
+                column_config=_ticker_link_column_config(),
             )
 
     st.subheader("Recent News")
@@ -547,6 +588,8 @@ def render_dashboard() -> None:
 
     st.subheader("Upcoming Earnings")
     _render_upcoming_earnings(data["upcoming_earnings"])
+
+    _render_theme_counts(data.get("theme_counts"))
 
 
 if os.environ.get("PYTEST_CURRENT_TEST") is None:

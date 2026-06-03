@@ -35,14 +35,26 @@ def test_get_default_index_symbols(db_session: Session) -> None:
     c2 = Company(symbol="NVDA", name="NVIDIA", is_active=True, is_benchmark=True)
     c3 = Company(symbol="ALAB", name="Astera", is_active=True, is_benchmark=False)
     c4 = Company(symbol="VRT", name="Vertiv", is_active=False, is_benchmark=False)
-    db_session.add_all([c1, c2, c3, c4])
+    c5 = Company(symbol="IONQ", name="IonQ", is_active=True, is_benchmark=False)
+    c6 = Company(symbol="IBM", name="IBM", is_active=True, is_benchmark=False)
+    c7 = Company(symbol="INFQ", name="Infleqtion", is_active=True, is_benchmark=False)
+    c8 = Company(symbol="RGTI", name="Rigetti", is_active=True, is_benchmark=False)
+    c9 = Company(symbol="QBTS", name="D-Wave", is_active=True, is_benchmark=False)
+    c10 = Company(symbol="QUBT", name="Quantum Computing", is_active=True, is_benchmark=False)
+    db_session.add_all([c1, c2, c3, c4, c5, c6, c7, c8, c9, c10])
     db_session.flush()
 
     symbols = get_default_index_symbols(db_session)
     assert "ETN" in symbols
     assert "NVDA" not in symbols  # Excluded (Benchmark)
     assert "ALAB" not in symbols  # Excluded (Aggressive)
-    assert "VRT" not in symbols   # Excluded (Inactive)
+    assert "IONQ" not in symbols  # Excluded (Emerging Compute)
+    assert "IBM" not in symbols  # Excluded (Emerging Compute)
+    assert "INFQ" not in symbols  # Excluded (Emerging Compute)
+    assert "RGTI" not in symbols  # Excluded (Emerging Compute)
+    assert "QBTS" not in symbols  # Excluded (Emerging Compute)
+    assert "QUBT" not in symbols  # Excluded (Emerging Compute)
+    assert "VRT" not in symbols  # Excluded (Inactive)
 
 
 def test_calculate_equal_weight_index(db_session: Session) -> None:

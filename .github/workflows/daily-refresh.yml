@@ -1,6 +1,6 @@
 # Argus Daily Refresh — GitHub Actions Workflow
 #
-# Runs the daily close pipeline (prices → metrics → scores → filings → alerts)
+# Runs the daily close pipeline (prices → metrics → scores → index → filings → alerts)
 # against a Supabase Postgres database on a weekday schedule.
 #
 # Required repository secrets:

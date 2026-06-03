@@ -9,8 +9,17 @@ from sqlalchemy.engine import Engine
 
 from argus.core.db import session_scope
 from argus.core.settings import settings
-from argus.core.models import Company, DailyMetric, NewsItem, PriceBar, SecFiling, WatchlistItem
-from argus.core.seed import AI_INFRA_CORE_INDEX_SYMBOLS
+from argus.core.models import (
+    Company,
+    CompanyThemeExposure,
+    DailyMetric,
+    NewsItem,
+    PriceBar,
+    SecFiling,
+    Theme,
+    WatchlistItem,
+)
+from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS, AI_INFRA_CORE_INDEX_SYMBOLS
 
 STALE_DAYS_THRESHOLD = 3
 LOW_RSI_THRESHOLD = 40.0
@@ -71,12 +80,37 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             text("SELECT COUNT(*) AS count FROM companies WHERE is_active = TRUE"),
             conn,
         ).at[0, "count"]
+        active_symbols = pd.read_sql_query(
+            text("SELECT symbol FROM companies WHERE is_active = TRUE"),
+            conn,
+        )["symbol"].tolist()
+        index_constituent_count = len(
+            [symbol for symbol in active_symbols if symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS]
+        )
         news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[0, "count"]
         filings_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM sec_filings"), conn).at[0, "count"]
         earnings_count = pd.read_sql_query(
             text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= CURRENT_DATE"),
             conn,
         ).at[0, "count"]
+        theme_counts = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    COALESCE(parent.name, t.name) AS theme_family,
+                    t.name AS theme,
+                    COUNT(DISTINCT c.id) AS company_count
+                FROM company_theme_exposure cte
+                JOIN companies c ON c.id = cte.company_id
+                JOIN themes t ON t.id = cte.theme_id
+                LEFT JOIN themes parent ON parent.id = t.parent_theme_id
+                WHERE c.is_active = TRUE
+                GROUP BY COALESCE(parent.name, t.name), t.name
+                ORDER BY COALESCE(parent.name, t.name), t.name
+                """
+            ),
+            conn,
+        )
         if dialect_name == "postgresql":
             tickers_expr = "string_agg(DISTINCT nm2.ticker, ',')"
         else:
@@ -207,10 +241,13 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
     return {
         "latest_dates": latest_dates.iloc[0].to_dict(),
         "latest_metrics": latest_metrics,
+        "active_company_count": int(active_symbol_count),
+        "index_constituent_count": int(index_constituent_count),
         "index_symbol_count": int(active_symbol_count),
         "news_count": int(news_count),
         "filings_count": int(filings_count),
         "earnings_count": int(earnings_count),
+        "theme_counts": theme_counts,
         "recent_news": recent_news,
         "recent_filings": recent_filings,
         "upcoming_earnings": upcoming_earnings,
@@ -323,6 +360,8 @@ def get_dashboard_overview() -> dict[str, int]:
             "tracked_companies": session.query(Company).filter(Company.is_active.is_(True)).count(),
             "high_priority_count": session.query(WatchlistItem).filter(WatchlistItem.watch_status == "high_priority").count(),
             "owned_count": session.query(WatchlistItem).filter(WatchlistItem.watch_status == "owned").count(),
+            "theme_count": session.query(Theme).count(),
+            "theme_exposure_count": session.query(CompanyThemeExposure).count(),
             "price_bar_count": session.query(PriceBar).count(),
             "metrics_count": session.query(DailyMetric).count(),
             "news_count": session.query(NewsItem).count(),

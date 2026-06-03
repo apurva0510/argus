@@ -109,12 +109,17 @@ def render_pullback_finder() -> None:
 
     options = get_filter_options(candidates)
 
-    filter1, filter2, filter3 = st.columns(3)
+    filter1, filter2, filter3, filter4 = st.columns(4)
     with filter1:
         selected_sector = st.selectbox("Sector", ["All"] + options["sectors"])
     with filter2:
-        selected_theme = st.selectbox("Theme", ["All"] + options["themes"])
+        selected_theme_family = st.selectbox(
+            "Theme Family",
+            ["All"] + options["theme_families"],
+        )
     with filter3:
+        selected_theme = st.selectbox("Theme", ["All"] + options["themes"])
+    with filter4:
         selected_statuses = st.multiselect(
             "Watch Status",
             sorted(WATCH_STATUSES),
@@ -138,6 +143,7 @@ def render_pullback_finder() -> None:
     filtered = apply_pullback_filters(
         candidates,
         sector=None if selected_sector == "All" else selected_sector,
+        theme_family=None if selected_theme_family == "All" else selected_theme_family,
         theme=None if selected_theme == "All" else selected_theme,
         watch_statuses=selected_statuses or None,
         min_drawdown=min_drawdown_pct / 100.0 if min_drawdown_pct > 0 else None,
@@ -160,7 +166,7 @@ def render_pullback_finder() -> None:
     display_df["rsi"] = display_df["rsi_14"].apply(lambda value: "n/a" if pd.isna(value) else f"{value:.1f}")
     display_df["vs QQQ 3M"] = display_df["relative_return_vs_qqq_3m"].apply(_fmt_pct)
     display_df["200DMA"] = display_df["distance_from_200dma"].apply(_fmt_pct)
-    display_df["theme score"] = display_df["theme_exposure_score"].apply(
+    display_df["max theme score"] = display_df["theme_exposure_score"].apply(
         lambda value: "n/a" if pd.isna(value) else f"{value:.1f}/5"
     )
 
@@ -170,6 +176,7 @@ def render_pullback_finder() -> None:
             "ticker",
             "company",
             "sector",
+            "theme_family",
             "theme",
             "watch_status",
             "score",
@@ -177,7 +184,7 @@ def render_pullback_finder() -> None:
             "rsi",
             "200DMA",
             "vs QQQ 3M",
-            "theme score",
+            "max theme score",
         ]
     ]
 

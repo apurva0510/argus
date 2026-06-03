@@ -15,9 +15,12 @@ from argus.core.seed import (
     BENCHMARKS,
     COMPANY_METADATA,
     COMPANY_NAMES,
+    EMERGING_COMPUTE_SYMBOLS,
     SECTOR_GROUPS,
     SECTOR_THEME_CODES,
     THEMES,
+    THEME_PARENT_CODES,
+    QUANTUM_COMPUTING_SYMBOLS,
     WATCH_STATUSES,
     WATCH_STATUS_BY_SYMBOL,
     normalize_symbol,
@@ -38,10 +41,12 @@ EXPECTED_SECTOR_GROUPS = {
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
     "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
+    "Quantum Computing": ["IONQ", "RGTI", "QBTS", "QUBT", "INFQ", "IBM"],
     "Optional Aggressive AI Infrastructure Names": ["ALAB", "CRDO"],
 }
 
 EXPECTED_THEME_CODES = {
+    "ai_infrastructure",
     "ai_capex_benchmark",
     "power_grid",
     "cooling",
@@ -53,6 +58,9 @@ EXPECTED_THEME_CODES = {
     "cybersecurity",
     "aggressive_ai_infra",
     "hyperscaler_capex",
+    "emerging_compute",
+    "quantum_computing",
+    "neuromorphic_computing",
 }
 
 
@@ -102,6 +110,7 @@ def test_seed_groups_match_build_plan() -> None:
 def test_theme_codes_match_canonical_set() -> None:
     theme_codes = {code for code, _name in THEMES}
     assert theme_codes == EXPECTED_THEME_CODES
+    assert set(THEME_PARENT_CODES) == theme_codes
     assert set(SECTOR_THEME_CODES) == set(SECTOR_GROUPS)
     assert {
         code for theme_codes_for_sector in SECTOR_THEME_CODES.values() for code in theme_codes_for_sector
@@ -264,13 +273,129 @@ def test_seeded_themes_match_canonical_set() -> None:
         assert theme_codes == EXPECTED_THEME_CODES
 
 
-def test_ai_infra_core_index_excludes_benchmarks_and_optional_aggressive_names() -> None:
+def test_theme_hierarchy_is_seeded() -> None:
+    with _session() as session:
+        _run_seed(session)
+        themes = {theme.code: theme for theme in session.query(Theme).all()}
+
+        assert themes["ai_infrastructure"].parent_theme_id is None
+        assert themes["emerging_compute"].parent_theme_id is None
+        assert themes["power_grid"].parent_theme_id == themes["ai_infrastructure"].id
+        assert themes["semiconductor_equipment"].parent_theme_id == themes["ai_infrastructure"].id
+        assert themes["advanced_packaging"].parent_theme_id == themes["ai_infrastructure"].id
+        assert themes["quantum_computing"].parent_theme_id == themes["emerging_compute"].id
+        assert themes["neuromorphic_computing"].parent_theme_id == themes["emerging_compute"].id
+
+
+def test_quantum_watchlist_and_exposure_defaults_are_seeded() -> None:
+    with _session() as session:
+        _run_seed(session)
+        rows = (
+            session.query(
+                Company.symbol,
+                CompanyThemeExposure.exposure_score,
+                WatchlistItem.watch_status,
+            )
+            .join(WatchlistItem, WatchlistItem.company_id == Company.id)
+            .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+            .join(CompanyThemeExposure, CompanyThemeExposure.company_id == Company.id)
+            .join(Theme, Theme.id == CompanyThemeExposure.theme_id)
+            .filter(Watchlist.name == "Quantum Computing")
+            .filter(Theme.code == "quantum_computing")
+            .order_by(WatchlistItem.sort_order)
+            .all()
+        )
+
+        assert [symbol for symbol, _score, _status in rows] == SECTOR_GROUPS["Quantum Computing"]
+        assert {score for _symbol, score, _status in rows} == {5.0}
+        assert {status for _symbol, _score, status in rows} == {"watch"}
+
+
+def test_quantum_companies_are_not_given_ai_infrastructure_exposure() -> None:
+    with _session() as session:
+        _run_seed(session)
+        rows = (
+            session.query(Company.symbol, Theme.code)
+            .join(CompanyThemeExposure, CompanyThemeExposure.company_id == Company.id)
+            .join(Theme, Theme.id == CompanyThemeExposure.theme_id)
+            .filter(Company.symbol.in_(QUANTUM_COMPUTING_SYMBOLS))
+            .all()
+        )
+
+        by_symbol: dict[str, set[str]] = {}
+        for symbol, theme_code in rows:
+            by_symbol.setdefault(symbol, set()).add(theme_code)
+
+        assert set(by_symbol) == QUANTUM_COMPUTING_SYMBOLS
+        assert all(theme_codes == {"quantum_computing"} for theme_codes in by_symbol.values())
+
+
+def test_seed_removes_obsolete_seed_managed_reclassification_exposures() -> None:
+    with _session() as session:
+        _run_seed(session)
+        ionq = session.query(Company).filter(Company.symbol == "IONQ").one()
+        power_grid = session.query(Theme).filter(Theme.code == "power_grid").one()
+        session.add(
+            CompanyThemeExposure(
+                company_id=ionq.id,
+                theme_id=power_grid.id,
+                exposure_score=4.0,
+                source="manual_seed",
+            )
+        )
+        session.commit()
+
+        _run_seed(session)
+        theme_codes = {
+            code
+            for (code,) in (
+                session.query(Theme.code)
+                .join(CompanyThemeExposure, CompanyThemeExposure.theme_id == Theme.id)
+                .filter(CompanyThemeExposure.company_id == ionq.id)
+                .all()
+            )
+        }
+
+        assert theme_codes == {"quantum_computing"}
+
+
+def test_seed_preserves_user_managed_reclassification_exposures() -> None:
+    with _session() as session:
+        _run_seed(session)
+        ionq = session.query(Company).filter(Company.symbol == "IONQ").one()
+        power_grid = session.query(Theme).filter(Theme.code == "power_grid").one()
+        session.add(
+            CompanyThemeExposure(
+                company_id=ionq.id,
+                theme_id=power_grid.id,
+                exposure_score=1.0,
+                source="user",
+            )
+        )
+        session.commit()
+
+        _run_seed(session)
+        theme_codes = {
+            code
+            for (code,) in (
+                session.query(Theme.code)
+                .join(CompanyThemeExposure, CompanyThemeExposure.theme_id == Theme.id)
+                .filter(CompanyThemeExposure.company_id == ionq.id)
+                .all()
+            )
+        }
+
+        assert theme_codes == {"quantum_computing", "power_grid"}
+
+
+def test_ai_infra_core_index_excludes_benchmarks_optional_aggressive_and_emerging_compute() -> None:
     all_seeded_symbols = {symbol for symbols in SECTOR_GROUPS.values() for symbol in symbols}
 
     assert AI_INFRA_CORE_INDEX_SYMBOLS
     assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint(BENCHMARKS)
     assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint({"ALAB", "CRDO"})
-    assert AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS == BENCHMARKS | {"ALAB", "CRDO"}
+    assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint(EMERGING_COMPUTE_SYMBOLS)
+    assert AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS == BENCHMARKS | {"ALAB", "CRDO"} | EMERGING_COMPUTE_SYMBOLS
     assert AI_INFRA_CORE_INDEX_SYMBOLS | AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS == all_seeded_symbols
 
 

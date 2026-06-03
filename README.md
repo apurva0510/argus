@@ -1,6 +1,6 @@
-# Argus: AI Infrastructure & Data-Center Stock Monitor
+# Argus: AI Infrastructure & Emerging Compute Stock Monitor
 
-Argus is a lightweight, local-first Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (power/grid, cooling, optical networking, semiconductor equipment, data center REITs). It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
+Argus is a lightweight, local-first Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (power/grid, cooling, optical networking, semiconductor equipment, data center REITs) plus separate Emerging Compute themes such as quantum computing. It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
 
 Argus is designed for a simple, two-user family workflow (research and decision support). It is not a trading execution platform.
 
@@ -259,7 +259,7 @@ Argus includes five workflow files for production scheduling:
 - `.github/workflows/intraday-prices.yml`
   - Every 30 minutes on weekdays
   - Executes only during the ET market window (8:30 AM–5:00 PM)
-  - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → alerts
+  - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → daily index refresh → alerts
 - `.github/workflows/news-refresh.yml`
   - Twice on weekdays: once at market open and once after market close
   - Runs: broad RSS/GDELT news refresh with 24-hour provider cooldown after HTTP 429
@@ -271,7 +271,7 @@ Argus includes five workflow files for production scheduling:
   - Runs: selected investor-relations feed refresh for cybersecurity and optical/networking names
 - `.github/workflows/daily-refresh.yml`
   - Once after US market close on weekdays at 5:30 PM ET
-  - Runs: daily bars, metrics, scores, filings, and alerts (`run_daily_refresh.py --period 2y --skip-news`)
+  - Runs: daily bars, metrics, scores, index, filings, and alerts (`run_daily_refresh.py --period 2y --skip-news`)
 
 **Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -306,4 +306,4 @@ The custom **AI Infra Core Index** is built to monitor the collective performanc
 * **Equal Weighted**: The index is an equal-weighted average of all active constituent stocks.
 * **Base Level**: Set to a base of 100.0. The chart on the Dashboard dynamically rebases the index level to 100 on the starting date of the selected timeframe for easy comparison.
 * **Dynamic Rebalancing / Missing History**: IPOs (e.g., `GEV` or `ALAB`) and companies with missing historical price bars are handled gracefully. The daily index return is the average of daily returns of only those constituents that have valid price data on both the current and the previous trading day. This average return is compounded daily.
-* **Exclusions**: Benchmark-only and large hyperscaler names (`QQQ`, `NVDA`, `MSFT`, `AMZN`, `GOOGL`, `META`) and optional highly aggressive stocks (`ALAB`, `CRDO`) are excluded from the index calculation by default.
+* **Exclusions**: Benchmark-only and large hyperscaler names (`QQQ`, `NVDA`, `MSFT`, `AMZN`, `GOOGL`, `META`), optional highly aggressive stocks (`ALAB`, `CRDO`), and Emerging Compute names such as Quantum Computing stocks are excluded from the AI Infra Core index calculation by default.

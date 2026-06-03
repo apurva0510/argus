@@ -9,28 +9,55 @@ SECTOR_GROUPS: dict[str, list[str]] = {
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
     "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
+    "Quantum Computing": ["IONQ", "RGTI", "QBTS", "QUBT", "INFQ", "IBM"],
     "Optional Aggressive AI Infrastructure Names": ["ALAB", "CRDO"],
 }
 
 OPTIONAL_AGGRESSIVE_SYMBOLS = set(SECTOR_GROUPS["Optional Aggressive AI Infrastructure Names"])
+QUANTUM_COMPUTING_SYMBOLS = set(SECTOR_GROUPS["Quantum Computing"])
+EMERGING_COMPUTE_SYMBOLS = QUANTUM_COMPUTING_SYMBOLS
 
 THEMES: list[tuple[str, str]] = [
+    ("ai_infrastructure", "AI Infrastructure"),
     ("ai_capex_benchmark", "AI Capex Benchmark"),
     ("power_grid", "Power and Grid"),
     ("cooling", "Cooling and Data Center Infrastructure"),
     ("optical_networking", "Optical, Fiber, and Networking"),
     ("semiconductor_equipment", "Semiconductor Equipment"),
-    ("advanced_packaging", "Advanced Packaging"),
     ("energy_nuclear_utilities", "Energy, Nuclear, and Utilities"),
     ("data_center_reit", "Data Center REIT"),
     ("cybersecurity", "Cybersecurity"),
     ("aggressive_ai_infra", "Aggressive AI Infrastructure"),
     ("hyperscaler_capex", "Hyperscaler Capex"),
+    ("emerging_compute", "Emerging Compute"),
+    ("quantum_computing", "Quantum Computing"),
+    ("neuromorphic_computing", "Neuromorphic Computing"),
+    ("advanced_packaging", "Advanced Packaging"),
 ]
+
+THEME_PARENT_CODES: dict[str, str | None] = {
+    "ai_infrastructure": None,
+    "ai_capex_benchmark": "ai_infrastructure",
+    "power_grid": "ai_infrastructure",
+    "cooling": "ai_infrastructure",
+    "optical_networking": "ai_infrastructure",
+    "semiconductor_equipment": "ai_infrastructure",
+    "energy_nuclear_utilities": "ai_infrastructure",
+    "data_center_reit": "ai_infrastructure",
+    "cybersecurity": "ai_infrastructure",
+    "aggressive_ai_infra": "ai_infrastructure",
+    "hyperscaler_capex": "ai_infrastructure",
+    "emerging_compute": None,
+    "quantum_computing": "emerging_compute",
+    "neuromorphic_computing": "emerging_compute",
+    "advanced_packaging": "ai_infrastructure",
+}
 
 BENCHMARKS = {"NVDA", "MSFT", "AMZN", "GOOGL", "META", "QQQ"}
 HYPERSCALERS = {"MSFT", "AMZN", "GOOGL", "META"}
-AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS = BENCHMARKS | OPTIONAL_AGGRESSIVE_SYMBOLS
+AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS = (
+    BENCHMARKS | OPTIONAL_AGGRESSIVE_SYMBOLS | EMERGING_COMPUTE_SYMBOLS
+)
 AI_INFRA_CORE_INDEX_SYMBOLS = {
     symbol
     for symbols in SECTOR_GROUPS.values()
@@ -58,6 +85,7 @@ SECTOR_THEME_CODES: dict[str, list[str]] = {
     "Energy, Nuclear, and Utilities": ["energy_nuclear_utilities"],
     "Data Center REITs": ["data_center_reit"],
     "Cybersecurity": ["cybersecurity"],
+    "Quantum Computing": ["quantum_computing"],
     "Optional Aggressive AI Infrastructure Names": ["aggressive_ai_infra"],
 }
 COMPANY_NAMES = {
@@ -104,6 +132,12 @@ COMPANY_NAMES = {
     "NET": "Cloudflare, Inc.",
     "S": "SentinelOne, Inc.",
     "ZS": "Zscaler, Inc.",
+    "IONQ": "IonQ, Inc.",
+    "RGTI": "Rigetti Computing, Inc.",
+    "QBTS": "D-Wave Quantum Inc.",
+    "QUBT": "Quantum Computing Inc.",
+    "INFQ": "Infleqtion, Inc.",
+    "IBM": "International Business Machines Corporation",
     "ALAB": "Astera Labs, Inc.",
     "CRDO": "Credo Technology Group Holding Ltd",
 }
@@ -152,6 +186,12 @@ COMPANY_METADATA = {
     "NET": {"exchange": "NYSE", "country": "US", "industry": "Cybersecurity"},
     "S": {"exchange": "NYSE", "country": "US", "industry": "Cybersecurity"},
     "ZS": {"exchange": "NASDAQ", "country": "US", "industry": "Cybersecurity"},
+    "IONQ": {"exchange": "NYSE", "country": "US", "industry": "Quantum Computing"},
+    "RGTI": {"exchange": "NASDAQ", "country": "US", "industry": "Quantum Computing"},
+    "QBTS": {"exchange": "NYSE", "country": "US", "industry": "Quantum Computing"},
+    "QUBT": {"exchange": "NASDAQ", "country": "US", "industry": "Quantum Computing"},
+    "INFQ": {"exchange": "NYSE", "country": "US", "industry": "Quantum Computing"},
+    "IBM": {"exchange": "NYSE", "country": "US", "industry": "Quantum Computing"},
     "ALAB": {"exchange": "NASDAQ", "country": "US", "industry": "Semiconductors"},
     "CRDO": {"exchange": "NASDAQ", "country": "US", "industry": "Semiconductors"},
 }
@@ -201,6 +241,12 @@ COMPANY_CIKS = {
     "NET": "0001477333",
     "S": "0001583708",
     "ZS": "0001713683",
+    "IONQ": "0001824920",
+    "RGTI": "0001838359",
+    "QBTS": "0001907982",
+    "QUBT": "0001758009",
+    "INFQ": "0002007825",
+    "IBM": "0000051143",
     "ALAB": "0001760630",
     "CRDO": "0001807794",
 }
@@ -219,6 +265,15 @@ def seed_themes(session) -> None:
     for code, name in THEMES:
         if code not in existing:
             session.add(Theme(code=code, name=name, description=name))
+    session.flush()
+
+    themes_by_code = {theme.code: theme for theme in session.query(Theme).all()}
+    for code, name in THEMES:
+        theme = themes_by_code[code]
+        theme.name = name
+        theme.description = theme.description or name
+        parent_code = THEME_PARENT_CODES.get(code)
+        theme.parent_theme_id = themes_by_code[parent_code].id if parent_code else None
 
 
 def seed_companies(session) -> None:
@@ -307,6 +362,13 @@ def seed_exposure_defaults(session) -> None:
         if not theme_codes:
             continue
 
+        expected_theme_ids = {
+            theme_map[code]
+            for code in theme_codes
+            if code in theme_map
+        }
+        _remove_obsolete_seed_exposures(session, company, expected_theme_ids)
+
         for code in theme_codes:
             theme_id = theme_map.get(code)
             if theme_id is None:
@@ -323,7 +385,7 @@ def seed_exposure_defaults(session) -> None:
             if exists is not None:
                 continue
 
-            score = 5.0 if code == "ai_capex_benchmark" else 4.0
+            score = _default_exposure_score(code)
             session.add(
                 CompanyThemeExposure(
                     company_id=company.id,
@@ -335,3 +397,23 @@ def seed_exposure_defaults(session) -> None:
                     as_of_date=None,
                 )
             )
+
+
+def _remove_obsolete_seed_exposures(session, company: Company, expected_theme_ids: set[int]) -> None:
+    stale_seed_exposures = (
+        session.query(CompanyThemeExposure)
+        .filter(
+            CompanyThemeExposure.company_id == company.id,
+            CompanyThemeExposure.source == "manual_seed",
+            CompanyThemeExposure.theme_id.notin_(expected_theme_ids),
+        )
+        .all()
+    )
+    for exposure in stale_seed_exposures:
+        session.delete(exposure)
+
+
+def _default_exposure_score(theme_code: str) -> float:
+    if theme_code in {"ai_capex_benchmark", "quantum_computing"}:
+        return 5.0
+    return 4.0

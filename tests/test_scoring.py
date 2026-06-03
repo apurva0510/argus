@@ -134,6 +134,46 @@ def test_pullback_finder_filters_dma_position() -> None:
     assert below["ticker"].tolist() == ["BBB"]
 
 
+def test_pullback_finder_filters_theme_family_and_quantum_theme() -> None:
+    from argus.services.pullback_finder_service import apply_pullback_filters, get_filter_options
+
+    df = pd.DataFrame(
+        [
+            {
+                "ticker": "VRT",
+                "theme_family": "AI Infrastructure",
+                "theme": "Cooling and Data Center Infrastructure",
+            },
+            {
+                "ticker": "IONQ",
+                "theme_family": "Emerging Compute",
+                "theme": "Quantum Computing",
+            },
+            {
+                "ticker": "IBM",
+                "theme_family": "Emerging Compute",
+                "theme": "Quantum Computing",
+            },
+        ]
+    )
+
+    options = get_filter_options(df)
+    assert options["theme_families"] == ["AI Infrastructure", "Emerging Compute"]
+    assert "Quantum Computing" in options["themes"]
+
+    ai_only = apply_pullback_filters(df, theme_family="AI Infrastructure")
+    quantum_only = apply_pullback_filters(df, theme="Quantum Computing")
+    emerging_quantum = apply_pullback_filters(
+        df,
+        theme_family="Emerging Compute",
+        theme="Quantum Computing",
+    )
+
+    assert ai_only["ticker"].tolist() == ["VRT"]
+    assert quantum_only["ticker"].tolist() == ["IONQ", "IBM"]
+    assert emerging_quantum["ticker"].tolist() == ["IONQ", "IBM"]
+
+
 def test_watchlist_priority_none_defaults_to_zero_points() -> None:
     breakdown = compute_opportunity_score(ScoreInputs(watch_status=None))
     assert breakdown.watchlist_priority == 0.0
@@ -454,7 +494,42 @@ def test_load_pullback_candidates_joins_and_calculates_correctly(sqlite_engine, 
     assert vrt["price"] == 100.0
     assert vrt["drawdown_52w"] == -0.15
     assert vrt["theme_exposure_score"] == 4.0
+    assert vrt["theme_family"] == "AI Infrastructure"
     assert vrt["opportunity_score"] > 0
+
+
+def test_load_pullback_candidates_keeps_advanced_packaging_in_ai_infrastructure(
+    sqlite_engine,
+    db_session,
+) -> None:
+    from datetime import date
+    from argus.core.models import Company, CompanyThemeExposure, DailyMetric, PriceBar, Theme, Watchlist, WatchlistItem
+    from argus.services.pullback_finder_service import load_pullback_candidates
+
+    ai_infra = Theme(code="ai_infrastructure", name="AI Infrastructure")
+    advanced_packaging = Theme(code="advanced_packaging", name="Advanced Packaging")
+    db_session.add_all([ai_infra, advanced_packaging])
+    db_session.flush()
+    advanced_packaging.parent_theme_id = ai_infra.id
+
+    company = Company(symbol="AMAT", name="Applied Materials", sector="Semiconductor Equipment and Advanced Packaging", is_active=True)
+    watchlist = Watchlist(name="Semiconductor Equipment and Advanced Packaging", is_system=True)
+    db_session.add_all([company, watchlist])
+    db_session.flush()
+    db_session.add_all(
+        [
+            CompanyThemeExposure(company_id=company.id, theme_id=advanced_packaging.id, exposure_score=4.0, source="manual_seed"),
+            WatchlistItem(watchlist_id=watchlist.id, company_id=company.id, watch_status="watch"),
+            PriceBar(company_id=company.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d"),
+            DailyMetric(company_id=company.id, date=date(2026, 5, 29), drawdown_52w=-0.15, rsi_14=35.0),
+        ]
+    )
+    db_session.commit()
+
+    candidates = load_pullback_candidates(sqlite_engine)
+    amat = candidates[candidates["ticker"] == "AMAT"].iloc[0]
+
+    assert amat["theme_family"] == "AI Infrastructure"
 
 
 def test_watchlist_update_propagates_to_opportunity_score(sqlite_engine, db_session, monkeypatch) -> None:
@@ -598,6 +673,4 @@ def test_load_pullback_candidates_sorting_by_score(sqlite_engine, db_session) ->
     # High score should be first (c_high), then mid (c_mid), then low (c_low)
     tickers = candidates["ticker"].tolist()
     assert tickers == ["ZZZ", "MMM", "AAA"]
-
-
 

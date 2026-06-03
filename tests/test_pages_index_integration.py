@@ -95,6 +95,83 @@ def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_
     assert "**Missing/Stale 15m Tickers**" not in dashboard_source
 
 
+def test_dashboard_links_all_visible_ticker_surfaces() -> None:
+    import importlib
+
+    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
+
+    assert dashboard_module._split_tickers("ETN,VRT") == ["ETN", "VRT"]
+    assert dashboard_module._ticker_markdown("NVDA") == "[NVDA](/Company_Detail?ticker=NVDA)"
+
+
+def test_dashboard_recent_news_renders_multiple_ticker_links_in_dataframe(monkeypatch) -> None:
+    import importlib
+    import pandas as pd
+
+    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
+    captured_df = []
+
+    class MockSt:
+        class column_config:
+            @staticmethod
+            def LinkColumn(label, **kwargs):
+                return {"label": label, **kwargs}
+
+        @staticmethod
+        def dataframe(df, **kwargs):
+            captured_df.append(df)
+
+        @staticmethod
+        def info(msg):
+            pass
+
+    monkeypatch.setattr("app.pages.1_Dashboard.st", MockSt)
+
+    dashboard_module._render_recent_news(
+        pd.DataFrame(
+            [
+                {
+                    "published_at": "2026-06-01T12:00:00",
+                    "title": "Power grid update",
+                    "source_name": "RSS",
+                    "tickers": "ETN,VRT",
+                    "url": "https://example.com/story",
+                }
+            ]
+        )
+    )
+
+    assert len(captured_df) == 1
+    news_out = captured_df[0]
+    assert news_out["Ticker"].tolist() == [
+        "/Company_Detail?ticker=ETN",
+        "/Company_Detail?ticker=VRT",
+    ]
+    assert news_out["Headline"].tolist() == ["Power grid update", "Power grid update"]
+    assert news_out.columns.tolist() == ["Published", "Headline", "Source", "Ticker", "Link"]
+
+
+def test_dashboard_theme_coverage_renders_before_empty_metrics_return() -> None:
+    dashboard_source = (
+        Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
+    ).read_text(encoding="utf-8")
+    empty_message = "Earnings events will appear here after earnings ingestion is implemented."
+    empty_return = 'st.info("Earnings events will appear here after earnings ingestion is implemented.")\n        _render_theme_counts(data.get("theme_counts"))\n        return'
+
+    assert empty_message in dashboard_source
+    assert empty_return in dashboard_source
+
+
+def test_dashboard_uses_separate_active_and_index_constituent_counts() -> None:
+    dashboard_source = (
+        Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
+    ).read_text(encoding="utf-8")
+
+    assert "data['active_company_count']" in dashboard_source
+    assert 'data.get("index_constituent_count")' in dashboard_source
+    assert 'render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count"))' not in dashboard_source
+
+
 def test_company_detail_formatters() -> None:
     import importlib
 
@@ -140,6 +217,11 @@ def test_dashboard_upcoming_earnings_none_filled(monkeypatch) -> None:
     captured_df = []
 
     class MockSt:
+        class column_config:
+            @staticmethod
+            def LinkColumn(label, **kwargs):
+                return {"label": label, **kwargs}
+
         @staticmethod
         def dataframe(df, **kwargs):
             captured_df.append(df)
@@ -176,3 +258,5 @@ def test_dashboard_upcoming_earnings_none_filled(monkeypatch) -> None:
     df_out = captured_df[0]
     assert df_out.iloc[0]["Fiscal Period"] == "n/a"
     assert df_out.iloc[1]["Fiscal Period"] == "n/a"
+    assert df_out.iloc[0]["Ticker"] == "/Company_Detail?ticker=AAPL"
+    assert df_out.iloc[1]["Ticker"] == "/Company_Detail?ticker=MSFT"

@@ -43,6 +43,14 @@ def test_intraday_workflow_runs_every_30_minutes_through_5pm_et() -> None:
     assert 'os.environ["GITHUB_OUTPUT"]' in workflow
     assert 'open("$GITHUB_OUTPUT"' not in workflow
     assert "python scripts/backfill_prices.py --period 5d --interval 15m" in workflow
+    assert "python scripts/compute_metrics.py" in workflow
+    assert "python scripts/refresh_index.py" in workflow
+    assert workflow.index("python scripts/compute_metrics.py") < workflow.index(
+        "python scripts/refresh_index.py"
+    )
+    assert workflow.index("python scripts/refresh_index.py") < workflow.index(
+        "python scripts/run_alerts.py"
+    )
 
 
 def test_daily_close_workflow_runs_at_530pm_et_with_manual_override() -> None:
@@ -60,6 +68,15 @@ def test_daily_close_workflow_runs_at_530pm_et_with_manual_override() -> None:
     assert "is_manual or in_window" in workflow
     assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
     assert "python scripts/run_daily_refresh.py --period 2y --skip-news" in workflow
+
+
+def test_daily_refresh_orchestrator_includes_refresh_index() -> None:
+    source = (PROJECT_ROOT / "argus" / "pipelines" / "run_daily_refresh.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from argus.pipelines.refresh_index import refresh_index" in source
+    assert '("refresh_index", refresh_index)' in source
 
 
 def test_news_workflow_runs_only_at_market_open_and_close_et() -> None:

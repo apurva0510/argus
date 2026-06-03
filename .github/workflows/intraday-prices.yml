@@ -79,6 +79,10 @@ jobs:
         if: steps.market_window.outputs.run_job == 'true'
         run: python scripts/compute_metrics.py
 
+      - name: Refresh index
+        if: steps.market_window.outputs.run_job == 'true'
+        run: python scripts/refresh_index.py
+
       - name: Run alerts
         if: steps.market_window.outputs.run_job == 'true'
         run: python scripts/run_alerts.py
