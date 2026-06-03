@@ -51,7 +51,7 @@ Open `.env` in a text editor to configure settings. Key configurations include:
 - `APP_AUTH_SECRET`: Optional signing secret for cross-tab auth cookies. If blank, Argus uses `APP_PASSWORD`.
 - `SEC_USER_AGENT`: Required format for SEC filings (e.g., `Argus/1.0 (contact@example.com)`).
 - `MARKET_DATA_PROVIDER`: Set to `yfinance` (default, free, no key required) or configure optional API keys for `finnhub`, `twelvedata`, or `alphavantage`.
-- SMTP details (`EMAIL_HOST`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`) for email alerts.
+- SMTP details (`EMAIL_HOST`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`) for email alerts. `EMAIL_TO` supports comma-separated recipients.
 - For Supabase/Postgres, either:
   - put full credentials in `DATABASE_URL`, or
   - keep a placeholder in `DATABASE_URL` (`[YOUR-PASSWORD]`, `<PASSWORD>`, or `__DB_PASSWORD__`) and set `DATABASE_PASSWORD`.
@@ -283,7 +283,7 @@ Argus includes five workflow files for production scheduling:
 | `EMAIL_HOST`        | SMTP host for alert emails               | Optional |
 | `EMAIL_USERNAME`    | SMTP username                            | Optional |
 | `EMAIL_PASSWORD`    | SMTP password                            | Optional |
-| `EMAIL_TO`          | Alert recipient email address            | Optional |
+| `EMAIL_TO`          | Alert recipient email address(es), comma-separated if multiple | Optional |
 
 ### 4. Alternative: VPS or PaaS with SQLite
 

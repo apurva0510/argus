@@ -926,6 +926,21 @@ class TestFormatting:
 
 
 class TestEmailDelivery:
+    def test_email_recipients_split_comma_separated_values(self, monkeypatch):
+        from argus.alerts import email_delivery
+
+        monkeypatch.setattr(
+            email_delivery.settings,
+            "email_to",
+            "dad@example.com, me@example.com,,alerts@example.com ",
+        )
+
+        assert email_delivery.get_email_recipients() == [
+            "dad@example.com",
+            "me@example.com",
+            "alerts@example.com",
+        ]
+
     def test_smtp_not_configured_by_default(self, monkeypatch):
         # In test env, EMAIL_HOST / EMAIL_TO should not be set
         from argus.alerts import email_delivery
@@ -986,6 +1001,54 @@ class TestEmailDelivery:
 
         assert sent is False
         assert calls == {"login": 0, "sendmail": 0, "quit": 1}
+
+    def test_send_email_sends_to_multiple_recipients(self, monkeypatch):
+        from argus.alerts import email_delivery
+
+        sendmail_calls = []
+
+        class FakeSMTP:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def ehlo(self):
+                pass
+
+            def starttls(self):
+                pass
+
+            def login(self, *_args):
+                pass
+
+            def sendmail(self, from_addr, to_addrs, message):
+                sendmail_calls.append((from_addr, to_addrs, message))
+
+            def quit(self):
+                pass
+
+        monkeypatch.setattr(email_delivery.settings, "email_host", "smtp.example.com")
+        monkeypatch.setattr(email_delivery.settings, "email_port", 587)
+        monkeypatch.setattr(email_delivery.settings, "email_username", "user@example.com")
+        monkeypatch.setattr(email_delivery.settings, "email_password", "secret")
+        monkeypatch.setattr(email_delivery.settings, "email_from", "from@example.com")
+        monkeypatch.setattr(
+            email_delivery.settings,
+            "email_to",
+            "dad@example.com, me@example.com",
+        )
+        monkeypatch.setattr(email_delivery.smtplib, "SMTP", FakeSMTP)
+
+        sent = email_delivery.send_email("subject", "body")
+
+        assert sent is True
+        assert sendmail_calls == [
+            (
+                "from@example.com",
+                ["dad@example.com", "me@example.com"],
+                sendmail_calls[0][2],
+            )
+        ]
+        assert "To: dad@example.com, me@example.com" in sendmail_calls[0][2]
 
 
 # ── Alert Service (ORM-level) ────────────────────────────────────────

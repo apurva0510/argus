@@ -7,9 +7,14 @@ from argus.core.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def get_email_recipients() -> list[str]:
+    """Return configured alert recipients from comma-separated EMAIL_TO."""
+    return [email.strip() for email in settings.email_to.split(",") if email.strip()]
+
+
 def is_smtp_configured() -> bool:
     """Check if SMTP variables are set in settings."""
-    return bool(settings.email_host and settings.email_to)
+    return bool(settings.email_host and get_email_recipients())
 
 
 def send_email(subject: str, text_content: str, html_content: str | None = None) -> bool:
@@ -26,10 +31,11 @@ def send_email(subject: str, text_content: str, html_content: str | None = None)
         return False
 
     try:
+        recipients = get_email_recipients()
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = settings.email_from or settings.email_username
-        msg["To"] = settings.email_to
+        msg["To"] = ", ".join(recipients)
 
         msg.attach(MIMEText(text_content, "plain"))
         if html_content:
@@ -53,9 +59,9 @@ def send_email(subject: str, text_content: str, html_content: str | None = None)
         if settings.email_username and settings.email_password:
             server.login(settings.email_username, settings.email_password)
 
-        server.sendmail(msg["From"], [msg["To"]], msg.as_string())
+        server.sendmail(msg["From"], recipients, msg.as_string())
         server.quit()
-        logger.info("Email alert successfully sent to %s", settings.email_to)
+        logger.info("Email alert successfully sent to %s", ", ".join(recipients))
         return True
     except Exception as e:
         logger.exception("Failed to send email alert via SMTP: %s", str(e))
