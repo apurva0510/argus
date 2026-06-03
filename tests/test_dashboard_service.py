@@ -396,3 +396,40 @@ def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:
     assert overview["metrics_count"] == 0
     assert overview["news_count"] == 0
     assert overview["filings_count"] == 0
+
+
+def test_dashboard_latest_failed_job_persistence(db_session, sqlite_engine) -> None:
+    from argus.core.models import JobRun
+    
+    # 1. Add a failed job run
+    db_session.add(
+        JobRun(
+            job_name="refresh_prices",
+            started_at=datetime(2026, 5, 29, 20, 0),
+            finished_at=datetime(2026, 5, 29, 20, 1),
+            status="failed",
+            error_text="Timeout connection",
+        )
+    )
+    db_session.commit()
+    
+    # Verify the dashboard loads it as failed_job
+    data = load_dashboard_data_from_engine(sqlite_engine)
+    assert data["failed_job"] is not None
+    assert data["failed_job"]["job_name"] == "refresh_prices"
+    assert data["failed_job"]["error_text"] == "Timeout connection"
+    
+    # 2. Add a subsequent successful run for the same job
+    db_session.add(
+        JobRun(
+            job_name="refresh_prices",
+            started_at=datetime(2026, 5, 29, 21, 0),
+            finished_at=datetime(2026, 5, 29, 21, 1),
+            status="success",
+        )
+    )
+    db_session.commit()
+    
+    # Verify the failed_job resolves to None now that the latest run is successful
+    data = load_dashboard_data_from_engine(sqlite_engine)
+    assert data["failed_job"] is None

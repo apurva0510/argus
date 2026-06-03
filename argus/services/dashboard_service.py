@@ -218,14 +218,19 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             },
         ).at[0, "count"]
 
-        # Fetch latest failed job
+        # Fetch latest failed job (only if its most recent run was a failure)
         failed_job_df = pd.read_sql_query(
             text(
                 """
-                SELECT job_name, finished_at, error_text
-                FROM job_runs
-                WHERE status = 'failed'
-                ORDER BY id DESC LIMIT 1
+                SELECT jr.job_name, jr.finished_at, jr.error_text
+                FROM job_runs jr
+                JOIN (
+                    SELECT job_name, MAX(id) AS max_id
+                    FROM job_runs
+                    GROUP BY job_name
+                ) latest ON jr.id = latest.max_id
+                WHERE jr.status = 'failed'
+                ORDER BY jr.id DESC LIMIT 1
                 """
             ),
             conn,
