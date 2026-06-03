@@ -674,3 +674,80 @@ def test_load_pullback_candidates_sorting_by_score(sqlite_engine, db_session) ->
     tickers = candidates["ticker"].tolist()
     assert tickers == ["ZZZ", "MMM", "AAA"]
 
+
+def test_score_macro_penalty() -> None:
+    from argus.analytics.scoring import score_macro_penalty
+
+    # Test missing/no pressure
+    assert score_macro_penalty(None, "Power and Grid") == (0.0, [])
+    assert score_macro_penalty(0, "Power and Grid") == (0.0, [])
+
+    # Test rate-sensitive sector under different pressures
+    penalty_1, reasons_1 = score_macro_penalty(1, "Power and Grid")
+    assert penalty_1 == -3.0
+    assert "Mild pressure" in reasons_1[0]
+    assert "rate-sensitive" in reasons_1[0]
+
+    penalty_2, reasons_2 = score_macro_penalty(2, "Energy, Nuclear, and Utilities")
+    assert penalty_2 == -6.0
+    assert "High pressure" in reasons_2[0]
+
+    penalty_3, reasons_3 = score_macro_penalty(3, "Data Center REITs")
+    assert penalty_3 == -10.0
+    assert "Severe pressure" in reasons_3[0]
+
+    # Test non-rate-sensitive sector under different pressures (should be no penalty)
+    assert score_macro_penalty(1, "Cybersecurity") == (0.0, [])
+    assert score_macro_penalty(2, "AI Capex Benchmarks") == (0.0, [])
+    assert score_macro_penalty(3, "Quantum Computing") == (0.0, [])
+    assert score_macro_penalty(3, None) == (0.0, [])
+
+
+def test_compute_opportunity_score_macro_adjustment() -> None:
+    from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
+
+    # Base case: no pressure
+    base_inputs = ScoreInputs(
+        theme_exposure_score=4.0,
+        drawdown_52w=-0.20,
+        rsi_14=35.0,
+        distance_from_200dma=0.02,
+        relative_return_vs_qqq_3m=0.04,
+        watch_status="watch",
+        macro_pressure_level=0,
+        sector="Power and Grid",
+    )
+    base_breakdown = compute_opportunity_score(base_inputs)
+    assert base_breakdown.macro_penalty == 0.0
+
+    # Rate-sensitive sector under high pressure
+    high_pressure_inputs = ScoreInputs(
+        theme_exposure_score=4.0,
+        drawdown_52w=-0.20,
+        rsi_14=35.0,
+        distance_from_200dma=0.02,
+        relative_return_vs_qqq_3m=0.04,
+        watch_status="watch",
+        macro_pressure_level=2,
+        sector="Power and Grid",
+    )
+    high_breakdown = compute_opportunity_score(high_pressure_inputs)
+    assert high_breakdown.macro_penalty == -6.0
+    assert high_breakdown.opportunity_score == pytest.approx(base_breakdown.opportunity_score - 6.0)
+    assert "Macro penalty: -6.0" in high_breakdown.explanation
+
+    # Non-rate-sensitive sector under high pressure
+    non_sensitive_inputs = ScoreInputs(
+        theme_exposure_score=4.0,
+        drawdown_52w=-0.20,
+        rsi_14=35.0,
+        distance_from_200dma=0.02,
+        relative_return_vs_qqq_3m=0.04,
+        watch_status="watch",
+        macro_pressure_level=2,
+        sector="Cybersecurity",
+    )
+    non_sensitive_breakdown = compute_opportunity_score(non_sensitive_inputs)
+    assert non_sensitive_breakdown.macro_penalty == 0.0
+    assert non_sensitive_breakdown.opportunity_score == pytest.approx(base_breakdown.opportunity_score)
+

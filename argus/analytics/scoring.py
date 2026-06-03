@@ -21,6 +21,14 @@ WATCH_STATUS_SCORES: dict[str, float] = {
 }
 
 
+RATE_SENSITIVE_SECTORS: set[str] = {
+    "Power and Grid",
+    "Energy, Nuclear, and Utilities",
+    "Data Center REITs",
+    "Cooling and Data Center Infrastructure",
+}
+
+
 def _is_missing(value: Any) -> bool:
     """Check if value is None, pd.NA, or numpy/pandas NaN."""
     return value is None or pd.isna(value)
@@ -209,6 +217,8 @@ class ScoreInputs:
     recent_filing_count: int | None = None
     upcoming_earnings_days: int | None = None
     return_1w: float | None = None
+    macro_pressure_level: int | None = None
+    sector: str | None = None
 
 
 @dataclass
@@ -220,6 +230,7 @@ class ScoreBreakdown:
     catalyst: float
     watchlist_priority: float
     risk_penalty: float
+    macro_penalty: float
     opportunity_score: float
     explanation: str
     reason_lines: list[str] = field(default_factory=list)
@@ -227,6 +238,40 @@ class ScoreBreakdown:
 
 def build_explanation(reason_lines: list[str]) -> str:
     return " | ".join(reason_lines)
+
+
+def score_macro_penalty(
+    macro_pressure_level: int | None,
+    sector: str | None,
+) -> tuple[float, list[str]]:
+    if _is_missing(macro_pressure_level) or int(macro_pressure_level) == 0:
+        return 0.0, []
+
+    level = int(macro_pressure_level)
+    pressure_map = {
+        1: -3.0,
+        2: -6.0,
+        3: -10.0,
+    }
+    base_penalty = pressure_map.get(level, 0.0)
+    if base_penalty == 0.0:
+        return 0.0, []
+
+    # Only apply penalty to rate-sensitive sectors
+    if sector in RATE_SENSITIVE_SECTORS:
+        penalty = base_penalty
+        sector_desc = "rate-sensitive"
+    else:
+        penalty = 0.0
+        sector_desc = "non-rate-sensitive"
+
+    if penalty == 0.0:
+        return 0.0, []
+
+    pressure_names = {1: "Mild", 2: "High", 3: "Severe"}
+    pressure_name = pressure_names.get(level, "Unknown")
+    reason = f"Macro penalty: {penalty:.1f} ({pressure_name} pressure, {sector_desc} sector)"
+    return penalty, [reason]
 
 
 def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
@@ -248,6 +293,10 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         distance_from_200dma=inputs.distance_from_200dma,
         return_1w=inputs.return_1w,
     )
+    macro_penalty, macro_reasons = score_macro_penalty(
+        inputs.macro_pressure_level,
+        inputs.sector,
+    )
 
     reason_lines = [
         *theme_reasons,
@@ -257,6 +306,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         *catalyst_reasons,
         *watchlist_reasons,
         *risk_reasons,
+        *macro_reasons,
     ]
 
     opportunity_score = (
@@ -267,6 +317,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         + catalyst_score
         + watchlist_score
         + risk_penalty
+        + macro_penalty
     )
 
     return ScoreBreakdown(
@@ -277,6 +328,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         catalyst=catalyst_score,
         watchlist_priority=watchlist_score,
         risk_penalty=risk_penalty,
+        macro_penalty=macro_penalty,
         opportunity_score=opportunity_score,
         explanation=build_explanation(reason_lines),
         reason_lines=reason_lines,

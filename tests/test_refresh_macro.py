@@ -83,3 +83,95 @@ def test_refresh_macro_records_partial_failure(sqlite_engine, monkeypatch) -> No
 def test_parse_fred_csv_requires_series_column() -> None:
     with pytest.raises(ValueError, match="missing expected series"):
         parse_fred_csv("DGS10", "observation_date,OTHER\n2026-01-01,4.1\n")
+
+
+def test_fetch_fred_series_retries_on_timeout(monkeypatch) -> None:
+    import httpx
+    from argus.core.settings import settings
+    from argus.pipelines.refresh_macro import fetch_fred_series
+
+    original_key = settings.fred_api_key
+    settings.fred_api_key = ""
+
+    try:
+        attempts = 0
+
+        class MockResponse:
+            def __init__(self, text: str):
+                self.text = text
+            def raise_for_status(self):
+                pass
+
+        def mock_get(self, url, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise httpx.ReadTimeout("Timeout")
+            return MockResponse("observation_date,DGS10\n2026-01-01,4.10\n")
+
+        monkeypatch.setattr(httpx.Client, "get", mock_get)
+        # Monkeypatch time.sleep to avoid waiting in tests
+        import time
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
+        df = fetch_fred_series("DGS10")
+        assert attempts == 3
+        assert len(df) == 1
+        assert df.iloc[0]["value"] == 4.10
+    finally:
+        settings.fred_api_key = original_key
+
+
+def test_fetch_fred_series_official_api_json(monkeypatch) -> None:
+    import httpx
+    from argus.core.settings import settings
+    from argus.pipelines.refresh_macro import fetch_fred_series
+
+    # Temporarily set the key
+    original_key = settings.fred_api_key
+    settings.fred_api_key = "test_fred_api_key_123"
+
+    try:
+        class MockResponse:
+            def __init__(self, json_data: dict):
+                self._json_data = json_data
+            def raise_for_status(self):
+                pass
+            def json(self) -> dict:
+                return self._json_data
+
+        fetched_url = None
+        fetched_params = None
+
+        def mock_get(self, url, params=None, **kwargs):
+            nonlocal fetched_url, fetched_params
+            fetched_url = url
+            fetched_params = params
+            return MockResponse({
+                "observations": [
+                    {"date": "2026-06-01", "value": "4.15"},
+                    {"date": "2026-06-02", "value": "."},
+                    {"date": "2026-06-03", "value": "4.25"},
+                ]
+            })
+
+        monkeypatch.setattr(httpx.Client, "get", mock_get)
+
+        df = fetch_fred_series("DGS10")
+
+        assert fetched_url == "https://api.stlouisfed.org/fred/series/observations"
+        assert fetched_params is not None
+        assert fetched_params["api_key"] == "test_fred_api_key_123"
+        assert fetched_params["series_id"] == "DGS10"
+        assert fetched_params["file_type"] == "json"
+
+        assert len(df) == 2
+        assert df.iloc[0]["observation_date"] == date(2026, 6, 1)
+        assert df.iloc[0]["value"] == 4.15
+        assert df.iloc[1]["observation_date"] == date(2026, 6, 3)
+        assert df.iloc[1]["value"] == 4.25
+
+    finally:
+        settings.fred_api_key = original_key
+
+

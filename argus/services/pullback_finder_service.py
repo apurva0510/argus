@@ -119,7 +119,14 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
     if df.empty:
         return df
 
-    return _dedupe_companies(_score_candidates(df))
+    from argus.services.macro_capex_service import load_macro_capex_context_from_engine
+    try:
+        macro_ctx = load_macro_capex_context_from_engine(engine)
+        pressure_level = int(macro_ctx.get("pressure_level", 0))
+    except Exception:
+        pressure_level = 0
+
+    return _dedupe_companies(_score_candidates(df, pressure_level=pressure_level))
 
 
 def _dedupe_companies(df: pd.DataFrame) -> pd.DataFrame:
@@ -132,7 +139,7 @@ def _dedupe_companies(df: pd.DataFrame) -> pd.DataFrame:
     return sorted_df.reset_index(drop=True)
 
 
-def _score_candidates(df: pd.DataFrame) -> pd.DataFrame:
+def _score_candidates(df: pd.DataFrame, pressure_level: int = 0) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for record in df.to_dict(orient="records"):
         earnings_days = record.get("upcoming_earnings_days")
@@ -153,6 +160,8 @@ def _score_candidates(df: pd.DataFrame) -> pd.DataFrame:
                 recent_filing_count=_safe_int(record.get("recent_filing_count")),
                 upcoming_earnings_days=earnings_days_value,
                 return_1w=record.get("return_1w"),
+                macro_pressure_level=pressure_level,
+                sector=record.get("sector"),
             )
         )
         rows.append(
@@ -166,6 +175,7 @@ def _score_candidates(df: pd.DataFrame) -> pd.DataFrame:
                 "score_catalyst": breakdown.catalyst,
                 "score_watchlist_priority": breakdown.watchlist_priority,
                 "score_risk_penalty": breakdown.risk_penalty,
+                "score_macro_penalty": breakdown.macro_penalty,
                 "explanation": breakdown.explanation,
             }
         )

@@ -63,6 +63,7 @@ def _load_score_inputs(session) -> list[dict]:
             SELECT
                 dm.id AS daily_metric_id,
                 c.symbol AS symbol,
+                c.sector AS sector,
                 (
                     SELECT wi.watch_status
                     FROM watchlist_items wi
@@ -136,6 +137,13 @@ def compute_opportunity_scores() -> dict[str, object]:
 
     try:
         with session_scope() as session:
+            from argus.services.macro_capex_service import load_macro_capex_context_from_engine
+            try:
+                macro_ctx = load_macro_capex_context_from_engine(session.bind)
+                pressure_level = int(macro_ctx.get("pressure_level", 0))
+            except Exception:
+                pressure_level = 0
+
             rows = _load_score_inputs(session)
             rows_read = len(rows)
 
@@ -158,6 +166,8 @@ def compute_opportunity_scores() -> dict[str, object]:
                         recent_filing_count=_safe_int(row.get("recent_filing_count")),
                         upcoming_earnings_days=earnings_days_value,
                         return_1w=row.get("return_1w"),
+                        macro_pressure_level=pressure_level,
+                        sector=row.get("sector"),
                     )
                 )
 

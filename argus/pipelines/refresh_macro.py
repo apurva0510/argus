@@ -146,16 +146,76 @@ def parse_fred_csv(series_code: str, csv_text: str) -> pd.DataFrame:
 
 
 def fetch_fred_series(series_code: str, *, client: httpx.Client | None = None) -> pd.DataFrame:
+    import os
+    from argus.core.settings import settings
     owns_client = client is None
-    headers = {"User-Agent": "Argus/0.1 (research tool)"}
-    active_client = client or httpx.Client(timeout=20.0, headers=headers)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    verify_ssl = os.getenv("ARGUS_SKIP_SSL_VERIFY", "").lower() not in ("true", "1", "yes")
+    active_client = client or httpx.Client(timeout=20.0, headers=headers, verify=verify_ssl)
     try:
+        from datetime import date, timedelta
+        import time
+        start_date = (date.today() - timedelta(days=3 * 365)).isoformat()
+
         kwargs = {}
         if not owns_client:
             kwargs["headers"] = headers
-        response = active_client.get(FRED_CSV_URL, params={"id": series_code}, **kwargs)
-        response.raise_for_status()
-        return parse_fred_csv(series_code, response.text)
+
+        max_retries = 3
+        backoff_factor = 2.0
+        for attempt in range(max_retries):
+            try:
+                if settings.fred_api_key:
+                    api_url = "https://api.stlouisfed.org/fred/series/observations"
+                    response = active_client.get(
+                        api_url,
+                        params={
+                            "series_id": series_code,
+                            "api_key": settings.fred_api_key,
+                            "file_type": "json",
+                            "observation_start": start_date,
+                        },
+                        **kwargs,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    obs = data.get("observations", [])
+                    if not obs:
+                        return pd.DataFrame(columns=["observation_date", "value"])
+                    parsed = pd.DataFrame(obs)[["date", "value"]].rename(
+                        columns={"date": "observation_date"}
+                    )
+                    parsed["value"] = pd.to_numeric(
+                        parsed["value"].replace(".", pd.NA), errors="coerce"
+                    )
+                    parsed["observation_date"] = pd.to_datetime(
+                        parsed["observation_date"], errors="coerce"
+                    ).dt.date
+                    return parsed.dropna(subset=["observation_date", "value"])
+                else:
+                    response = active_client.get(
+                        FRED_CSV_URL,
+                        params={"id": series_code, "cosd": start_date},
+                        **kwargs,
+                    )
+                    response.raise_for_status()
+                    return parse_fred_csv(series_code, response.text)
+            except httpx.HTTPError as exc:
+                if attempt == max_retries - 1:
+                    logger.error(
+                        "Failed to fetch FRED series %s after %d attempts: %s",
+                        series_code, max_retries, exc
+                    )
+                    raise
+                wait_time = backoff_factor ** attempt
+                logger.warning(
+                    "Error fetching FRED series %s (attempt %d/%d): %s. Retrying in %.1fs...",
+                    series_code, attempt + 1, max_retries, exc, wait_time
+                )
+                time.sleep(wait_time)
+        raise httpx.HTTPError("Max retries exceeded")
     finally:
         if owns_client:
             active_client.close()

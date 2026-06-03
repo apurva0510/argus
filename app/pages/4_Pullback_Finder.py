@@ -237,6 +237,7 @@ def render_pullback_finder() -> None:
                 "score_catalyst",
                 "score_watchlist_priority",
                 "score_risk_penalty",
+                "score_macro_penalty",
             ]
         ].rename(
             columns={
@@ -247,11 +248,12 @@ def render_pullback_finder() -> None:
                 "score_catalyst": "catalyst",
                 "score_watchlist_priority": "watchlist",
                 "score_risk_penalty": "risk penalty",
+                "score_macro_penalty": "macro penalty",
             }
         )
         styled_breakdown_df = breakdown_df.style.map(
             style_positive_green_negative_red,
-            subset=["risk penalty"]
+            subset=["risk penalty", "macro penalty"]
         )
         st.dataframe(
             styled_breakdown_df, 
