@@ -113,6 +113,31 @@ def _fmt_bps(value: float | None) -> str:
     return f"{value:+.0f} bps"
 
 
+def _fmt_pct_colored(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    pct_val = value * 100
+    formatted = f"{pct_val:+.2f}%"
+    if pct_val > 0:
+        return f"<span style='color: #3fb950; font-weight: 600;'>{formatted}</span>"
+    elif pct_val < 0:
+        return f"<span style='color: #f85149; font-weight: 600;'>{formatted}</span>"
+    else:
+        return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
+
+
+def _fmt_bps_colored(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    formatted = f"{value:+.0f} bps"
+    if value > 0:
+        return f"<span style='color: #3fb950; font-weight: 600;'>{formatted}</span>"
+    elif value < 0:
+        return f"<span style='color: #f85149; font-weight: 600;'>{formatted}</span>"
+    else:
+        return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
+
+
 def _fmt_yield_obs(observation: object) -> str:
     if not isinstance(observation, dict) or observation.get("value") is None:
         return "n/a"
@@ -297,30 +322,65 @@ def _render_macro_capex_context(context: object) -> None:
         render_plain_metric_card("Core CPI YoY", _fmt_plain_pct(inflation.get("core_cpi_yoy"))),
         unsafe_allow_html=True,
     )
+
+    # Format the capex metric in the card using a YoY growth indicator
+    capex_yoy = capex.get("capex_yoy")
+    if capex_yoy is not None and not pd.isna(capex_yoy):
+        yoy_str = f"{capex_yoy * 100:+.2f}%"
+        color = "#3fb950" if capex_yoy > 0 else ("#f85149" if capex_yoy < 0 else "#8b949e")
+        capex_val_display = f"{_fmt_currency(capex.get('latest_total'))} <span style='font-size: 14px; color: {color}; font-weight: 600;'>({yoy_str} YoY)</span>"
+    else:
+        capex_val_display = _fmt_currency(capex.get("latest_total"))
+
     col4.markdown(
-        render_plain_metric_card("Hyperscaler Capex", _fmt_currency(capex.get("latest_total"))),
+        render_plain_metric_card("Hyperscaler Capex", capex_val_display),
         unsafe_allow_html=True,
     )
     st.caption(str(context.get("explanation") or ""))
 
-    detail = pd.DataFrame(
-        [
-            {"Metric": "30Y Treasury", "Value": _fmt_yield_obs(latest_yields.get("dgs30"))},
-            {"Metric": "2Y Treasury", "Value": _fmt_yield_obs(latest_yields.get("dgs2"))},
-            {"Metric": "Fed Funds", "Value": _fmt_yield_obs(latest_yields.get("fed_funds"))},
-            {"Metric": "10Y 1M Change", "Value": _fmt_bps(latest_yields.get("dgs10_1m_bps"))},
-            {"Metric": "10Y 3M Change", "Value": _fmt_bps(latest_yields.get("dgs10_3m_bps"))},
-            {"Metric": "CPI YoY", "Value": _fmt_plain_pct(inflation.get("cpi_yoy"))},
-            {"Metric": "PPI YoY", "Value": _fmt_plain_pct(inflation.get("ppi_yoy"))},
-            {"Metric": "Capex YoY", "Value": _fmt_pct(capex.get("capex_yoy"))},
-        ]
-    )
-    from app.components.tables import style_positive_green_negative_red
-    styled_detail = detail.style.map(
-        style_positive_green_negative_red,
-        subset=["Value"]
-    )
-    st.dataframe(styled_detail, hide_index=True, width="stretch")
+    # Format the detailed macro and capex values like we do with company overview fundamentals (using HTML columns/bullet points list)
+    st.write("")
+    detail_col1, detail_col2 = st.columns(2)
+    with detail_col1:
+        st.markdown("**Treasury & Yields**")
+        st.markdown(
+            f"- **30Y Treasury:** {_fmt_yield_obs(latest_yields.get('dgs30'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **2Y Treasury:** {_fmt_yield_obs(latest_yields.get('dgs2'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **Fed Funds Rate:** {_fmt_yield_obs(latest_yields.get('fed_funds'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **10Y 1M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_1m_bps'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **10Y 3M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_3m_bps'))}",
+            unsafe_allow_html=True,
+        )
+    with detail_col2:
+        st.markdown("**Inflation & Capex**")
+        st.markdown(
+            f"- **CPI YoY:** {_fmt_pct_colored(inflation.get('cpi_yoy'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **PPI YoY:** {_fmt_pct_colored(inflation.get('ppi_yoy'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **Hyperscaler Capex:** {_fmt_currency(capex.get('latest_total'))}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"- **Capex YoY Growth:** {_fmt_pct_colored(capex.get('capex_yoy'))}",
+            unsafe_allow_html=True,
+        )
 
 
 def render_dashboard() -> None:
@@ -428,31 +488,11 @@ def render_dashboard() -> None:
         col3.markdown(render_metric_card("AI Infra Core 1W", None), unsafe_allow_html=True)
         col4.markdown(render_metric_card("AI Infra Core 1M", None), unsafe_allow_html=True)
         st.write("---")
-    else:
-        core_returns = summarize_core_returns(metrics_df)
-        core_1d = core_returns["return_1d"]
-        core_1w = core_returns["return_1w"]
-        core_1m = core_returns["return_1m"]
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(
-            render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
-            unsafe_allow_html=True,
-        )
-        col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
-        col3.markdown(render_metric_card("AI Infra Core 1W", core_1w), unsafe_allow_html=True)
-        col4.markdown(render_metric_card("AI Infra Core 1M", core_1m), unsafe_allow_html=True)
-
-        st.caption(
-            "AI Infra Core is a simple equal-weight average excluding benchmarks, optional aggressive names, and Quantum Computing names."
-        )
+        # Render Macro & Capex context for empty metrics case
+        _render_macro_capex_context(data.get("macro_capex_context"))
         st.write("---")
 
-    # Render Macro & Capex section below
-    _render_macro_capex_context(data.get("macro_capex_context"))
-    st.write("---")
-
-    if metrics_df.empty:
         st.subheader("Recent News")
         st.info("News feed will appear here after news ingestion is implemented.")
         st.subheader("Recent Filings")
@@ -461,6 +501,26 @@ def render_dashboard() -> None:
         st.info("Earnings events will appear here after earnings ingestion is implemented.")
         _render_theme_counts(data.get("theme_counts"))
         return
+
+    core_returns = summarize_core_returns(metrics_df)
+    core_1d = core_returns["return_1d"]
+    core_1w = core_returns["return_1w"]
+    core_1m = core_returns["return_1m"]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.markdown(
+        render_plain_metric_card("Tracked Symbols", data.get("index_constituent_count")),
+        unsafe_allow_html=True,
+    )
+    col2.markdown(render_metric_card("AI Infra Core 1D", core_1d), unsafe_allow_html=True)
+    col3.markdown(render_metric_card("AI Infra Core 1W", core_1w), unsafe_allow_html=True)
+    col4.markdown(render_metric_card("AI Infra Core 1M", core_1m), unsafe_allow_html=True)
+
+    st.write("---")
+
+    st.caption(
+        "AI Infra Core is a simple equal-weight average excluding benchmarks, optional aggressive names, and Quantum Computing names."
+    )
 
     # Render Index section
     st.subheader("📈 AI Infra Core Index Performance")
@@ -607,6 +667,10 @@ def render_dashboard() -> None:
                 else:
                     st.info("No data")
 
+    st.write("---")
+
+    # Render Macro & Capex section below Index contributors
+    _render_macro_capex_context(data.get("macro_capex_context"))
     st.write("---")
 
     gainers = rank_top_gainers(metrics_df)
