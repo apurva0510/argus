@@ -475,3 +475,70 @@ def test_refresh_prices_rejects_long_intraday_periods() -> None:
 
     with pytest.raises(ValueError, match="between 1d and 60d"):
         refresh_prices(period="90d", interval="15m")
+
+
+def test_refresh_prices_15m_fallback_for_unsupported_provider(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.sources.base import BaseMarketDataProvider
+
+    class DummyProvider(BaseMarketDataProvider):
+        @property
+        def name(self) -> str:
+            return "dummy"
+
+        def is_available(self) -> bool:
+            return True
+
+        def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
+            return pd.DataFrame()
+
+    dummy_provider = DummyProvider()
+    monkeypatch.setattr(
+        "argus.pipelines.refresh_prices.get_market_data_provider",
+        lambda: dummy_provider,
+    )
+
+    captured_calls = []
+
+    def fake_batch(_self, symbols, *, period: str, interval: str) -> dict[str, pd.DataFrame]:
+        captured_calls.append((tuple(symbols), period, interval))
+        return {
+            symbol: pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "bar_time": datetime(2026, 5, 29, 13, 30),
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "adj_close": 100.5,
+                        "volume": 1_000.0,
+                    }
+                ]
+            )
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA", is_active=True))
+
+    result = refresh_prices(interval="15m")
+
+    assert result["status"] == "success"
+    assert len(captured_calls) == 1
+    assert captured_calls[0][0] == ("NVDA",)
+
+    with db_module.session_scope() as session:
+        bars = session.query(PriceBar).all()
+        assert len(bars) == 1
+        assert bars[0].provider == "yfinance"
+        assert bars[0].interval == "15m"
+

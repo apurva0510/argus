@@ -28,6 +28,8 @@ def create_database_engine(database_url: str):
         connect_args["prepare_threshold"] = None
         # disable pooling when using a transaction pooler like PgBouncer
         engine_kwargs["poolclass"] = NullPool
+    elif database_url.startswith("sqlite"):
+        connect_args["timeout"] = 30.0
 
     database_engine = create_engine(database_url, connect_args=connect_args, **engine_kwargs)
     event.listen(database_engine, "connect", _enable_sqlite_foreign_keys)

@@ -33,3 +33,14 @@ def test_session_scope_rolls_back_failed_work(sqlite_engine, patched_session_sco
 
     with Session(sqlite_engine) as session:
         assert session.query(Company).filter_by(symbol="NOPE").one_or_none() is None
+
+
+def test_sqlite_engine_has_busy_timeout() -> None:
+    from sqlalchemy import text
+    from argus.core.db import create_database_engine
+
+    db_engine = create_database_engine("sqlite:///:memory:")
+    with db_engine.connect() as conn:
+        timeout_ms = conn.execute(text("PRAGMA busy_timeout")).scalar()
+        assert timeout_ms == 30000
+

@@ -143,7 +143,13 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
     status = "success"
     error_text: str | None = None
 
-    provider = YFinanceProvider() if interval == "15m" else get_market_data_provider()
+    provider = get_market_data_provider()
+    if interval == "15m" and not hasattr(provider, "fetch_ohlcv_batch"):
+        logger.warning(
+            "Provider '%s' does not support intraday batch fetching. Falling back to yfinance.",
+            provider.name,
+        )
+        provider = YFinanceProvider()
 
     try:
         with session_scope() as session:
