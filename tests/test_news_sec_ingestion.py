@@ -1332,3 +1332,42 @@ def test_refresh_ir_feeds_records_provider_outcomes_success(sqlite_engine, monke
         assert job.status == "success"
         assert "provider_outcomes: ir_feed=success" in job.error_text
 
+
+def test_refresh_news_default_queries_split(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+    from argus.pipelines.refresh_news import refresh_news, NEWS_QUERIES
+
+    rss_calls = []
+    gdelt_calls = []
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        rss_calls.append(query)
+        return []
+
+    def mock_fetch_gdelt(query: str, timespan: str = "1d") -> list[dict]:
+        gdelt_calls.append(query)
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+        session.add(Company(symbol="MSFT", name="Microsoft Corporation", is_active=True))
+        session.add(Company(symbol="AAPL", name="Apple Inc.", is_active=False))
+
+    result = refresh_news(force=True, queries=None)
+
+    assert result["status"] == "success"
+    # RSS should query active tickers NVDA and MSFT
+    assert set(rss_calls) == {"NVDA", "MSFT"}
+    # GDELT should query the default NEWS_QUERIES
+    assert gdelt_calls == NEWS_QUERIES
+
+

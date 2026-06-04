@@ -423,45 +423,57 @@ def refresh_news(
                     provider_outcomes[provider] = "success"
 
             global_unique_articles: dict[str, dict] = {}
-            selected_queries = list(queries or NEWS_QUERIES)
+            if queries is not None:
+                rss_queries = list(queries)
+                gdelt_queries = list(queries)
+            else:
+                rss_queries = [c.symbol for c in companies if c.symbol]
+                gdelt_queries = list(NEWS_QUERIES)
+
             if max_queries is not None:
-                selected_queries = selected_queries[: max(0, max_queries)]
+                rss_queries = rss_queries[: max(0, max_queries)]
+                gdelt_queries = gdelt_queries[: max(0, max_queries)]
 
-            for query in selected_queries:
-                for provider in ("rss", "gdelt"):
-                    if provider in disabled_providers or provider_outcomes[provider] == "cooldown":
-                        failed_providers.append(provider)
-                        message = disabled_message(provider)
-                        if message not in health_messages:
-                            health_messages.append(message)
-                            logger.warning(message)
-                        continue
+            provider_queries = []
+            for query in rss_queries:
+                provider_queries.append(("rss", query))
+            for query in gdelt_queries:
+                provider_queries.append(("gdelt", query))
 
-                    try:
-                        fetched_articles = _fetch_provider_query(provider, query)
-                    except NewsProviderRateLimitError as exc:
-                        message = mark_provider_rate_limited(session, provider, _utc_now())
-                        disabled_providers.add(provider)
-                        provider_outcomes[provider] = "429"
-                        logger.warning("%s: %s", message, exc)
-                        if message not in health_messages:
-                            health_messages.append(message)
-                        failed_queries.append(query)
-                        failed_providers.append(provider)
-                        continue
-                    except Exception:
-                        logger.exception("Failed to fetch %s news for query: %s", provider, query)
-                        failed_queries.append(query)
-                        failed_providers.append(provider)
-                        if provider_outcomes[provider] != "429":
-                            provider_outcomes[provider] = "failure"
-                        continue
+            for provider, query in provider_queries:
+                if provider in disabled_providers or provider_outcomes[provider] == "cooldown":
+                    failed_providers.append(provider)
+                    message = disabled_message(provider)
+                    if message not in health_messages:
+                        health_messages.append(message)
+                        logger.warning(message)
+                    continue
 
-                    mark_provider_success(session, provider, _utc_now())
-                    rows_read += len(fetched_articles)
-                    for article in fetched_articles:
-                        article["provider"] = provider
-                        global_unique_articles[stable_article_key(article)] = article
+                try:
+                    fetched_articles = _fetch_provider_query(provider, query)
+                except NewsProviderRateLimitError as exc:
+                    message = mark_provider_rate_limited(session, provider, _utc_now())
+                    disabled_providers.add(provider)
+                    provider_outcomes[provider] = "429"
+                    logger.warning("%s: %s", message, exc)
+                    if message not in health_messages:
+                        health_messages.append(message)
+                    failed_queries.append(query)
+                    failed_providers.append(provider)
+                    continue
+                except Exception:
+                    logger.exception("Failed to fetch %s news for query: %s", provider, query)
+                    failed_queries.append(query)
+                    failed_providers.append(provider)
+                    if provider_outcomes[provider] != "429":
+                        provider_outcomes[provider] = "failure"
+                    continue
+
+                mark_provider_success(session, provider, _utc_now())
+                rows_read += len(fetched_articles)
+                for article in fetched_articles:
+                    article["provider"] = provider
+                    global_unique_articles[stable_article_key(article)] = article
 
             # Process globally unique articles
             for art in global_unique_articles.values():
