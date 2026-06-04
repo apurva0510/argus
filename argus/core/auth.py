@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 AUTH_COOKIE_NAME = "app_password_auth"
@@ -39,6 +40,17 @@ def validate_auth_token(token: str | None, secret: str, *, now: int | None = Non
     expected_signature = _sign(payload, secret)
     current_time = int(now if now is not None else time.time())
     return hmac.compare_digest(supplied_signature, expected_signature) and current_time <= expires_at
+
+
+def append_auth_token_to_url(url: str, token: str | None) -> str:
+    """Append a signed auth token to an internal link without altering existing query values."""
+    if not token:
+        return url
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query[AUTH_QUERY_PARAM] = token
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def _sign(payload: str, secret: str) -> str:

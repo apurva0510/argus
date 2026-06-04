@@ -1,7 +1,9 @@
 import sys
 from unittest.mock import MagicMock, patch, call
+from urllib.parse import parse_qs, urlsplit
 
 from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_token
+from app.auth_links import company_detail_url
 
 def test_password_protection_bypass(monkeypatch):
     """If APP_PASSWORD is not set, check_password() returns True immediately and skips login UI."""
@@ -101,6 +103,38 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
         assert "auth_token" in mock_st.session_state
         assert AUTH_QUERY_PARAM not in mock_st.query_params
         mock_navigation.run.assert_called_once()
+
+
+def test_authenticated_company_link_opens_new_session_without_password(monkeypatch):
+    """An internal link transports auth to a new tab, which then removes it from the URL."""
+    monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
+    monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
+
+    source_token = create_auth_token("secure123")
+    monkeypatch.setattr("app.auth_links.st.session_state", {"auth_token": source_token})
+    link_params = parse_qs(urlsplit(company_detail_url("NVDA")).query)
+
+    mock_st = MagicMock()
+    mock_st.session_state = {}
+    mock_st.query_params = {
+        "ticker": link_params["ticker"][0],
+        AUTH_QUERY_PARAM: link_params[AUTH_QUERY_PARAM][0],
+    }
+    mock_st.context.cookies.get.return_value = None
+    mock_navigation = MagicMock()
+    mock_st.navigation.return_value = mock_navigation
+
+    with patch.dict("sys.modules", {"streamlit": mock_st}):
+        if "app.main" in sys.modules:
+            del sys.modules["app.main"]
+
+        import app.main  # noqa: F401
+
+        assert mock_st.session_state["password_correct"] is True
+        assert mock_st.session_state["auth_token"] == source_token
+        assert mock_st.query_params == {"ticker": "NVDA"}
+        mock_navigation.run.assert_called_once()
+
 
 def test_password_protection_active_correct(monkeypatch):
     """If APP_PASSWORD is set and correct password is provided, session state is updated and app reruns."""
