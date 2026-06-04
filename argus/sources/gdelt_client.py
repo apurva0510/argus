@@ -80,12 +80,12 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
             response.raise_for_status()
             break
         except httpx.TimeoutException as exc:
-            logger.warning("GDELT query timed out for %s: %s. Skipping GDELT for this query.", query_clean, exc)
-            return []
+            logger.warning("GDELT query timed out for %s: %s. Disabling GDELT for the remainder of this run to avoid hang.", query_clean, exc)
+            raise NewsProviderRateLimitError("gdelt", query_clean) from exc
         except httpx.HTTPError as exc:
             if attempt == max_retries:
-                logger.error("All GDELT retry attempts failed for %s: %s", query_clean, exc)
-                return []
+                logger.error("All GDELT retry attempts failed for %s: %s. Disabling GDELT for the remainder of this run.", query_clean, exc)
+                raise NewsProviderRateLimitError("gdelt", query_clean) from exc
             wait = 2.0**attempt
             logger.warning("GDELT query failed on attempt %d: %s. Retrying in %.1f seconds...", attempt + 1, exc, wait)
             time.sleep(wait)
@@ -99,10 +99,11 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
     try:
         data = response.json()
     except Exception as exc:
-        if "limit requests" in response.text or "rate limit" in response.text.lower():
-            raise NewsProviderRateLimitError("gdelt", query_clean) from exc
-        logger.error("Failed to parse GDELT JSON response for %s: %s", query_clean, exc)
-        return []
+        logger.warning(
+            "Failed to parse GDELT response for %s (likely an HTML rate-limit/error page or blank response). Disabling GDELT for the remainder of this run.",
+            query_clean,
+        )
+        raise NewsProviderRateLimitError("gdelt", query_clean) from exc
 
     articles = data.get("articles", [])
     news_items = []

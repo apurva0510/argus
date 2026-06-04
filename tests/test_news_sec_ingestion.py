@@ -257,6 +257,60 @@ def test_fetch_gdelt_news_raises_on_first_429(monkeypatch) -> None:
     assert call_count == 1
 
 
+def test_fetch_gdelt_news_timeout_raises_429(monkeypatch) -> None:
+    from argus.sources.gdelt_client import fetch_gdelt_news
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
+    import httpx
+
+    def mock_get(url, *args, **kwargs):
+        raise httpx.TimeoutException("Handshake timeout")
+
+    monkeypatch.setattr(httpx, "get", mock_get)
+
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_gdelt_news("AAPL")
+
+
+def test_fetch_gdelt_news_invalid_json_raises_429(monkeypatch) -> None:
+    from argus.sources.gdelt_client import fetch_gdelt_news
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
+    import httpx
+
+    def mock_get(url, *args, **kwargs):
+        # Return 200 but HTML error page instead of JSON
+        return httpx.Response(status_code=200, content=b"An error occurred", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", mock_get)
+
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_gdelt_news("AAPL")
+
+
+def test_fetch_gdelt_news_persistent_http_error_raises_429(monkeypatch) -> None:
+    from argus.sources.gdelt_client import fetch_gdelt_news
+    from argus.sources.news_rss_client import NewsProviderRateLimitError
+    import httpx
+    import time
+
+    call_count = 0
+
+    def mock_get(url, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(status_code=503, request=httpx.Request("GET", url))
+
+    # Disable sleeping to speed up the test
+    monkeypatch.setattr(time, "sleep", lambda x: None)
+    monkeypatch.setattr(httpx, "get", mock_get)
+
+    with pytest.raises(NewsProviderRateLimitError):
+        fetch_gdelt_news("AAPL")
+
+    # Should try 3 times (1 initial + 2 retries) before raising
+    assert call_count == 3
+
+
+
 # SEC User-Agent requirement test
 def test_sec_client_user_agent_required(monkeypatch) -> None:
     from argus.sources.sec_client import fetch_filings
