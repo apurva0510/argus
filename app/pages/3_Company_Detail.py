@@ -95,7 +95,8 @@ def _fmt_price(value: float | None) -> str:
 def _fmt_price_range(low: float | None, high: float | None) -> str:
     if low is None or high is None or pd.isna(low) or pd.isna(high):
         return "n/a"
-    return f"{_fmt_price(low)} - {_fmt_price(high)}"
+    # Two literal dollar signs are parsed as inline LaTeX by st.markdown.
+    return f"&#36;{low:.2f} - &#36;{high:.2f}"
 
 
 def _fmt_multiple(value: float | None) -> str:

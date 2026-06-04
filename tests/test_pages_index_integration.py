@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import importlib
 from pathlib import Path
 
 import pytest
@@ -102,6 +103,13 @@ def test_dashboard_links_all_visible_ticker_surfaces() -> None:
 
     assert dashboard_module._split_tickers("ETN,VRT") == ["ETN", "VRT"]
     assert dashboard_module._ticker_markdown("NVDA") == "[NVDA](/Company_Detail?ticker=NVDA)"
+
+
+def test_company_detail_52w_range_avoids_markdown_math_parsing() -> None:
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    assert detail_module._fmt_price_range(4.05, 16.85) == "&#36;4.05 - &#36;16.85"
+    assert detail_module._fmt_price_range(None, 16.85) == "n/a"
 
 
 def test_dashboard_recent_news_renders_multiple_ticker_links_in_dataframe(monkeypatch) -> None:
