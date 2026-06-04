@@ -79,6 +79,34 @@ def test_daily_refresh_orchestrator_includes_refresh_index() -> None:
     assert '("refresh_index", refresh_index)' in source
 
 
+def test_filings_workflow_syncs_ciks_before_refreshing_filings() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "filings-refresh.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "python scripts/refresh_ciks.py" in workflow
+    assert "python scripts/refresh_filings.py" in workflow
+    assert workflow.index("python scripts/refresh_ciks.py") < workflow.index(
+        "python scripts/refresh_filings.py"
+    )
+
+
+def test_filings_cli_allows_partial_success_but_fails_complete_failure() -> None:
+    from scripts.refresh_filings import exit_code_for_status
+
+    assert exit_code_for_status("success") == 0
+    assert exit_code_for_status("partial_success") == 0
+    assert exit_code_for_status("failed") == 1
+
+
+def test_cik_cli_allows_partial_success_but_fails_complete_failure() -> None:
+    from scripts.refresh_ciks import exit_code_for_status
+
+    assert exit_code_for_status("success") == 0
+    assert exit_code_for_status("partial_success") == 0
+    assert exit_code_for_status("failed") == 1
+
+
 def test_news_workflow_runs_only_at_market_open_and_close_et() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "news-refresh.yml").read_text(
         encoding="utf-8"

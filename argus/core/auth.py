@@ -41,14 +41,6 @@ def validate_auth_token(token: str | None, secret: str, *, now: int | None = Non
     return hmac.compare_digest(supplied_signature, expected_signature) and current_time <= expires_at
 
 
-def append_auth_token_to_url(url: str, token: str | None) -> str:
-    if not token:
-        return url
-
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}{AUTH_QUERY_PARAM}={token}"
-
-
 def _sign(payload: str, secret: str) -> str:
     digest = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).digest()
     return _b64encode(digest)

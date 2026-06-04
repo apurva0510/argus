@@ -1,5 +1,7 @@
 import logging
+import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 import httpx
 
@@ -10,7 +12,23 @@ logger = logging.getLogger(__name__)
 # SEC rate limit is 10 requests per second. The plan specifies no more than 8 requests per second.
 # This means at least 0.13 seconds between queries.
 SEC_RATE_LIMIT_DELAY = 0.15
+SEC_TICKER_EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
+SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 _last_request_time = 0.0
+
+
+@dataclass(frozen=True)
+class SecTickerIdentity:
+    ticker: str
+    cik: str
+    name: str
+    exchange: str | None = None
+
+
+class SecSubmissionNotFoundError(RuntimeError):
+    def __init__(self, cik: str):
+        self.cik = str(cik).zfill(10)
+        super().__init__(f"SEC submissions not found for CIK {self.cik}")
 
 
 def rate_limit_sec() -> None:
@@ -22,6 +40,147 @@ def rate_limit_sec() -> None:
     if wait_time > 0:
         time.sleep(wait_time)
     _last_request_time = time.time()
+
+
+def _sec_headers() -> dict[str, str]:
+    user_agent = settings.sec_user_agent
+    if not user_agent or not user_agent.strip():
+        raise ValueError("SEC_USER_AGENT is not configured. Please set it in environment or .env file.")
+    return {
+        "User-Agent": user_agent,
+        "Accept-Encoding": "gzip, deflate",
+    }
+
+
+def normalize_cik(cik: str | int) -> str:
+    cik_str = str(cik).strip()
+    if not cik_str.isdigit() or len(cik_str) > 10:
+        raise ValueError(f"Invalid SEC CIK: {cik}")
+    return cik_str.zfill(10)
+
+
+def _normalized_name_tokens(name: str) -> set[str]:
+    legal_suffixes = {
+        "AG",
+        "CO",
+        "COMPANY",
+        "CORP",
+        "CORPORATION",
+        "INC",
+        "INCORPORATED",
+        "LTD",
+        "LIMITED",
+        "LLC",
+        "LP",
+        "NV",
+        "PLC",
+        "SA",
+        "SE",
+    }
+    return {
+        token
+        for token in re.findall(r"[A-Z0-9]+", name.upper())
+        if token not in legal_suffixes
+    }
+
+
+def sec_identity_matches_company(identity: SecTickerIdentity, company_name: str) -> bool:
+    """Return whether an SEC issuer name is compatible with the configured company name."""
+    company_tokens = _normalized_name_tokens(company_name)
+    sec_tokens = _normalized_name_tokens(identity.name)
+    if not company_tokens or not sec_tokens:
+        return False
+    overlap = company_tokens & sec_tokens
+    return bool(overlap) and (
+        company_tokens.issubset(sec_tokens)
+        or sec_tokens.issubset(company_tokens)
+        or len(overlap) / min(len(company_tokens), len(sec_tokens)) >= 0.6
+    )
+
+
+def parse_sec_ticker_identities(payload: object) -> dict[str, SecTickerIdentity]:
+    """Parse official SEC ticker JSON while retaining issuer identity metadata."""
+    identities: dict[str, SecTickerIdentity] = {}
+    if not isinstance(payload, dict):
+        raise ValueError("SEC ticker mapping payload must be an object")
+
+    fields = payload.get("fields")
+    data = payload.get("data")
+    if isinstance(fields, list) and isinstance(data, list):
+        try:
+            ticker_index = fields.index("ticker")
+            cik_index = fields.index("cik")
+            name_index = fields.index("name")
+        except ValueError as exc:
+            raise ValueError("SEC ticker exchange payload missing ticker, cik, or name fields") from exc
+        exchange_index = fields.index("exchange") if "exchange" in fields else None
+        for row in data:
+            required_indexes = [ticker_index, cik_index, name_index]
+            if not isinstance(row, list) or len(row) <= max(required_indexes):
+                continue
+            ticker = str(row[ticker_index] or "").strip().upper()
+            cik = row[cik_index]
+            name = str(row[name_index] or "").strip()
+            exchange = (
+                str(row[exchange_index] or "").strip() or None
+                if exchange_index is not None and len(row) > exchange_index
+                else None
+            )
+            if ticker and cik is not None and name:
+                identities[ticker] = SecTickerIdentity(
+                    ticker=ticker,
+                    cik=normalize_cik(cik),
+                    name=name,
+                    exchange=exchange,
+                )
+        if not identities:
+            raise ValueError("SEC ticker exchange payload contained no ticker mappings")
+        return identities
+
+    for row in payload.values():
+        if not isinstance(row, dict):
+            continue
+        ticker = str(row.get("ticker") or "").strip().upper()
+        cik = row.get("cik_str")
+        name = str(row.get("title") or "").strip()
+        if ticker and cik is not None and name:
+            identities[ticker] = SecTickerIdentity(
+                ticker=ticker,
+                cik=normalize_cik(cik),
+                name=name,
+            )
+    if not identities:
+        raise ValueError("SEC ticker mapping payload contained no ticker mappings")
+    return identities
+
+
+def parse_sec_ticker_mapping(payload: object) -> dict[str, str]:
+    """Parse either official SEC ticker mapping JSON shape into ticker-to-CIK values."""
+    return {
+        ticker: identity.cik
+        for ticker, identity in parse_sec_ticker_identities(payload).items()
+    }
+
+
+def fetch_ticker_identities() -> dict[str, SecTickerIdentity]:
+    """Fetch the SEC's official ticker identities with a legacy-shape fallback."""
+    headers = _sec_headers()
+    last_error: Exception | None = None
+    for url in (SEC_TICKER_EXCHANGE_URL, SEC_TICKER_URL):
+        try:
+            rate_limit_sec()
+            response = httpx.get(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            return parse_sec_ticker_identities(response.json())
+        except (httpx.HTTPError, httpx.TimeoutException, ValueError) as exc:
+            last_error = exc
+            logger.warning("Failed to load SEC ticker mapping from %s: %s", url, exc)
+    raise RuntimeError(f"Unable to load SEC ticker mappings: {last_error}")
+
+
+def fetch_ticker_cik_mapping() -> dict[str, str]:
+    """Fetch the SEC's official ticker-to-CIK mapping with a legacy-shape fallback."""
+    return {ticker: identity.cik for ticker, identity in fetch_ticker_identities().items()}
 
 
 def parse_sec_date(date_str: str | None) -> date | None:
@@ -50,19 +209,10 @@ def fetch_filings(cik: str | int) -> list[dict]:
     Only returns tracked forms: 10-K, 10-Q, 8-K, 6-K, 20-F, 40-F.
     Enforces a configured User-Agent and SEC rate limiting.
     """
-    user_agent = settings.sec_user_agent
-    if not user_agent or not user_agent.strip():
-        raise ValueError("SEC_USER_AGENT is not configured. Please set it in environment or .env file.")
-
     # CIK must be padded to 10 digits
-    cik_str = str(cik).strip()
-    cik_padded = cik_str.zfill(10)
+    cik_padded = normalize_cik(cik)
     url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
-
-    headers = {
-        "User-Agent": user_agent,
-        "Accept-Encoding": "gzip, deflate",
-    }
+    headers = _sec_headers()
 
     logger.info("Fetching SEC filings for CIK %s from %s", cik_padded, url)
     
@@ -75,10 +225,11 @@ def fetch_filings(cik: str | int) -> list[dict]:
             rate_limit_sec()
             response = httpx.get(url, headers=headers, timeout=30.0)
             if response.status_code == 404:
-                logger.warning("SEC submissions for CIK %s not found (404). Returning empty.", cik_padded)
-                return []
+                raise SecSubmissionNotFoundError(cik_padded)
             response.raise_for_status()
             break
+        except SecSubmissionNotFoundError:
+            raise
         except (httpx.HTTPError, httpx.TimeoutException) as exc:
             if attempt == max_retries - 1:
                 logger.error("All retry attempts failed for CIK %s: %s", cik_padded, exc)
@@ -97,7 +248,7 @@ def fetch_filings(cik: str | int) -> list[dict]:
         return []
 
     # CIK without leading zeros is used for standard EDGAR Archive URLs
-    cik_clean = str(int(cik_str))
+    cik_clean = str(int(cik_padded))
 
     tracked_forms = {"10-K", "10-Q", "8-K", "6-K", "20-F", "40-F"}
     filings = []

@@ -77,7 +77,14 @@ def test_get_company_metrics(sqlite_engine, db_session, monkeypatch) -> None:
     db_session.flush()
 
     m1 = DailyMetric(company_id=c.id, date=date(2026, 1, 1), return_1d=0.02, rsi_14=50.0)
-    m2 = DailyMetric(company_id=c.id, date=date(2026, 1, 2), return_1d=0.03, rsi_14=55.0)
+    m2 = DailyMetric(
+        company_id=c.id,
+        date=date(2026, 1, 2),
+        return_1d=0.03,
+        rsi_14=55.0,
+        high_52w=225.0,
+        low_52w=150.0,
+    )
     db_session.add_all([m1, m2])
     db_session.commit()
 
@@ -86,6 +93,8 @@ def test_get_company_metrics(sqlite_engine, db_session, monkeypatch) -> None:
     assert metrics["date"] == date(2026, 1, 2)
     assert metrics["return_1d"] == 0.03
     assert metrics["rsi_14"] == 55.0
+    assert metrics["high_52w"] == 225.0
+    assert metrics["low_52w"] == 150.0
 
     res_missing = get_company_metrics(9999)
     assert res_missing is None

@@ -113,29 +113,27 @@ def _fmt_bps(value: float | None) -> str:
     return f"{value:+.0f} bps"
 
 
-def _fmt_pct_colored(value: float | None) -> str:
+def _fmt_pct_colored(value: float | None, *, positive_is_bad: bool = False) -> str:
     if value is None or pd.isna(value):
         return "n/a"
     pct_val = value * 100
     formatted = f"{pct_val:+.2f}%"
-    if pct_val > 0:
-        return f"<span style='color: #3fb950; font-weight: 600;'>{formatted}</span>"
-    elif pct_val < 0:
-        return f"<span style='color: #f85149; font-weight: 600;'>{formatted}</span>"
-    else:
+    if pct_val == 0:
         return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
+    is_bad = pct_val > 0 if positive_is_bad else pct_val < 0
+    color = "#f85149" if is_bad else "#3fb950"
+    return f"<span style='color: {color}; font-weight: 600;'>{formatted}</span>"
 
 
-def _fmt_bps_colored(value: float | None) -> str:
+def _fmt_bps_colored(value: float | None, *, positive_is_bad: bool = False) -> str:
     if value is None or pd.isna(value):
         return "n/a"
     formatted = f"{value:+.0f} bps"
-    if value > 0:
-        return f"<span style='color: #3fb950; font-weight: 600;'>{formatted}</span>"
-    elif value < 0:
-        return f"<span style='color: #f85149; font-weight: 600;'>{formatted}</span>"
-    else:
+    if value == 0:
         return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
+    is_bad = value > 0 if positive_is_bad else value < 0
+    color = "#f85149" if is_bad else "#3fb950"
+    return f"<span style='color: {color}; font-weight: 600;'>{formatted}</span>"
 
 
 def _fmt_yield_obs(observation: object) -> str:
@@ -356,21 +354,21 @@ def _render_macro_capex_context(context: object) -> None:
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"- **10Y 1M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_1m_bps'))}",
+            f"- **10Y 1M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_1m_bps'), positive_is_bad=True)}",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"- **10Y 3M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_3m_bps'))}",
+            f"- **10Y 3M Change:** {_fmt_bps_colored(latest_yields.get('dgs10_3m_bps'), positive_is_bad=True)}",
             unsafe_allow_html=True,
         )
     with detail_col2:
         st.markdown("**Inflation & Capex**")
         st.markdown(
-            f"- **CPI YoY:** {_fmt_pct_colored(inflation.get('cpi_yoy'))}",
+            f"- **CPI YoY:** {_fmt_pct_colored(inflation.get('cpi_yoy'), positive_is_bad=True)}",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"- **PPI YoY:** {_fmt_pct_colored(inflation.get('ppi_yoy'))}",
+            f"- **PPI YoY:** {_fmt_pct_colored(inflation.get('ppi_yoy'), positive_is_bad=True)}",
             unsafe_allow_html=True,
         )
         st.markdown(
@@ -401,6 +399,11 @@ def render_dashboard() -> None:
     last_news_refresh = parse_optional_datetime(latest_dates.get("last_news_refresh_at"))
     last_filings_refresh = parse_optional_datetime(latest_dates.get("last_filings_refresh_at"))
     last_macro_refresh = parse_optional_datetime(latest_dates.get("last_macro_refresh_at"))
+    last_price_attempt = parse_optional_datetime(latest_dates.get("last_price_attempt_at"))
+    last_metrics_attempt = parse_optional_datetime(latest_dates.get("last_metrics_attempt_at"))
+    last_news_attempt = parse_optional_datetime(latest_dates.get("last_news_attempt_at"))
+    last_filings_attempt = parse_optional_datetime(latest_dates.get("last_filings_attempt_at"))
+    last_macro_attempt = parse_optional_datetime(latest_dates.get("last_macro_attempt_at"))
     latest_price_date = parse_optional_date(latest_dates.get("latest_price_date"))
     latest_intraday_price_time = parse_optional_datetime(
         latest_dates.get("latest_intraday_price_time")
@@ -441,21 +444,36 @@ def render_dashboard() -> None:
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown(
-                f"**Last Price Refresh**: `{last_price_refresh.isoformat() if last_price_refresh else 'Never'}`"
+                f"**Last Successful Price Refresh**: `{last_price_refresh.isoformat() if last_price_refresh else 'Never'}`"
             )
             st.markdown(
-                f"**Last Metrics Computation**: `{last_metrics_refresh.isoformat() if last_metrics_refresh else 'Never'}`"
+                f"**Last Successful Metrics Computation**: `{last_metrics_refresh.isoformat() if last_metrics_refresh else 'Never'}`"
             )
             st.markdown(
-                f"**Last News Refresh**: `{last_news_refresh.isoformat() if last_news_refresh else 'Never'}`"
+                f"**Last Successful News Refresh**: `{last_news_refresh.isoformat() if last_news_refresh else 'Never'}`"
             )
             st.markdown(
-                f"**Last Filings Refresh**: `{last_filings_refresh.isoformat() if last_filings_refresh else 'Never'}`"
+                f"**Last Successful Filings Refresh**: `{last_filings_refresh.isoformat() if last_filings_refresh else 'Never'}`"
             )
             st.markdown(
-                f"**Last Macro Refresh**: `{last_macro_refresh.isoformat() if last_macro_refresh else 'Never'}`"
+                f"**Last Successful Macro Refresh**: `{last_macro_refresh.isoformat() if last_macro_refresh else 'Never'}`"
             )
         with col_t2:
+            st.markdown(
+                f"**Last Price Attempt**: `{last_price_attempt.isoformat() if last_price_attempt else 'Never'}`"
+            )
+            st.markdown(
+                f"**Last Metrics Attempt**: `{last_metrics_attempt.isoformat() if last_metrics_attempt else 'Never'}`"
+            )
+            st.markdown(
+                f"**Last News Attempt**: `{last_news_attempt.isoformat() if last_news_attempt else 'Never'}`"
+            )
+            st.markdown(
+                f"**Last Filings Attempt**: `{last_filings_attempt.isoformat() if last_filings_attempt else 'Never'}`"
+            )
+            st.markdown(
+                f"**Last Macro Attempt**: `{last_macro_attempt.isoformat() if last_macro_attempt else 'Never'}`"
+            )
             st.markdown(f"**Active Companies**: `{data['active_company_count']}`")
             st.markdown(f"**Stale Tickers (No recent prices)**: `{data['stale_tickers_count']}`")
             st.markdown(

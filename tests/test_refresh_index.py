@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import pytest
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -53,8 +54,6 @@ def test_refresh_index_success_and_speedup(sqlite_engine, monkeypatch) -> None:
     assert result["status"] == "success"
     assert result["rows_written"] == 3
 
-    import pytest
-
     # Check database persistence
     with db_module.session_scope() as session:
         stored_values = session.query(IndexValue).order_by(IndexValue.date.asc()).all()
@@ -91,3 +90,51 @@ def test_refresh_index_success_and_speedup(sqlite_engine, monkeypatch) -> None:
         assert len(df_index) == 3
         assert df_index.iloc[0]["index_value"] == pytest.approx(100.0)
         assert df_index.iloc[2]["index_value"] == pytest.approx(104.04)
+
+
+def test_refresh_index_recomputes_when_precalculated_values_are_stale(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        company = Company(symbol="ETN", name="Eaton", is_active=True, is_benchmark=False)
+        session.add(company)
+        session.flush()
+
+        start_date = date(2026, 6, 1)
+        _seed_prices(session, company.id, start_date, [100.0, 101.0])
+        session.add_all(
+            [
+                IndexValue(date=start_date, index_value=100.0),
+                IndexValue(date=start_date + timedelta(days=1), index_value=101.0),
+            ]
+        )
+
+    with db_module.session_scope() as session:
+        company = session.query(Company).filter(Company.symbol == "ETN").one()
+        _seed_prices(session, company.id, date(2026, 6, 3), [102.01])
+
+    result = refresh_index()
+
+    assert result["status"] == "success"
+    assert result["rows_written"] == 3
+
+    with db_module.session_scope() as session:
+        stored_values = session.query(IndexValue).order_by(IndexValue.date.asc()).all()
+        stored_dates = [row.date for row in stored_values]
+        latest_index_value = stored_values[-1].index_value
+
+    assert stored_dates == [
+        date(2026, 6, 1),
+        date(2026, 6, 2),
+        date(2026, 6, 3),
+    ]
+    assert latest_index_value == pytest.approx(102.01)

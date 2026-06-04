@@ -6,7 +6,12 @@ from sqlalchemy import select
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, SecFiling
 from argus.core.settings import settings
-from argus.sources.sec_client import fetch_filings
+from argus.sources.sec_client import (
+    SecSubmissionNotFoundError,
+    fetch_filings,
+    fetch_ticker_identities,
+    sec_identity_matches_company,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,14 @@ def _upsert_filing_rows(session, company_id: int, filings: list[dict]) -> int:
     if not filings:
         return 0
 
+    accession_numbers = [filing["accession_no"] for filing in filings]
+    existing = set(
+        session.scalars(
+            select(SecFiling.accession_no).where(
+                SecFiling.accession_no.in_(accession_numbers)
+            )
+        ).all()
+    )
     values = []
     for f in filings:
         values.append({
@@ -80,7 +93,16 @@ def _upsert_filing_rows(session, company_id: int, filings: list[dict]) -> int:
         },
     )
     session.execute(statement)
-    return len(values)
+    return len(set(accession_numbers) - existing)
+
+
+def _persist_company_filings(company_id: int, cik: str, filings: list[dict]) -> int:
+    with session_scope() as session:
+        company = session.get(Company, company_id)
+        if company is None:
+            raise RuntimeError(f"Company {company_id} no longer exists")
+        company.cik = cik
+        return _upsert_filing_rows(session, company_id, filings)
 
 
 def refresh_filings() -> dict[str, object]:
@@ -93,6 +115,12 @@ def refresh_filings() -> dict[str, object]:
     rows_written = 0
     rows_read = 0
     failed_symbols: list[str] = []
+    operational_failed_symbols: list[str] = []
+    not_found_symbols: list[str] = []
+    missing_cik_symbols: list[str] = []
+    identity_conflicts: list[str] = []
+    remapped_symbols: list[str] = []
+    successful_symbols: list[str] = []
     status = "success"
     error_text: str | None = None
 
@@ -114,36 +142,132 @@ def refresh_filings() -> dict[str, object]:
             "rows_read": 0,
             "rows_written": 0,
             "failed_symbols": [],
+            "operational_failed_symbols": [],
+            "not_found_symbols": [],
+            "missing_cik_symbols": [],
+            "identity_conflicts": [],
+            "remapped_symbols": [],
             "error_text": error_msg,
         }
 
     try:
         with session_scope() as session:
-            companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
-            for company in companies:
-                if not company.cik:
-                    logger.debug("Skipping filing refresh for %s: CIK not configured.", company.symbol)
+            companies = [
+                {
+                    "id": company.id,
+                    "symbol": company.symbol,
+                    "name": company.name,
+                    "cik": company.cik,
+                }
+                for company in session.scalars(
+                    select(Company).where(Company.is_active.is_(True))
+                ).all()
+            ]
+        ticker_identities = None
+        for company in companies:
+            symbol = str(company["symbol"])
+            company_cik = company["cik"]
+            if not company_cik:
+                logger.warning("Skipping filing refresh for %s: CIK not configured.", symbol)
+                missing_cik_symbols.append(symbol)
+                continue
+
+            try:
+                filings = fetch_filings(company_cik)
+            except SecSubmissionNotFoundError:
+                not_found_symbols.append(symbol)
+                if ticker_identities is None:
+                    try:
+                        ticker_identities = fetch_ticker_identities()
+                    except Exception:
+                        logger.exception(
+                            "Failed to refresh SEC ticker mapping after 404 for %s",
+                            symbol,
+                        )
+                        failed_symbols.append(symbol)
+                        continue
+
+                identity = ticker_identities.get(symbol.strip().upper())
+                if identity is None or identity.cik == company_cik:
+                    logger.error(
+                        "SEC submissions remain unavailable for %s with CIK %s",
+                        symbol,
+                        company_cik,
+                    )
+                    failed_symbols.append(symbol)
+                    continue
+                if not sec_identity_matches_company(identity, str(company["name"])):
+                    logger.error(
+                        "Refusing SEC CIK remap for %s because SEC issuer %r conflicts with %r",
+                        symbol,
+                        identity.name,
+                        company["name"],
+                    )
+                    failed_symbols.append(symbol)
+                    identity_conflicts.append(symbol)
                     continue
 
+                old_cik = company_cik
+                company_cik = identity.cik
+                remapped_symbols.append(symbol)
+                logger.warning(
+                    "Retrying SEC filings for %s after remapping CIK %s to %s",
+                    symbol,
+                    old_cik,
+                    company_cik,
+                )
                 try:
-                    filings = fetch_filings(company.cik)
-                except Exception:
-                    logger.exception("Failed to fetch filings for %s", company.symbol)
-                    failed_symbols.append(company.symbol)
+                    filings = fetch_filings(company_cik)
+                except SecSubmissionNotFoundError:
+                    logger.error(
+                        "SEC submissions remain unavailable for %s after remapping to CIK %s",
+                        symbol,
+                        company_cik,
+                    )
+                    failed_symbols.append(symbol)
                     continue
+                except Exception:
+                    logger.exception("Failed to fetch filings for %s after CIK remap", symbol)
+                    failed_symbols.append(symbol)
+                    operational_failed_symbols.append(symbol)
+                    continue
+            except Exception:
+                logger.exception("Failed to fetch filings for %s", symbol)
+                failed_symbols.append(symbol)
+                operational_failed_symbols.append(symbol)
+                continue
 
-                rows_read += len(filings)
-                if filings:
-                    rows_written += _upsert_filing_rows(session, company.id, filings)
+            rows_read += len(filings)
+            rows_written += _persist_company_filings(int(company["id"]), str(company_cik), filings)
+            successful_symbols.append(symbol)
 
-            if failed_symbols:
-                status = "partial_success"
-                logger.warning("Filing refresh failed for symbols: %s", ",".join(failed_symbols))
+        if not_found_symbols:
+            status = "partial_success"
+        elif operational_failed_symbols and not successful_symbols:
+            status = "failed"
+        elif operational_failed_symbols or missing_cik_symbols:
+            status = "partial_success"
+        if failed_symbols or missing_cik_symbols:
+            logger.warning(
+                "Filing refresh incomplete for symbols: %s",
+                ",".join(failed_symbols + missing_cik_symbols),
+            )
     except Exception as exc:
         status = "failed"
         error_text = str(exc)
         logger.exception("Filing refresh failed")
     finally:
+        if error_text is None:
+            details = []
+            if failed_symbols:
+                details.append(f"Failed symbols: {', '.join(sorted(failed_symbols))}")
+            if not_found_symbols:
+                details.append(
+                    f"SEC submission 404s: {', '.join(sorted(not_found_symbols))}"
+                )
+            if missing_cik_symbols:
+                details.append(f"Missing CIKs: {', '.join(sorted(missing_cik_symbols))}")
+            error_text = "; ".join(details) or None
         _finish_job_run(
             job_id,
             status=status,
@@ -158,5 +282,10 @@ def refresh_filings() -> dict[str, object]:
         "rows_read": rows_read,
         "rows_written": rows_written,
         "failed_symbols": failed_symbols,
+        "operational_failed_symbols": operational_failed_symbols,
+        "not_found_symbols": not_found_symbols,
+        "missing_cik_symbols": missing_cik_symbols,
+        "identity_conflicts": identity_conflicts,
+        "remapped_symbols": remapped_symbols,
         "error_text": error_text,
     }

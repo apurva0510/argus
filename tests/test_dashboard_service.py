@@ -433,3 +433,28 @@ def test_dashboard_latest_failed_job_persistence(db_session, sqlite_engine) -> N
     # Verify the failed_job resolves to None now that the latest run is successful
     data = load_dashboard_data_from_engine(sqlite_engine)
     assert data["failed_job"] is None
+
+
+def test_dashboard_distinguishes_latest_attempt_from_latest_success(db_session, sqlite_engine) -> None:
+    db_session.add_all(
+        [
+            JobRun(
+                job_name="refresh_prices",
+                started_at=datetime(2026, 5, 29, 20, 0),
+                finished_at=datetime(2026, 5, 29, 20, 1),
+                status="success",
+            ),
+            JobRun(
+                job_name="refresh_prices",
+                started_at=datetime(2026, 5, 30, 20, 0),
+                finished_at=datetime(2026, 5, 30, 20, 1),
+                status="failed",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    latest_dates = load_dashboard_data_from_engine(sqlite_engine)["latest_dates"]
+
+    assert latest_dates["last_price_refresh_at"] == "2026-05-29 20:01:00.000000"
+    assert latest_dates["last_price_attempt_at"] == "2026-05-30 20:01:00.000000"

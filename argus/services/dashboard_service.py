@@ -37,11 +37,16 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     (SELECT MAX(date) FROM price_bars WHERE provider = :provider AND interval = '1d') AS latest_price_date,
                     (SELECT MAX(bar_time) FROM price_bars WHERE provider = :provider AND interval = '15m') AS latest_intraday_price_time,
                     (SELECT MAX(date) FROM daily_metrics) AS latest_metrics_date,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_news') AS last_news_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings') AS last_filings_refresh_at,
-                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_macro') AS last_macro_refresh_at
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices') AS last_price_attempt_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics') AS last_metrics_attempt_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_news') AS last_news_attempt_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings') AS last_filings_attempt_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_macro') AS last_macro_attempt_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_prices' AND status IN ('success', 'partial_success')) AS last_price_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'compute_daily_metrics' AND status IN ('success', 'partial_success')) AS last_metrics_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_news' AND status IN ('success', 'partial_success')) AS last_news_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_filings' AND status IN ('success', 'partial_success')) AS last_filings_refresh_at,
+                    (SELECT MAX(finished_at) FROM job_runs WHERE job_name = 'refresh_macro' AND status IN ('success', 'partial_success')) AS last_macro_refresh_at
                 """
             ),
             conn,

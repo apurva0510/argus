@@ -13,6 +13,7 @@ from argus.core.seed import (
     AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS,
     AI_INFRA_CORE_INDEX_SYMBOLS,
     BENCHMARKS,
+    COMPANY_CIKS,
     COMPANY_METADATA,
     COMPANY_NAMES,
     EMERGING_COMPUTE_SYMBOLS,
@@ -121,6 +122,8 @@ def test_company_name_and_metadata_coverage() -> None:
     tickers = {ticker for tickers in SECTOR_GROUPS.values() for ticker in tickers}
     assert set(COMPANY_NAMES) == tickers
     assert set(COMPANY_METADATA) == tickers
+    assert set(COMPANY_CIKS) == tickers
+    assert all(len(cik) == 10 and cik.isdigit() for cik in COMPANY_CIKS.values())
 
 
 def test_every_seeded_company_has_at_least_one_theme() -> None:
@@ -184,6 +187,20 @@ def test_seed_is_idempotent_when_run_multiple_times() -> None:
             "watchlist_items": _expected_company_count(),
             "exposures": _expected_exposure_count(),
         }
+
+
+def test_seed_preserves_existing_synchronized_cik() -> None:
+    with _session() as session:
+        _run_seed(session)
+        company = session.query(Company).filter(Company.symbol == "NVDA").one()
+        company.cik = "0000000042"
+        session.commit()
+
+        seed_companies(session)
+        session.commit()
+
+        company = session.query(Company).filter(Company.symbol == "NVDA").one()
+        assert company.cik == "0000000042"
 
 
 def test_seed_creates_unique_watchlist_items_and_theme_exposures() -> None:
