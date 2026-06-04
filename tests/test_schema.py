@@ -51,6 +51,11 @@ REQUIRED_TABLES = {
     "macro_observations",
     "capex_observations",
     "provider_health",
+    "provider_daily_usage",
+    "signal_daily",
+    "macro_release_events",
+    "index_definitions",
+    "index_constituents",
     "app_settings",
 }
 
@@ -119,7 +124,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
             .filter(AppSetting.key == "schema_version")
             .one()
         )
-        assert schema_version.value == "5"
+        assert schema_version.value == "6"
     test_engine.dispose()
 
 
@@ -143,6 +148,28 @@ def test_migration_adds_bar_time_to_existing_sqlite_price_bars(tmp_path) -> None
         bar_time = conn.execute(text("SELECT bar_time FROM price_bars WHERE id = 1")).scalar_one()
         assert str(bar_time).startswith("2026-01-02")
     test_engine.dispose()
+
+
+def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_path) -> None:
+    from sqlalchemy import text
+    from argus.core.migrations import run_migrations
+
+    db_path = tmp_path / "old_schema_index.db"
+    test_engine = create_database_engine(f"sqlite:///{db_path}")
+    with test_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE index_values (id INTEGER PRIMARY KEY, date DATE NOT NULL UNIQUE, index_value FLOAT NOT NULL, created_at DATETIME NOT NULL)"))
+        conn.execute(text("INSERT INTO index_values (id, date, index_value, created_at) VALUES (1, '2026-01-02', 100.0, '2026-01-02 00:00:00')"))
+
+    run_migrations(test_engine)
+
+    inspector = inspect(test_engine)
+    columns = {column["name"] for column in inspector.get_columns("index_values")}
+    assert "index_definition_id" in columns
+    with test_engine.connect() as conn:
+        val = conn.execute(text("SELECT index_definition_id FROM index_values WHERE id = 1")).scalar_one()
+        assert val is None
+    test_engine.dispose()
+
 
 
 def test_scripts_init_db_creates_test_sqlite_database(tmp_path) -> None:
@@ -193,6 +220,11 @@ def test_phase1_unique_constraints_exist() -> None:
         "macro_observations": {"uq_macro_observations"},
         "capex_observations": {"uq_capex_observations"},
         "alert_events": {"uq_alert_events_dedupe_key"},
+        "provider_daily_usage": {"uq_provider_daily_usage"},
+        "signal_daily": {"uq_signal_daily"},
+        "macro_release_events": {"uq_macro_release_events"},
+        "index_constituents": {"uq_index_constituents"},
+        "index_values": {"uq_index_values"},
     }
 
     for table_name, expected_names in expected_constraints.items():
@@ -221,6 +253,12 @@ def test_phase1_lookup_indexes_exist(sqlite_engine) -> None:
         "alert_events": {("alert_id",), ("company_id",)},
         "user_notes": {("company_id",)},
         "job_runs": {("job_name",)},
+        "provider_daily_usage": {("provider",), ("date",)},
+        "signal_daily": {("company_id",), ("date",)},
+        "macro_release_events": {("series_code",), ("release_date",)},
+        "index_definitions": {("name",)},
+        "index_constituents": {("index_definition_id",), ("company_id",)},
+        "index_values": {("index_definition_id",), ("date",)},
     }
 
     for table_name, expected_columns in expected_indexes.items():
@@ -252,6 +290,11 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
         "alert_events": {"alert_id", "event_type", "dedupe_key"},
         "user_notes": {"company_id", "note_text"},
         "job_runs": {"job_name", "status"},
+        "provider_daily_usage": {"provider", "date", "request_count", "success_count", "failure_count", "rate_limit_count"},
+        "signal_daily": {"company_id", "date"},
+        "macro_release_events": {"series_code", "release_date"},
+        "index_definitions": {"name", "mode", "base_value", "is_active"},
+        "index_constituents": {"index_definition_id", "company_id", "target_weight", "is_included"},
         "app_settings": {"key"},
     }
 

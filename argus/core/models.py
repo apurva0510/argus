@@ -233,11 +233,17 @@ class EarningsEvent(Base):
 
 class IndexValue(Base):
     __tablename__ = "index_values"
-    __table_args__ = (UniqueConstraint("date", name="uq_index_values_date"),)
+    __table_args__ = (
+        UniqueConstraint("index_definition_id", "date", name="uq_index_values"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    index_definition_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("index_definitions.id", ondelete="CASCADE"), index=True
+    )
     date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     index_value: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
 
 
 class MacroSeries(Base):
@@ -364,6 +370,98 @@ class ProviderHealth(Base):
         default=utc_now,
         onupdate=utc_now,
         nullable=False,
+    )
+
+
+class ProviderDailyUsage(Base):
+    __tablename__ = "provider_daily_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rate_limit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_request_time: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "date", name="uq_provider_daily_usage"),
+    )
+
+
+class SignalDaily(Base):
+    __tablename__ = "signal_daily"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    sentiment_proxy_7d: Mapped[float | None] = mapped_column(Float)
+    news_relevance_7d: Mapped[float | None] = mapped_column(Float)
+    corr_nvda_60d: Mapped[float | None] = mapped_column(Float)
+    corr_hyperscaler_60d: Mapped[float | None] = mapped_column(Float)
+    earnings_sensitivity: Mapped[float | None] = mapped_column(Float)
+    power_signal: Mapped[float | None] = mapped_column(Float)
+    capex_signal: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "date", name="uq_signal_daily"),
+    )
+
+
+class MacroReleaseEvent(Base):
+    __tablename__ = "macro_release_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("macro_series.code", ondelete="CASCADE"), index=True, nullable=False
+    )
+    release_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    event_name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("series_code", "release_date", name="uq_macro_release_events"),
+    )
+
+
+class IndexDefinition(Base):
+    __tablename__ = "index_definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)  # 'equal', 'exposure', 'manual'
+    base_value: Mapped[float] = mapped_column(Float, default=100.0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
+class IndexConstituent(Base):
+    __tablename__ = "index_constituents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    index_definition_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("index_definitions.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    target_weight: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    is_included: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("index_definition_id", "company_id", name="uq_index_constituents"),
     )
 
 

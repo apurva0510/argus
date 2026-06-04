@@ -12,6 +12,7 @@ from argus.sources.sec_client import (
     fetch_ticker_identities,
     sec_identity_matches_company,
 )
+from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +174,23 @@ def refresh_filings() -> dict[str, object]:
                 continue
 
             try:
-                filings = fetch_filings(company_cik)
+                with session_scope() as req_session:
+                    filings = execute_provider_request(
+                        req_session,
+                        "sec",
+                        fetch_filings,
+                        company_cik,
+                    )
             except SecSubmissionNotFoundError:
                 not_found_symbols.append(symbol)
                 if ticker_identities is None:
                     try:
-                        ticker_identities = fetch_ticker_identities()
+                        with session_scope() as req_session:
+                            ticker_identities = execute_provider_request(
+                                req_session,
+                                "sec",
+                                fetch_ticker_identities,
+                            )
                     except Exception:
                         logger.exception(
                             "Failed to refresh SEC ticker mapping after 404 for %s",
@@ -217,7 +229,13 @@ def refresh_filings() -> dict[str, object]:
                     company_cik,
                 )
                 try:
-                    filings = fetch_filings(company_cik)
+                    with session_scope() as req_session:
+                        filings = execute_provider_request(
+                            req_session,
+                            "sec",
+                            fetch_filings,
+                            company_cik,
+                        )
                 except SecSubmissionNotFoundError:
                     logger.error(
                         "SEC submissions remain unavailable for %s after remapping to CIK %s",

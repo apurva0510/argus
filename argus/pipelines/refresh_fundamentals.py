@@ -7,6 +7,7 @@ import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, FundamentalsSnapshot
+from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,11 @@ def refresh_fundamentals() -> dict[str, object]:
             for company in companies:
                 try:
                     ticker = yf.Ticker(company.symbol)
-                    info = ticker.info
+                    info = execute_provider_request(
+                        session,
+                        "yfinance",
+                        lambda: ticker.info,
+                    )
 
                     if not info or not isinstance(info, dict):
                         logger.debug("No info data returned for %s", company.symbol)

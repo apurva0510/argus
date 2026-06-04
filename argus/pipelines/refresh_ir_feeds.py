@@ -14,9 +14,8 @@ from argus.core.settings import settings
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
-    mark_provider_rate_limited,
-    mark_provider_success,
     get_provider_health,
+    execute_provider_request,
 )
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, _upsert_news_item
 from argus.sources.news_rss_client import NewsProviderRateLimitError
@@ -176,10 +175,16 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                     break
 
                 try:
-                    articles = fetch_ir_feed(symbol, url)
+                    articles = execute_provider_request(
+                        session,
+                        "ir_feed",
+                        fetch_ir_feed,
+                        symbol,
+                        url,
+                    )
                 except NewsProviderRateLimitError as exc:
-                    message = mark_provider_rate_limited(session, "ir_feed", _utc_now())
                     provider_outcomes["ir_feed"] = "429"
+                    message = disabled_message("ir_feed")
                     logger.warning("%s: %s", message, exc)
                     errors.append(message)
                     break
@@ -190,7 +195,6 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                         provider_outcomes["ir_feed"] = "failure"
                     continue
 
-                mark_provider_success(session, "ir_feed", _utc_now())
                 rows_read += len(articles)
                 for article in articles:
                     mentions = detect_mentions_and_keywords(

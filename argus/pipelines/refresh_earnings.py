@@ -7,6 +7,7 @@ import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, EarningsEvent
+from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,11 @@ def refresh_earnings() -> dict[str, object]:
             for company in companies:
                 try:
                     ticker = yf.Ticker(company.symbol)
-                    calendar = ticker.calendar
+                    calendar = execute_provider_request(
+                        session,
+                        "yfinance",
+                        lambda: ticker.calendar,
+                    )
                     
                     if not calendar or not isinstance(calendar, dict):
                         logger.debug("No calendar data returned for %s", company.symbol)

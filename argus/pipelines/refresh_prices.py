@@ -9,6 +9,7 @@ from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, JobRun, PriceBar
 from argus.sources.factory import get_market_data_provider
 from argus.sources.yfinance_client import YFinanceProvider
+from argus.pipelines.provider_health import execute_provider_request
 
 def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     provider = get_market_data_provider()
@@ -157,7 +158,10 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
             if interval == "15m":
                 symbols = [company.symbol for company in companies]
                 try:
-                    frames_by_symbol = provider.fetch_ohlcv_batch(
+                    frames_by_symbol = execute_provider_request(
+                        session,
+                        provider.name,
+                        provider.fetch_ohlcv_batch,
                         symbols,
                         period=period,
                         interval=interval,
@@ -197,7 +201,13 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
 
             for company in companies:
                 try:
-                    frame = fetch_daily_ohlcv(company.symbol, period=period)
+                    frame = execute_provider_request(
+                        session,
+                        provider.name,
+                        fetch_daily_ohlcv,
+                        company.symbol,
+                        period=period,
+                    )
                 except Exception:
                     logger.exception("Failed to fetch prices for %s", company.symbol)
                     failed_symbols.append(company.symbol)

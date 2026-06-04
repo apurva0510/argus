@@ -13,9 +13,8 @@ from argus.core.settings import settings
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
-    mark_provider_rate_limited,
-    mark_provider_success,
     get_provider_health,
+    execute_provider_request,
 )
 from argus.sources.gdelt_client import fetch_gdelt_news_query
 from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
@@ -450,14 +449,20 @@ def refresh_news(
                     continue
 
                 try:
-                    fetched_articles = _fetch_provider_query(provider, query)
+                    fetched_articles = execute_provider_request(
+                        session,
+                        provider,
+                        _fetch_provider_query,
+                        provider,
+                        query,
+                    )
                 except NewsProviderRateLimitError as exc:
-                    message = mark_provider_rate_limited(session, provider, _utc_now())
                     disabled_providers.add(provider)
                     provider_outcomes[provider] = "429"
+                    message = disabled_message(provider)
                     logger.warning("%s: %s", message, exc)
                     if message not in health_messages:
-                        health_messages.append(message)
+                         health_messages.append(message)
                     failed_queries.append(query)
                     failed_providers.append(provider)
                     continue
@@ -469,7 +474,6 @@ def refresh_news(
                         provider_outcomes[provider] = "failure"
                     continue
 
-                mark_provider_success(session, provider, _utc_now())
                 rows_read += len(fetched_articles)
                 for article in fetched_articles:
                     article["provider"] = provider

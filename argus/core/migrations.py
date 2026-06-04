@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting
 
 
-CURRENT_SCHEMA_VERSION = "5"
+CURRENT_SCHEMA_VERSION = "6"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -23,6 +23,7 @@ def run_migrations(database_engine: Engine) -> None:
     _migrate_macro_tables_for_foreign_key(database_engine)
     Base.metadata.create_all(bind=database_engine)
     _migrate_price_bars_bar_time(database_engine)
+    _migrate_index_values_for_definitions(database_engine)
     with Session(database_engine) as session:
         schema_version = (
             session.query(AppSetting)
@@ -131,6 +132,58 @@ def _migrate_postgres_price_bars(database_engine: Engine) -> None:
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_price_bars
                 ON price_bars (company_id, bar_time, provider, interval)
+                """
+            )
+        )
+
+
+def _migrate_index_values_for_definitions(database_engine: Engine) -> None:
+    inspector = inspect(database_engine)
+    if "index_values" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("index_values")}
+    if "index_definition_id" in columns:
+        return
+
+    if database_engine.dialect.name == "sqlite":
+        _migrate_sqlite_index_values(database_engine)
+    elif database_engine.dialect.name == "postgresql":
+        _migrate_postgres_index_values(database_engine)
+
+
+def _migrate_sqlite_index_values(database_engine: Engine) -> None:
+    with database_engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.execute(text("ALTER TABLE index_values RENAME TO index_values_old"))
+        Base.metadata.tables["index_values"].create(bind=conn)
+        conn.execute(
+            text(
+                """
+                INSERT INTO index_values (
+                    id, index_definition_id, date, index_value, created_at
+                )
+                SELECT
+                    id, NULL, date, index_value, created_at
+                FROM index_values_old
+                """
+            )
+        )
+        conn.execute(text("DROP TABLE index_values_old"))
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
+def _migrate_postgres_index_values(database_engine: Engine) -> None:
+    with database_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE index_values ADD COLUMN IF NOT EXISTS index_definition_id INTEGER"))
+        conn.execute(text("ALTER TABLE index_values ADD CONSTRAINT fk_index_values_definition_id FOREIGN KEY (index_definition_id) REFERENCES index_definitions (id) ON DELETE CASCADE"))
+        conn.execute(text("ALTER TABLE index_values DROP CONSTRAINT IF EXISTS uq_index_values_date"))
+        conn.execute(text("ALTER TABLE index_values DROP CONSTRAINT IF EXISTS uq_index_values"))
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_index_values
+                ON index_values (index_definition_id, date)
                 """
             )
         )

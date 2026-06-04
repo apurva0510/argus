@@ -10,6 +10,7 @@ import pandas as pd
 
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import JobRun, MacroObservation, MacroSeries
+from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +247,13 @@ def refresh_macro(
 
                 try:
                     _upsert_macro_series(session, definition)
-                    observations = fetch_fred_series(code, client=client)
+                    observations = execute_provider_request(
+                        session,
+                        "fred",
+                        fetch_fred_series,
+                        code,
+                        client=client,
+                    )
                     rows_read += len(observations)
                     rows_written += _upsert_observations(session, code, observations)
                 except Exception as exc:
