@@ -1251,3 +1251,84 @@ def test_refresh_ir_feeds_429_marks_provider_unhealthy(sqlite_engine, monkeypatc
         assert health.failure_count == 1
         assert health.disabled_until is not None
         assert health.last_error == "IR feeds disabled until tomorrow due to rate limit"
+
+
+def test_refresh_news_records_provider_outcomes_success(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+
+    result = refresh_news(force=True, queries=["data center AI"])
+    assert result["status"] == "success"
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert job.status == "success"
+        assert "provider_outcomes: gdelt=success, rss=success" in job.error_text
+
+
+def test_refresh_news_records_provider_outcomes_cooldown(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
+        session.add(
+            ProviderHealth(
+                provider="rss",
+                status="unhealthy",
+                failure_count=1,
+                disabled_until=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=2),
+                last_error="RSS disabled until tomorrow due to rate limit",
+            )
+        )
+
+    result = refresh_news(force=True, queries=["data center AI"])
+    assert result["status"] == "partial_success"
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).order_by(JobRun.id.desc()).first()
+        assert "provider_outcomes: gdelt=success, rss=cooldown" in job.error_text
+
+
+def test_refresh_ir_feeds_records_provider_outcomes_success(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ir_feeds as ir_module
+
+    monkeypatch.setattr(ir_module, "IR_FEED_URLS", {"CRWD": "https://example.com/crwd-ir.xml"})
+    monkeypatch.setattr(ir_module, "fetch_ir_feed", lambda symbol, url: [])
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="CRWD", name="CrowdStrike Holdings, Inc.", is_active=True))
+
+    result = ir_module.refresh_ir_feeds()
+    assert result["status"] == "success"
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).filter(JobRun.job_name == "refresh_ir_feeds").order_by(JobRun.id.desc()).first()
+        assert job.status == "success"
+        assert "provider_outcomes: ir_feed=success" in job.error_text
+

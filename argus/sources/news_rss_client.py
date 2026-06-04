@@ -30,10 +30,7 @@ def _rate_limit() -> None:
 
 def _get_with_retries(url: str, *, query: str, timeout: float = 10.0) -> httpx.Response | None:
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
+        "User-Agent": "NetNewsWire (RSS Reader)"
     }
     max_retries = 2
     for attempt in range(max_retries + 1):

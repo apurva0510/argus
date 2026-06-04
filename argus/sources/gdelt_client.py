@@ -38,7 +38,8 @@ def fetch_gdelt_news(ticker: str, timespan: str = "1d") -> list[dict]:
 
 def _rate_limit() -> None:
     global _last_gdelt_request_at
-    delay = max(0.0, float(settings.news_request_delay_seconds))
+    # Enforce strict 6.0 second minimum delay between GDELT requests to avoid 429 errors
+    delay = max(6.0, float(settings.news_request_delay_seconds))
     elapsed = time.monotonic() - _last_gdelt_request_at
     if elapsed < delay:
         time.sleep(delay - elapsed)
@@ -69,7 +70,7 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
         try:
             _rate_limit()
             headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "NetNewsWire (RSS Reader)"
             }
             response = httpx.get(url, params=params, headers=headers, timeout=8.0)
             if response.status_code == 404:

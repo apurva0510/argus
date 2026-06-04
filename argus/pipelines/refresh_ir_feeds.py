@@ -65,6 +65,7 @@ def _finish_job_run(
     status: str,
     rows_read: int,
     rows_written: int,
+    provider_outcomes: dict[str, str] | None = None,
     error_text: str | None = None,
 ) -> None:
     with session_scope() as session:
@@ -76,7 +77,16 @@ def _finish_job_run(
         job.status = status
         job.rows_read = rows_read
         job.rows_written = rows_written
-        job.error_text = error_text
+        
+        parts = []
+        if provider_outcomes:
+            outcome_parts = [f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())]
+            parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
+            
+        if error_text:
+            parts.append(error_text)
+            
+        job.error_text = "; ".join(parts) if parts else None
 
 
 def fetch_ir_feed(symbol: str, url: str) -> list[dict]:
@@ -123,12 +133,13 @@ def fetch_ir_feed(symbol: str, url: str) -> list[dict]:
     return items
 
 
-def refresh_ir_feeds() -> dict[str, object]:
+def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
     job_id = _create_job_run()
     rows_read = 0
     rows_written = 0
     status = "success"
     errors: list[str] = []
+    provider_outcomes: dict[str, str] = {}
 
     try:
         with session_scope() as session:
@@ -142,11 +153,16 @@ def refresh_ir_feeds() -> dict[str, object]:
             companies_by_symbol = {company.symbol.upper(): company for company in companies}
             all_companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
 
+            if not is_provider_available(session, "ir_feed", now):
+                provider_outcomes["ir_feed"] = "cooldown"
+            else:
+                provider_outcomes["ir_feed"] = "success"
+
             for symbol, url in IR_FEED_URLS.items():
                 company = companies_by_symbol.get(symbol)
                 if company is None:
                     continue
-                if not is_provider_available(session, "ir_feed", now):
+                if provider_outcomes["ir_feed"] == "cooldown":
                     message = disabled_message("ir_feed")
                     logger.warning(message)
                     errors.append(message)
@@ -156,12 +172,15 @@ def refresh_ir_feeds() -> dict[str, object]:
                     articles = fetch_ir_feed(symbol, url)
                 except NewsProviderRateLimitError as exc:
                     message = mark_provider_rate_limited(session, "ir_feed", _utc_now())
+                    provider_outcomes["ir_feed"] = "429"
                     logger.warning("%s: %s", message, exc)
                     errors.append(message)
                     break
                 except Exception as exc:
                     logger.warning("IR feed failed for %s: %s", symbol, exc)
                     errors.append(f"{symbol}: {exc}")
+                    if provider_outcomes["ir_feed"] != "429":
+                        provider_outcomes["ir_feed"] = "failure"
                     continue
 
                 mark_provider_success(session, "ir_feed", _utc_now())
@@ -196,6 +215,7 @@ def refresh_ir_feeds() -> dict[str, object]:
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
+            provider_outcomes=provider_outcomes,
             error_text="; ".join(dict.fromkeys(errors)) if errors else None,
         )
 

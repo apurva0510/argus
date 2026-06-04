@@ -62,6 +62,7 @@ def _finish_job_run(
     rows_written: int,
     failed_queries: list[str],
     failed_providers: list[str],
+    provider_outcomes: dict[str, str] | None = None,
     error_text: str | None = None,
 ) -> None:
     with session_scope() as session:
@@ -74,15 +75,24 @@ def _finish_job_run(
         job.status = status
         job.rows_read = rows_read
         job.rows_written = rows_written
+        
+        parts = []
+        if provider_outcomes:
+            outcome_parts = [f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())]
+            parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
+            
         if error_text:
-            job.error_text = error_text
-        elif failed_queries or failed_providers:
-            parts = []
+            parts.append(error_text)
+        else:
+            sub_parts = []
             if failed_queries:
-                parts.append(f"failed_queries={', '.join(sorted(set(failed_queries)))}")
+                sub_parts.append(f"failed_queries={', '.join(sorted(set(failed_queries)))}")
             if failed_providers:
-                parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
-            job.error_text = "; ".join(parts)
+                sub_parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
+            if sub_parts:
+                parts.append("; ".join(sub_parts))
+                
+        job.error_text = "; ".join(parts) if parts else None
 
 
 def _last_successful_refresh_at(session) -> datetime | None:
@@ -375,6 +385,7 @@ def refresh_news(
     failed_queries: list[str] = []
     failed_providers: list[str] = []
     disabled_providers: set[str] = set()
+    provider_outcomes: dict[str, str] = {}
     status = "success"
     error_text: str | None = None
     health_messages: list[str] = []
@@ -398,6 +409,12 @@ def refresh_news(
                 select(Company).where(Company.is_active.is_(True))
             ).all()
 
+            for provider in ("rss", "gdelt"):
+                if not is_provider_available(session, provider, now):
+                    provider_outcomes[provider] = "cooldown"
+                else:
+                    provider_outcomes[provider] = "success"
+
             global_unique_articles: dict[str, dict] = {}
             selected_queries = list(queries or NEWS_QUERIES)
             if max_queries is not None:
@@ -405,7 +422,7 @@ def refresh_news(
 
             for query in selected_queries:
                 for provider in ("rss", "gdelt"):
-                    if provider in disabled_providers or not is_provider_available(session, provider, now):
+                    if provider in disabled_providers or provider_outcomes[provider] == "cooldown":
                         failed_providers.append(provider)
                         message = disabled_message(provider)
                         if message not in health_messages:
@@ -418,16 +435,19 @@ def refresh_news(
                     except NewsProviderRateLimitError as exc:
                         message = mark_provider_rate_limited(session, provider, _utc_now())
                         disabled_providers.add(provider)
+                        provider_outcomes[provider] = "429"
                         logger.warning("%s: %s", message, exc)
                         if message not in health_messages:
                             health_messages.append(message)
                         failed_queries.append(query)
                         failed_providers.append(provider)
                         continue
-                    except Exception:
+                    except Exception as exc:
                         logger.exception("Failed to fetch %s news for query: %s", provider, query)
                         failed_queries.append(query)
                         failed_providers.append(provider)
+                        if provider_outcomes[provider] != "429":
+                            provider_outcomes[provider] = "failure"
                         continue
 
                     mark_provider_success(session, provider, _utc_now())
@@ -469,6 +489,7 @@ def refresh_news(
             rows_written=rows_written,
             failed_queries=failed_queries,
             failed_providers=failed_providers,
+            provider_outcomes=provider_outcomes,
             error_text=error_text,
         )
 
