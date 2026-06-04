@@ -48,7 +48,7 @@ cp .env.example .env
 Open `.env` in a text editor to configure settings. Key configurations include:
 
 - `APP_PASSWORD`: Set a shared password to protect the dashboard (leave blank to disable login).
-- `APP_AUTH_SECRET`: Optional signing secret for cross-tab auth cookies. If blank, Argus uses `APP_PASSWORD`.
+- `APP_AUTH_SECRET`: Optional signing secret for auth tokens and legacy auth cookies. If blank, Argus uses `APP_PASSWORD`.
 - `SEC_USER_AGENT`: Required format for SEC filings (e.g., `Argus/1.0 (contact@example.com)`).
 - `MARKET_DATA_PROVIDER`: Set to `yfinance` (default, free, no key required) or configure optional API keys for `finnhub`, `twelvedata`, or `alphavantage`.
 - SMTP details (`EMAIL_HOST`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`) for email alerts. `EMAIL_TO` supports comma-separated recipients.
@@ -108,6 +108,7 @@ python scripts/refresh_news.py
 python scripts/refresh_ir_feeds.py
 
 # Refresh SEC filings (requires valid SEC_USER_AGENT in .env)
+python scripts/refresh_ciks.py
 python scripts/refresh_filings.py
 ```
 
@@ -278,7 +279,7 @@ Argus includes five workflow files for production scheduling:
   - Runs: broad RSS/GDELT news refresh with 24-hour provider cooldown after HTTP 429
 - `.github/workflows/filings-refresh.yml`
   - Every 2 hours on weekdays (within 1–3 hour target window)
-  - Runs: SEC filings refresh
+  - Runs: official SEC ticker-to-CIK synchronization followed by SEC filings refresh
 - `.github/workflows/ir-feeds-refresh.yml`
   - Once daily after market close on weekdays
   - Runs: selected investor-relations feed refresh for cybersecurity and optical/networking names

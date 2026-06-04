@@ -65,6 +65,31 @@ def test_run_daily_refresh_reports_partial_success(sqlite_engine, monkeypatch) -
         assert job.error_text == "bad: boom"
 
 
+def test_run_daily_refresh_preserves_partial_success_step(sqlite_engine, monkeypatch) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+
+    result = run_daily_refresh(
+        steps=[
+            (
+                "refresh_filings",
+                lambda: {
+                    "status": "partial_success",
+                    "rows_read": 0,
+                    "rows_written": 0,
+                    "not_found_symbols": ["AAA"],
+                    "error_text": "Failed symbols: AAA",
+                },
+            )
+        ]
+    )
+
+    assert result["status"] == "partial_success"
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).filter(JobRun.job_name == "run_daily_refresh").one()
+        assert job.status == "partial_success"
+
+
 def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypatch) -> None:
     from argus.pipelines import run_daily_refresh as module
 
@@ -111,3 +136,23 @@ def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
         "compute_opportunity_scores",
         "refresh_index",
     ]
+
+
+def test_build_daily_refresh_steps_syncs_ciks_before_filings(monkeypatch) -> None:
+    from argus.pipelines import run_daily_refresh as module
+
+    monkeypatch.setattr(module.settings, "sec_user_agent", "Argus/1.0 (test@example.com)")
+
+    step_names = [
+        name
+        for name, _ in build_daily_refresh_steps(
+            include_news=False,
+            include_filings=True,
+            include_alerts=False,
+            include_fundamentals=False,
+            include_earnings=False,
+            include_macro=False,
+        )
+    ]
+
+    assert step_names[-2:] == ["refresh_ciks", "refresh_filings"]

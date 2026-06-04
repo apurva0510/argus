@@ -23,13 +23,14 @@ def calculate_equal_weight_index(
     session: Session,
     symbols: list[str] | None = None,
     base_value: float = 100.0,
+    use_precomputed: bool = True,
 ) -> pd.DataFrame:
     """
     Build an equal-weight index. If symbols is None and the pre-calculated
     index_values table has data, we load it directly from the database for speed.
     Otherwise, we calculate it dynamically from price_bars.
     """
-    if symbols is None:
+    if symbols is None and use_precomputed:
         try:
             query = session.query(IndexValue.date, IndexValue.index_value).order_by(
                 IndexValue.date.asc()

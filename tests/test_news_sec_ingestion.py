@@ -2,11 +2,16 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, JobRun, NewsItem, NewsMention, ProviderHealth, SecFiling
+from argus.core.models import Company, JobRun, NewsItem, NewsMention, ProviderHealth, SecFiling, UserNote
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
 from argus.sources.gdelt_client import parse_gdelt_date
-from argus.sources.sec_client import parse_sec_date, parse_sec_datetime
+from argus.sources.sec_client import (
+    SecSubmissionNotFoundError,
+    SecTickerIdentity,
+    parse_sec_date,
+    parse_sec_datetime,
+)
 
 
 # Date parser tests
@@ -114,7 +119,7 @@ def test_refresh_filings_pipeline(sqlite_engine, monkeypatch) -> None:
     # Run pipeline second time (must not mark read filings back to is_new = True)
     res2 = refresh_filings()
     assert res2["status"] == "success"
-    assert res2["rows_written"] == 1
+    assert res2["rows_written"] == 0
 
     with db_module.session_scope() as session:
         assert session.query(SecFiling).count() == 1
@@ -344,7 +349,7 @@ def test_refresh_filings_deduplication(sqlite_engine, monkeypatch, sec_submissio
 
     # Second run: should not duplicate, and should preserve is_new = False
     res2 = refresh_filings()
-    assert res2["rows_written"] == 1
+    assert res2["rows_written"] == 0
 
     with db_module.session_scope() as session:
         assert session.query(SecFiling).count() == 1
@@ -368,9 +373,283 @@ def test_refresh_filings_missing_cik(sqlite_engine, monkeypatch) -> None:
         session.add(Company(symbol="NO_CIK", name="No CIK Company", is_active=True))
 
     res = refresh_filings()
-    assert res["status"] == "success"
+    assert res["status"] == "partial_success"
     assert res["rows_read"] == 0
     assert res["rows_written"] == 0
+    assert res["missing_cik_symbols"] == ["NO_CIK"]
+
+
+def test_refresh_filings_remaps_stale_cik_after_404(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    calls: list[str] = []
+
+    def mock_fetch_filings(cik: str | int) -> list[dict]:
+        calls.append(str(cik))
+        if str(cik) == "0000000001":
+            raise SecSubmissionNotFoundError(str(cik))
+        return [
+            {
+                "accession_no": "0001045810-24-000057",
+                "form": "10-K",
+                "filing_date": date(2024, 3, 20),
+                "acceptance_datetime": datetime(2024, 3, 20, 16, 15),
+                "primary_doc_url": "https://sec.gov/doc.htm",
+                "filing_detail_url": "https://sec.gov/detail.htm",
+            }
+        ]
+
+    monkeypatch.setattr(filings_module, "fetch_filings", mock_fetch_filings)
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_ticker_identities",
+        lambda: {
+            "NVDA": SecTickerIdentity("NVDA", "0001045810", "NVIDIA CORP", "Nasdaq")
+        },
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA", cik="0000000001", is_active=True))
+
+    result = refresh_filings()
+
+    assert result["status"] == "partial_success"
+    assert result["remapped_symbols"] == ["NVDA"]
+    assert result["failed_symbols"] == []
+    assert result["not_found_symbols"] == ["NVDA"]
+    assert calls == ["0000000001", "0001045810"]
+
+    with db_module.session_scope() as session:
+        company = session.query(Company).filter(Company.symbol == "NVDA").one()
+        assert company.cik == "0001045810"
+        assert session.query(SecFiling).count() == 1
+
+
+def test_refresh_filings_reports_unresolved_404(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_filings",
+        lambda cik: (_ for _ in ()).throw(SecSubmissionNotFoundError(str(cik))),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_ticker_identities",
+        lambda: {
+            "NVDA": SecTickerIdentity("NVDA", "0000000001", "NVIDIA CORP", "Nasdaq")
+        },
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA", cik="0000000001", is_active=True))
+
+    result = refresh_filings()
+
+    assert result["status"] == "partial_success"
+    assert result["failed_symbols"] == ["NVDA"]
+    assert result["not_found_symbols"] == ["NVDA"]
+    assert "NVDA" in (result["error_text"] or "")
+
+
+def test_refresh_filings_all_404s_remain_partial_success(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_filings",
+        lambda cik: (_ for _ in ()).throw(SecSubmissionNotFoundError(str(cik))),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_ticker_identities",
+        lambda: {
+            "AAA": SecTickerIdentity("AAA", "0000000001", "AAA", "NYSE"),
+            "BBB": SecTickerIdentity("BBB", "0000000002", "BBB", "NYSE"),
+        },
+    )
+
+    with db_module.session_scope() as session:
+        session.add_all(
+            [
+                Company(symbol="AAA", name="AAA", cik="0000000001", is_active=True),
+                Company(symbol="BBB", name="BBB", cik="0000000002", is_active=True),
+            ]
+        )
+
+    result = refresh_filings()
+
+    assert result["status"] == "partial_success"
+    assert result["failed_symbols"] == ["AAA", "BBB"]
+    assert result["not_found_symbols"] == ["AAA", "BBB"]
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).filter(JobRun.job_name == "refresh_filings").one()
+        assert job.status == "partial_success"
+        assert "AAA" in (job.error_text or "")
+        assert "BBB" in (job.error_text or "")
+
+
+def test_refresh_filings_all_operational_failures_fail_job(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_filings",
+        lambda _cik: (_ for _ in ()).throw(TimeoutError("SEC unavailable")),
+    )
+
+    with db_module.session_scope() as session:
+        session.add_all(
+            [
+                Company(symbol="AAA", name="AAA", cik="0000000001"),
+                Company(symbol="BBB", name="BBB", cik="0000000002"),
+            ]
+        )
+
+    result = refresh_filings()
+
+    assert result["status"] == "failed"
+    assert result["operational_failed_symbols"] == ["AAA", "BBB"]
+    assert result["not_found_symbols"] == []
+
+
+def test_refresh_filings_outage_is_failed_even_with_missing_cik(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_filings",
+        lambda _cik: (_ for _ in ()).throw(TimeoutError("SEC unavailable")),
+    )
+    with db_module.session_scope() as session:
+        session.add_all(
+            [
+                Company(symbol="AAA", name="AAA", cik="0000000001"),
+                Company(symbol="NO_CIK", name="No CIK"),
+            ]
+        )
+
+    result = refresh_filings()
+
+    assert result["status"] == "failed"
+    assert result["operational_failed_symbols"] == ["AAA"]
+    assert result["missing_cik_symbols"] == ["NO_CIK"]
+
+
+def test_refresh_filings_refuses_conflicting_issuer_remap(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_filings",
+        lambda cik: (_ for _ in ()).throw(SecSubmissionNotFoundError(str(cik))),
+    )
+    monkeypatch.setattr(
+        filings_module,
+        "fetch_ticker_identities",
+        lambda: {
+            "NVDA": SecTickerIdentity("NVDA", "0001045810", "UNRELATED ENERGY CORP", "NYSE")
+        },
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", cik="0000000001"))
+
+    result = refresh_filings()
+
+    assert result["status"] == "partial_success"
+    assert result["identity_conflicts"] == ["NVDA"]
+    with db_module.session_scope() as session:
+        assert session.query(Company).one().cik == "0000000001"
+
+
+def test_refresh_filings_does_not_hold_transaction_during_fetch(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+    import argus.pipelines.refresh_filings as filings_module
+
+    monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    calls = 0
+
+    def mock_fetch_filings(_cik):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            with db_module.session_scope() as session:
+                company_id = session.query(Company.id).filter(Company.symbol == "AAA").scalar()
+                session.add(UserNote(company_id=company_id, note_text="concurrent write"))
+        return []
+
+    monkeypatch.setattr(filings_module, "fetch_filings", mock_fetch_filings)
+    with db_module.session_scope() as session:
+        session.add_all(
+            [
+                Company(symbol="AAA", name="AAA", cik="0000000001"),
+                Company(symbol="BBB", name="BBB", cik="0000000002"),
+            ]
+        )
+
+    result = refresh_filings()
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        assert session.query(UserNote).count() == 1
 
 
 # RSS feed XML payload fixture

@@ -33,14 +33,14 @@ def _query_token_is_authenticated() -> bool:
     token = _query_param_value(AUTH_QUERY_PARAM)
     if validate_auth_token(token, _auth_secret()):
         st.session_state["auth_token"] = token
+        del st.query_params[AUTH_QUERY_PARAM]
         return True
     return False
 
 
-def _issue_auth_query_token() -> None:
+def _issue_auth_token() -> None:
     token = create_auth_token(_auth_secret())
     st.session_state["auth_token"] = token
-    st.query_params[AUTH_QUERY_PARAM] = token
 
 def render_login_screen():
     # Custom styling for premium dark glassmorphism card
@@ -105,7 +105,7 @@ def render_login_screen():
             if st.form_submit_button("Unlock Dashboard", use_container_width=True):
                 if password_input == settings.app_password:
                     st.session_state["password_correct"] = True
-                    _issue_auth_query_token()
+                    _issue_auth_token()
                     st.rerun()
                 else:
                     st.error("❌ Incorrect password.")

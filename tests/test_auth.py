@@ -1,4 +1,5 @@
-from argus.core.auth import AUTH_QUERY_PARAM, append_auth_token_to_url, create_auth_token, validate_auth_token
+from argus.core.auth import create_auth_token, validate_auth_token
+from app.auth_links import company_detail_url
 
 
 def test_auth_token_validates_with_same_secret() -> None:
@@ -23,14 +24,8 @@ def test_auth_token_rejects_expired_token() -> None:
     assert not validate_auth_token(token, "secret", now=1_061)
 
 
-def test_append_auth_token_to_url_preserves_existing_query_params() -> None:
-    url = append_auth_token_to_url("/Company_Detail?ticker=NVDA", "signed-token")
-
-    assert url == f"/Company_Detail?ticker=NVDA&{AUTH_QUERY_PARAM}=signed-token"
-
-
-def test_append_auth_token_to_url_ignores_blank_token() -> None:
-    assert append_auth_token_to_url("/Company_Detail?ticker=NVDA", None) == "/Company_Detail?ticker=NVDA"
+def test_company_detail_url_does_not_expose_auth_token() -> None:
+    assert company_detail_url("NVDA") == "/Company_Detail?ticker=NVDA"
 
 
 def test_default_auth_token_ttl_is_six_hours() -> None:
@@ -40,4 +35,3 @@ def test_default_auth_token_ttl_is_six_hours() -> None:
     token = create_auth_token("secret", now=1_000)
     assert validate_auth_token(token, "secret", now=1_000 + 21540)
     assert not validate_auth_token(token, "secret", now=1_000 + 21601)
-

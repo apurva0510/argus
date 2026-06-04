@@ -31,7 +31,7 @@ def refresh_index() -> dict[str, object]:
     try:
         with session_scope() as session:
             # 1. Calculate equal-weight index using historical price bars
-            df = calculate_equal_weight_index(session)
+            df = calculate_equal_weight_index(session, use_precomputed=False)
             if not df.empty:
                 rows_read = len(df)
 

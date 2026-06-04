@@ -92,6 +92,12 @@ def _fmt_price(value: float | None) -> str:
     return f"${value:.2f}"
 
 
+def _fmt_price_range(low: float | None, high: float | None) -> str:
+    if low is None or high is None or pd.isna(low) or pd.isna(high):
+        return "n/a"
+    return f"{_fmt_price(low)} - {_fmt_price(high)}"
+
+
 def _fmt_multiple(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "n/a"
@@ -475,6 +481,10 @@ def render_company_detail() -> None:
                 )
                 st.markdown(
                     f"- **EV / EBITDA:** {_fmt_multiple(fundamentals.get('ev_to_ebitda'))}",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"- **52W Range:** {_fmt_price_range(metrics.get('low_52w') if metrics else None, metrics.get('high_52w') if metrics else None)}",
                     unsafe_allow_html=True,
                 )
             with f_col2:

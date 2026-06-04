@@ -9,6 +9,7 @@ from argus.core.models import JobRun
 from argus.core.settings import settings
 from argus.pipelines.compute_metrics import compute_daily_metrics
 from argus.pipelines.compute_scores import compute_opportunity_scores
+from argus.pipelines.refresh_ciks import refresh_ciks
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import refresh_news
 from argus.pipelines.refresh_prices import refresh_prices
@@ -98,6 +99,7 @@ def build_daily_refresh_steps(
 
     if include_filings:
         if settings.sec_user_agent.strip():
+            steps.append(("refresh_ciks", refresh_ciks))
             steps.append(("refresh_filings", refresh_filings))
         else:
             logger.info("Skipping SEC filings refresh because SEC_USER_AGENT is not configured.")

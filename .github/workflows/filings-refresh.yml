@@ -43,5 +43,8 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
+      - name: Refresh SEC ticker-to-CIK mappings
+        run: python scripts/refresh_ciks.py
+
       - name: Refresh SEC filings
         run: python scripts/refresh_filings.py

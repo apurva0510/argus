@@ -80,7 +80,7 @@ def test_password_protection_accepts_signed_cookie(monkeypatch):
 
 
 def test_password_protection_accepts_signed_query_token(monkeypatch):
-    """A signed auth query token should authenticate a hosted new tab without a password prompt."""
+    """A valid inbound query token authenticates once and is removed from the URL."""
     monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
     monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
 
@@ -98,7 +98,8 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
         import app.main  # noqa: F401
 
         assert mock_st.session_state["password_correct"] is True
-        assert mock_st.session_state["auth_token"] == mock_st.query_params[AUTH_QUERY_PARAM]
+        assert "auth_token" in mock_st.session_state
+        assert AUTH_QUERY_PARAM not in mock_st.query_params
         mock_navigation.run.assert_called_once()
 
 def test_password_protection_active_correct(monkeypatch):
@@ -128,7 +129,7 @@ def test_password_protection_active_correct(monkeypatch):
         
         # Check login logic set correct state
         assert mock_st.session_state["password_correct"] is True
-        assert AUTH_QUERY_PARAM in mock_st.query_params
+        assert AUTH_QUERY_PARAM not in mock_st.query_params
         assert "auth_token" in mock_st.session_state
         mock_st.rerun.assert_called_once()
 
