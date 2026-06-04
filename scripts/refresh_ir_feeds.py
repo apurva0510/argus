@@ -1,4 +1,5 @@
 import sys
+import argparse
 from pathlib import Path
 
 
@@ -7,8 +8,6 @@ def ensure_project_root_on_path() -> None:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-
-import argparse
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh Argus investor relations news feeds.")

@@ -442,7 +442,7 @@ def refresh_news(
                         failed_queries.append(query)
                         failed_providers.append(provider)
                         continue
-                    except Exception as exc:
+                    except Exception:
                         logger.exception("Failed to fetch %s news for query: %s", provider, query)
                         failed_queries.append(query)
                         failed_providers.append(provider)
