@@ -958,7 +958,7 @@ def test_refresh_news_skips_provider_disabled_from_previous_429(sqlite_engine, m
             )
         )
 
-    result = refresh_news(force=True, queries=["data center AI"])
+    result = refresh_news(force=False, queries=["data center AI"])
 
     assert result["status"] == "partial_success"
     assert calls == 0
@@ -1301,7 +1301,7 @@ def test_refresh_news_records_provider_outcomes_cooldown(sqlite_engine, monkeypa
             )
         )
 
-    result = refresh_news(force=True, queries=["data center AI"])
+    result = refresh_news(force=False, queries=["data center AI"])
     assert result["status"] == "partial_success"
 
     with db_module.session_scope() as session:

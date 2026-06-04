@@ -6,7 +6,13 @@ on:
     # refresh and one market-close news refresh in both EDT and EST.
     - cron: "30 12,13 * * 1-5"
     - cron: "0 21,22 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass and reset provider cooldowns'
+        required: false
+        default: false
+        type: boolean
 
 
 concurrency:
@@ -76,4 +82,9 @@ jobs:
 
       - name: Refresh news
         if: steps.news_refresh_window.outputs.run_job == 'true'
-        run: python scripts/refresh_news.py
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python scripts/refresh_news.py --force
+          else
+            python scripts/refresh_news.py
+          fi

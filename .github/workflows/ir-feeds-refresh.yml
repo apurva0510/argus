@@ -5,7 +5,13 @@ on:
     # GitHub cron is UTC-only. These two UTC times cover 6:30 PM ET in both
     # EDT and EST; the Python gate below is the source of truth.
     - cron: "30 22,23 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass and reset provider cooldowns'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ir-feeds-refresh
@@ -68,4 +74,9 @@ jobs:
 
       - name: Refresh IR feeds
         if: steps.ir_refresh_window.outputs.run_job == 'true'
-        run: python scripts/refresh_ir_feeds.py
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python scripts/refresh_ir_feeds.py --force
+          else
+            python scripts/refresh_ir_feeds.py
+          fi

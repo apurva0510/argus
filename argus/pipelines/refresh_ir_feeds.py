@@ -16,6 +16,7 @@ from argus.pipelines.provider_health import (
     is_provider_available,
     mark_provider_rate_limited,
     mark_provider_success,
+    get_provider_health,
 )
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, _upsert_news_item
 from argus.sources.news_rss_client import NewsProviderRateLimitError
@@ -152,6 +153,12 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
             ).all()
             companies_by_symbol = {company.symbol.upper(): company for company in companies}
             all_companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
+
+            if force:
+                health = get_provider_health(session, "ir_feed")
+                health.disabled_until = None
+                health.status = "healthy"
+                session.flush()
 
             if not is_provider_available(session, "ir_feed", now):
                 provider_outcomes["ir_feed"] = "cooldown"

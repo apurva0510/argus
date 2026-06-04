@@ -15,6 +15,7 @@ from argus.pipelines.provider_health import (
     is_provider_available,
     mark_provider_rate_limited,
     mark_provider_success,
+    get_provider_health,
 )
 from argus.sources.gdelt_client import fetch_gdelt_news_query
 from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
@@ -410,6 +411,12 @@ def refresh_news(
             ).all()
 
             for provider in ("rss", "gdelt"):
+                if force:
+                    health = get_provider_health(session, provider)
+                    health.disabled_until = None
+                    health.status = "healthy"
+                    session.flush()
+
                 if not is_provider_available(session, provider, now):
                     provider_outcomes[provider] = "cooldown"
                 else:
