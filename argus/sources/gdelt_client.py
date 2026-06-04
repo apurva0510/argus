@@ -43,7 +43,6 @@ def _rate_limit() -> None:
     elapsed = time.monotonic() - _last_gdelt_request_at
     if elapsed < delay:
         time.sleep(delay - elapsed)
-    _last_gdelt_request_at = time.monotonic()
 
 
 def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
@@ -90,6 +89,9 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
             wait = 2.0**attempt
             logger.warning("GDELT query failed on attempt %d: %s. Retrying in %.1f seconds...", attempt + 1, exc, wait)
             time.sleep(wait)
+        finally:
+            global _last_gdelt_request_at
+            _last_gdelt_request_at = time.monotonic()
 
     if not response or response.status_code != 200:
         return []
@@ -97,6 +99,8 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
     try:
         data = response.json()
     except Exception as exc:
+        if "limit requests" in response.text or "rate limit" in response.text.lower():
+            raise NewsProviderRateLimitError("gdelt", query_clean) from exc
         logger.error("Failed to parse GDELT JSON response for %s: %s", query_clean, exc)
         return []
 
