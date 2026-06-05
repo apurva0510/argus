@@ -125,24 +125,35 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
             fig.update_xaxes(type="category")
         return
 
-    # New signature: apply_intraday_xaxis(fig, df, tf)
+    # Only apply category axis formatting to intraday 1D/5D timeframes
+    if tf not in ("1D", "5D"):
+        return
+
     df = df_or_interval
     if df.empty:
         return
+
+    # Standardize to US Eastern Time (New York) for market hour tick alignment
     dates = pd.to_datetime(df["date"])
+    if dates.dt.tz is None:
+        dates = dates.dt.tz_localize("UTC")
+    else:
+        dates = dates.dt.tz_convert("UTC")
+    dates_ny = dates.dt.tz_convert("America/New_York")
+
     tickvals = []
     ticktext = []
     
     if tf == "1D":
-        for i, dt in enumerate(dates):
+        for i, dt in enumerate(dates_ny):
             time_str = dt.strftime("%I:%M %p")
-            # Show tick at start, 11:00 AM, 1:00 PM, 3:00 PM, and end
-            if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates) - 1:
+            # Show tick at start, 11:00 AM, 01:00 PM, 03:00 PM, and end of session
+            if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates_ny) - 1:
                 tickvals.append(df.iloc[i]["date"])
                 ticktext.append(time_str)
     elif tf == "5D":
         last_date = None
-        for i, dt in enumerate(dates):
+        for i, dt in enumerate(dates_ny):
             day_str = dt.strftime("%b %d")
             if last_date != day_str:
                 tickvals.append(df.iloc[i]["date"])
@@ -157,8 +168,6 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
             ticktext=ticktext,
             tickangle=0,
         )
-    else:
-        fig.update_xaxes(type="category")
 
 
 def _fmt_pct(value: float | None, digits: int = 2) -> str:
