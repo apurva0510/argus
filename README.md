@@ -1,6 +1,6 @@
 # Argus: AI Infrastructure & Emerging Compute Stock Monitor
 
-Argus is a lightweight, local-first Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (power/grid, cooling, optical networking, semiconductor equipment, data center REITs) plus separate Emerging Compute themes such as quantum computing. It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
+Argus is a lightweight Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (power/grid, cooling, optical networking, semiconductor equipment, data center REITs) plus separate Emerging Compute themes such as quantum computing. It supports a local SQLite database for development and a hosted PostgreSQL database (such as Supabase) for production deployment. It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
 
 Argus is designed for a simple, two-user family workflow (research and decision support). It is not a trading execution platform.
 
@@ -60,7 +60,7 @@ Open `.env` in a text editor to configure settings. Key configurations include:
 
 ## 💾 Database and Data Ingestion Pipeline
 
-Argus uses a local SQLite database at `data/app.db`. Run these commands sequentially to prepare the database and backfill market data:
+Argus uses a local SQLite database at `data/app.db` by default, or PostgreSQL if `DATABASE_URL` is configured. Run these commands sequentially to prepare the database and backfill market data:
 
 ### 1. Initialize Schema & Seed Universe
 

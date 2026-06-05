@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "argus"
 version = "0.1.0"
-description = "Local-first Streamlit AI infrastructure stock watcher"
+description = "Streamlit AI infrastructure stock watcher with SQLite and PostgreSQL support"
 readme = "README.md"
 requires-python = ">=3.12"
 dynamic = ["dependencies"]
