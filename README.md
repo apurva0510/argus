@@ -94,6 +94,8 @@ python scripts/compute_scores.py
 # Pre-calculate AI Infra Core Index values
 python scripts/refresh_index.py
 
+# Compute rich signals (NVDA/hyperscaler correlation, capex growth, power demand, etc.)
+python scripts/compute_signals.py
 ```
 
 ### 3. (Optional) Ingest News, IR Feeds & SEC Filings
@@ -114,13 +116,19 @@ python scripts/refresh_filings.py
 
 ### 4. (Optional) Refresh Macro & Capex Context
 
-Refresh free FRED macro indicators and manually enter quarterly hyperscaler capex:
+Refresh FRED macro indicators, automated or manual hyperscaler capex data, and macro release schedules:
 
 ```bash
 # Refresh Treasury yields and inflation indicators from FRED
 python scripts/refresh_macro.py
 
-# Add a manual quarterly capex observation
+# Ingest upcoming FRED release schedules (requires FRED_API_KEY)
+python scripts/refresh_release_calendar.py
+
+# Ingest automated capex from SEC CompanyFacts (MSFT, AMZN, GOOGL, META)
+python scripts/refresh_capex.py
+
+# Add a manual quarterly capex observation (fallback / overrides)
 python scripts/add_capex_observation.py --ticker MSFT --period-end 2026-03-31 --capex 10000000000 --source-label "Q1 earnings"
 ```
 
@@ -294,6 +302,8 @@ Argus includes five workflow files for production scheduling:
 | `DATABASE_URL`      | Supabase Postgres connection string      | ✅       |
 | `DATABASE_PASSWORD` | Optional password if URL has placeholder | Optional |
 | `SEC_USER_AGENT`    | SEC EDGAR user-agent header              | ✅       |
+| `FRED_API_KEY`      | St. Louis Fed API key for macro calendars | Optional |
+| `EIA_API_KEY`       | U.S. EIA API key for power signal metrics | Optional |
 | `EMAIL_HOST`        | SMTP host for alert emails               | Optional |
 | `EMAIL_USERNAME`    | SMTP username                            | Optional |
 | `EMAIL_PASSWORD`    | SMTP password                            | Optional |
