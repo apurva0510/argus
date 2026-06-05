@@ -225,7 +225,12 @@ def _render_active_alerts() -> None:
         with st.container():
             c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
             with c1:
-                target_str = row.get("ticker") or row.get("watchlist") or "All"
+                from app.auth_links import company_detail_url
+                ticker = row.get("ticker")
+                if ticker:
+                    target_link = f"[{ticker}]({company_detail_url(ticker)})"
+                else:
+                    target_link = f"`{row.get('watchlist') or 'All'}`"
                 config_str = ""
                 if row.get("config_json"):
                     try:
@@ -235,7 +240,7 @@ def _render_active_alerts() -> None:
                         config_str = str(row["config_json"])
 
                 st.markdown(
-                    f"{status_icon} **{row['name']}** — `{row['rule_type']}` → {target_str}"
+                    f"{status_icon} **{row['name']}** — `{row['rule_type']}` → {target_link}"
                 )
                 if config_str:
                     st.caption(f"Config: {config_str}")
@@ -279,6 +284,9 @@ def _render_alert_history() -> None:
 
     display["delivery"] = display["delivery_status"].apply(_status_badge)
 
+    from app.auth_links import company_detail_url
+    display["ticker"] = display["ticker"].apply(lambda t: company_detail_url(t) if t else "")
+
     st.dataframe(
         display[["alert_name", "event_type", "ticker", "triggered_at", "delivery"]],
         hide_index=True,
@@ -286,7 +294,7 @@ def _render_alert_history() -> None:
         column_config={
             "alert_name": "Alert",
             "event_type": "Rule Type",
-            "ticker": "Ticker",
+            "ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)"),
             "triggered_at": "Triggered At",
             "delivery": "Delivery Status",
         },
@@ -319,7 +327,8 @@ def render_page() -> None:
             df_view = earnings_df.copy()
             df_view["event_date"] = pd.to_datetime(df_view["event_date"]).dt.strftime("%Y-%m-%d")
             df_view["fiscal_period"] = df_view["fiscal_period"].fillna("n/a")
-            df_view["Ticker"] = df_view["symbol"].apply(lambda s: f"[View Detail](/Company_Detail?ticker={s})")
+            from app.auth_links import company_detail_url
+            df_view["symbol"] = df_view["symbol"].apply(company_detail_url)
             
             st.dataframe(
                 df_view[["event_date", "symbol", "company_name", "fiscal_period", "source"]],
@@ -327,7 +336,7 @@ def render_page() -> None:
                 width="stretch",
                 column_config={
                     "event_date": "Earnings Date",
-                    "symbol": "Symbol",
+                    "symbol": st.column_config.LinkColumn("Symbol", display_text=r"ticker=([^&]+)"),
                     "company_name": "Company Name",
                     "fiscal_period": "Fiscal Period",
                     "source": "Source",
@@ -365,7 +374,8 @@ def render_page() -> None:
                 combined_events.append({
                     "Date": pd.to_datetime(row["event_date"]),
                     "Type": "Earnings",
-                    "Target / Description": f"{row['symbol']} - {row['company_name']}{fp}",
+                    "Symbol": row["symbol"],
+                    "Target / Description": f"{row['company_name']}{fp}",
                     "Source": row["source"],
                 })
 
@@ -374,6 +384,7 @@ def render_page() -> None:
                 combined_events.append({
                     "Date": pd.to_datetime(row["release_date"]),
                     "Type": "Macro Release",
+                    "Symbol": "",
                     "Target / Description": f"{row['event_name']} ({row['series_code']})",
                     "Source": "FRED API",
                 })
@@ -383,10 +394,20 @@ def render_page() -> None:
         else:
             combined_df = pd.DataFrame(combined_events).sort_values("Date", ascending=True)
             combined_df["Date"] = combined_df["Date"].dt.strftime("%Y-%m-%d")
+            from app.auth_links import company_detail_url
+            combined_df["Symbol"] = combined_df["Symbol"].apply(lambda s: company_detail_url(s) if s else "")
+            
             st.dataframe(
-                combined_df[["Date", "Type", "Target / Description", "Source"]],
+                combined_df[["Date", "Type", "Symbol", "Target / Description", "Source"]],
                 hide_index=True,
                 width="stretch",
+                column_config={
+                    "Date": "Date",
+                    "Type": "Event Type",
+                    "Symbol": st.column_config.LinkColumn("Symbol", display_text=r"ticker=([^&]+)"),
+                    "Target / Description": "Target / Description",
+                    "Source": "Source",
+                }
             )
 
     # 4. Alerts Manager Tab

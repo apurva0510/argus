@@ -118,8 +118,46 @@ def load_index_data(tf: str) -> dict:
         }
 
 
-def apply_intraday_xaxis(fig, interval: str) -> None:
-    if interval == "15m":
+def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
+    # Support old signature: apply_intraday_xaxis(fig, interval)
+    if tf is None:
+        if df_or_interval == "15m":
+            fig.update_xaxes(type="category")
+        return
+
+    # New signature: apply_intraday_xaxis(fig, df, tf)
+    df = df_or_interval
+    if df.empty:
+        return
+    dates = pd.to_datetime(df["date"])
+    tickvals = []
+    ticktext = []
+    
+    if tf == "1D":
+        for i, dt in enumerate(dates):
+            time_str = dt.strftime("%I:%M %p")
+            # Show tick at start, 11:00 AM, 1:00 PM, 3:00 PM, and end
+            if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates) - 1:
+                tickvals.append(df.iloc[i]["date"])
+                ticktext.append(time_str)
+    elif tf == "5D":
+        last_date = None
+        for i, dt in enumerate(dates):
+            day_str = dt.strftime("%b %d")
+            if last_date != day_str:
+                tickvals.append(df.iloc[i]["date"])
+                ticktext.append(day_str)
+                last_date = day_str
+                
+    if tickvals:
+        fig.update_xaxes(
+            type="category",
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+            tickangle=0,
+        )
+    else:
         fig.update_xaxes(type="category")
 
 
@@ -627,7 +665,7 @@ def render_dashboard() -> None:
             hovermode="x unified",
         )
         if index_data.get("interval") == "15m":
-            apply_intraday_xaxis(fig, index_data["interval"])
+            apply_intraday_xaxis(fig, rel_df, tf)
         st.plotly_chart(fig, width="stretch")
 
         with st.expander("Methodology & Info"):

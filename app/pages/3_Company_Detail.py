@@ -142,8 +142,46 @@ def _filter_price_timeframe(df: pd.DataFrame, tf: str, interval: str) -> tuple[p
     return df_sorted[df_sorted["date"] >= start_date], start_date
 
 
-def apply_intraday_xaxis(fig: go.Figure, interval: str) -> None:
-    if interval == "15m":
+def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) -> None:
+    # Support old signature: apply_intraday_xaxis(fig, interval)
+    if tf is None:
+        if df_or_interval == "15m":
+            fig.update_xaxes(type="category")
+        return
+
+    # New signature: apply_intraday_xaxis(fig, df, tf)
+    df = df_or_interval
+    if df.empty:
+        return
+    dates = pd.to_datetime(df["date"])
+    tickvals = []
+    ticktext = []
+    
+    if tf == "1D":
+        for i, dt in enumerate(dates):
+            time_str = dt.strftime("%I:%M %p")
+            # Show tick at start, 11:00 AM, 1:00 PM, 3:00 PM, and end
+            if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates) - 1:
+                tickvals.append(df.iloc[i]["date"])
+                ticktext.append(time_str)
+    elif tf == "5D":
+        last_date = None
+        for i, dt in enumerate(dates):
+            day_str = dt.strftime("%b %d")
+            if last_date != day_str:
+                tickvals.append(df.iloc[i]["date"])
+                ticktext.append(day_str)
+                last_date = day_str
+                
+    if tickvals:
+        fig.update_xaxes(
+            type="category",
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+            tickangle=0,
+        )
+    else:
         fig.update_xaxes(type="category")
 
 
@@ -281,17 +319,18 @@ def render_company_detail() -> None:
     main_col1, main_col2 = st.columns([7, 3])
 
     with main_col1:
+        # Timeframe selector
+        tf = st.radio(
+            "Timeframe",
+            ["1D", "5D", "1M", "3M", "6M", "1Y", "All"],
+            index=5,
+            horizontal=True,
+            key="timeframe_radio",
+        )
+        
         chart_tabs = st.tabs(["Price Chart", "Relative Performance"])
 
         with chart_tabs[0]:
-            # Timeframe selector
-            tf = st.radio(
-                "Timeframe",
-                ["1D", "5D", "1M", "3M", "6M", "1Y", "All"],
-                index=5,
-                horizontal=True,
-                key="timeframe_radio",
-            )
             interval = _interval_for_timeframe(tf)
             df_price = (df_intraday_price if interval == "15m" else df_daily_price).copy()
 
@@ -349,7 +388,7 @@ def render_company_detail() -> None:
                         height=450,
                         hovermode="x unified",
                     )
-                    apply_intraday_xaxis(fig, interval)
+                    apply_intraday_xaxis(fig, df_filtered, tf)
                     st.plotly_chart(fig, width="stretch")
 
         with chart_tabs[1]:
@@ -437,7 +476,7 @@ def render_company_detail() -> None:
                         height=450,
                         hovermode="x unified",
                     )
-                    apply_intraday_xaxis(fig_rel, interval)
+                    apply_intraday_xaxis(fig_rel, rel_df, tf)
                     st.plotly_chart(fig_rel, width="stretch")
 
     with main_col2:

@@ -199,7 +199,8 @@ def render_page() -> None:
     news_df = pd.DataFrame()
     filings_df = pd.DataFrame()
 
-    if item_type in ("All", "News Only"):
+    # News does not have form types. If a specific form type filter is active, do not load news.
+    if item_type in ("All", "News Only") and selected_form == "All":
         news_df = load_news(
             selected_ticker,
             selected_source,
@@ -209,7 +210,8 @@ def render_page() -> None:
             min_relevance if min_relevance > 0 else None,
             sentiment_band,
         )
-    if item_type in ("All", "Filing Only"):
+    # SEC filings do not have news sources. If a specific news source filter is active, do not load filings.
+    if item_type in ("All", "Filing Only") and selected_source == "All":
         filings_df = load_filings(
             selected_ticker,
             selected_form,
