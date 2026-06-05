@@ -14,6 +14,7 @@ from argus.core.models import (
     Company,
     EarningsEvent,
     JobRun,
+    MacroObservation,
     NewsItem,
     NewsMention,
     PriceBar,
@@ -87,6 +88,7 @@ def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
             nvda_returns = returns.get("NVDA")
             hyperscaler_returns = _hyperscaler_basket_returns(returns)
             capex_signal = _latest_capex_signal(session)
+            power_signal = _compute_power_signal(session)
             earnings_events = _load_reference_earnings_events(session, signal_date)
             signal_rows = []
 
@@ -107,7 +109,7 @@ def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
                         window=60,
                     ),
                     "earnings_sensitivity": _earnings_sensitivity(company_prices, earnings_events),
-                    "power_signal": None,
+                    "power_signal": power_signal,
                     "capex_signal": capex_signal,
                 }
                 signal_rows.append(_clean_row(row))
@@ -323,6 +325,78 @@ def _latest_capex_signal(session) -> float | None:
     if latest["symbols"] != prior.iloc[0]["symbols"]:
         return None
     return (float(latest["capex_amount"]) / float(prior.iloc[0]["capex_amount"])) - 1.0
+
+
+def _compute_power_signal(session) -> float | None:
+    """Compute power signal from EIA electricity price and demand data.
+
+    Returns the average YoY change of monthly retail price and 7-day average demand.
+    Returns None if sufficient EIA data is unavailable.
+    """
+    rows = (
+        session.query(MacroObservation.series_code, MacroObservation.observation_date, MacroObservation.value)
+        .filter(MacroObservation.series_code.in_(["EIA_ELEC_PRICE", "EIA_ELEC_DEMAND"]))
+        .order_by(MacroObservation.observation_date.asc())
+        .all()
+    )
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows, columns=["series_code", "observation_date", "value"])
+    df["observation_date"] = pd.to_datetime(df["observation_date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["observation_date", "value"])
+
+    price_df = df[df["series_code"] == "EIA_ELEC_PRICE"].sort_values("observation_date")
+    demand_df = df[df["series_code"] == "EIA_ELEC_DEMAND"].sort_values("observation_date")
+
+    if price_df.empty or demand_df.empty:
+        return None
+
+    # Compute price YoY
+    latest_price_row = price_df.iloc[-1]
+    latest_price_date = latest_price_row["observation_date"]
+    latest_price_val = latest_price_row["value"]
+
+    prior_price_df = price_df[
+        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380)) &
+        (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
+    ]
+    if prior_price_df.empty:
+        return None
+
+    prior_price_df = prior_price_df.copy()
+    prior_price_df["diff"] = (prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))).abs()
+    prior_price_val = prior_price_df.sort_values("diff").iloc[0]["value"]
+    if prior_price_val == 0:
+        return None
+    price_yoy = (latest_price_val / prior_price_val) - 1.0
+
+    # Compute demand YoY using 7-day average to smooth day-of-week fluctuations
+    latest_demand_row = demand_df.iloc[-1]
+    latest_demand_date = latest_demand_row["observation_date"]
+
+    latest_demand_7d = demand_df[
+        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6)) &
+        (demand_df["observation_date"] <= latest_demand_date)
+    ]
+    if len(latest_demand_7d) < 5:
+        return None
+    latest_demand_val = latest_demand_7d["value"].mean()
+
+    prior_demand_date = latest_demand_date - pd.Timedelta(days=365)
+    prior_demand_7d = demand_df[
+        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6)) &
+        (demand_df["observation_date"] <= prior_demand_date)
+    ]
+    if len(prior_demand_7d) < 5:
+        return None
+    prior_demand_val = prior_demand_7d["value"].mean()
+    if prior_demand_val == 0:
+        return None
+    demand_yoy = (latest_demand_val / prior_demand_val) - 1.0
+
+    return float((price_yoy + demand_yoy) / 2.0)
 
 
 def _upsert_signal_rows(session, rows: list[dict]) -> int:

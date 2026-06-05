@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     alpha_vantage_api_key: str = Field(default="", alias="ALPHA_VANTAGE_API_KEY")
     market_data_provider: str = Field(default="yfinance", alias="MARKET_DATA_PROVIDER")
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
+    eia_api_key: str = Field(default="", alias="EIA_API_KEY")
 
 
 
@@ -59,6 +60,7 @@ try:
             ("EMAIL_FROM", "email_from"),
             ("EMAIL_TO", "email_to"),
             ("FRED_API_KEY", "fred_api_key"),
+            ("EIA_API_KEY", "eia_api_key"),
         ):
             if secret_key in st.secrets:
                 setattr(settings, setting_name, st.secrets[secret_key])

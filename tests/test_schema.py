@@ -124,7 +124,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
             .filter(AppSetting.key == "schema_version")
             .one()
         )
-        assert schema_version.value == "6"
+        assert schema_version.value == "7"
     test_engine.dispose()
 
 

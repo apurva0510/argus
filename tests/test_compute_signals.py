@@ -9,6 +9,8 @@ from argus.core.models import (
     CapexObservation,
     Company,
     EarningsEvent,
+    MacroObservation,
+    MacroSeries,
     NewsItem,
     NewsMention,
     PriceBar,
@@ -274,3 +276,69 @@ def test_compute_signals_requires_comparable_capex_coverage(
     with db_module.session_scope() as session:
         signal = session.query(SignalDaily).join(Company).filter(Company.symbol == "ETN").one()
         assert signal.capex_signal is None
+
+
+def test_compute_signals_with_power_signal(sqlite_engine, monkeypatch) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+    as_of = date(2026, 3, 16)
+
+    with db_module.session_scope() as session:
+        target = Company(symbol="ETN", name="Eaton", is_active=True)
+        session.add(target)
+        session.add(MacroSeries(code="EIA_ELEC_PRICE", name="Electricity Price", source="eia"))
+        session.add(MacroSeries(code="EIA_ELEC_DEMAND", name="Electricity Demand", source="eia"))
+        session.flush()
+
+        # Seed price data so company has returns
+        _seed_prices(session, target, date(2026, 1, 1), _price_path(100.0, 75))
+
+        # Seed EIA observations
+        # EIA_ELEC_PRICE (monthly)
+        # Latest
+        session.add(
+            MacroObservation(
+                series_code="EIA_ELEC_PRICE",
+                observation_date=date(2026, 3, 1),
+                value=15.0,  # 15 cents
+                provider="eia",
+            )
+        )
+        # Prior year (365 days ago, or closest)
+        session.add(
+            MacroObservation(
+                series_code="EIA_ELEC_PRICE",
+                observation_date=date(2025, 3, 1),
+                value=10.0,  # 10 cents (YoY = +50%)
+                provider="eia",
+            )
+        )
+
+        # EIA_ELEC_DEMAND (daily)
+        # Seed 7 days for latest
+        for offset in range(7):
+            session.add(
+                MacroObservation(
+                    series_code="EIA_ELEC_DEMAND",
+                    observation_date=date(2026, 3, 16) - timedelta(days=offset),
+                    value=4000000.0,  # 4M MWh
+                    provider="eia",
+                )
+            )
+        # Seed 7 days for prior year (365 days ago)
+        for offset in range(7):
+            session.add(
+                MacroObservation(
+                    series_code="EIA_ELEC_DEMAND",
+                    observation_date=date(2025, 3, 16) - timedelta(days=offset),
+                    value=2000000.0,  # 2M MWh (YoY = +100%)
+                    provider="eia",
+                )
+            )
+
+    result = compute_signals(as_of_date=as_of)
+    assert result["status"] == "success"
+
+    with db_module.session_scope() as session:
+        signal = session.query(SignalDaily).join(Company).filter(Company.symbol == "ETN").one()
+        # Price YoY = 0.5, Demand YoY = 1.0 -> Power signal = (0.5 + 1.0) / 2.0 = 0.75
+        assert signal.power_signal == pytest.approx(0.75)

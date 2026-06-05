@@ -52,6 +52,11 @@ def _sec_headers() -> dict[str, str]:
     }
 
 
+def _sec_verify_ssl() -> bool:
+    import os
+    return os.getenv("ARGUS_SKIP_SSL_VERIFY", "").lower() not in ("true", "1", "yes")
+
+
 def normalize_cik(cik: str | int) -> str:
     cik_str = str(cik).strip()
     if not cik_str.isdigit() or len(cik_str) > 10:
@@ -169,7 +174,7 @@ def fetch_ticker_identities() -> dict[str, SecTickerIdentity]:
     for url in (SEC_TICKER_EXCHANGE_URL, SEC_TICKER_URL):
         try:
             rate_limit_sec()
-            response = httpx.get(url, headers=headers, timeout=30.0)
+            response = httpx.get(url, headers=headers, timeout=30.0, verify=_sec_verify_ssl())
             response.raise_for_status()
             return parse_sec_ticker_identities(response.json())
         except (httpx.HTTPError, httpx.TimeoutException, ValueError) as exc:
@@ -223,7 +228,7 @@ def fetch_filings(cik: str | int) -> list[dict]:
     for attempt in range(max_retries):
         try:
             rate_limit_sec()
-            response = httpx.get(url, headers=headers, timeout=30.0)
+            response = httpx.get(url, headers=headers, timeout=30.0, verify=_sec_verify_ssl())
             if response.status_code == 404:
                 raise SecSubmissionNotFoundError(cik_padded)
             response.raise_for_status()
@@ -286,3 +291,107 @@ def fetch_filings(cik: str | int) -> list[dict]:
 
     logger.info("Found %d tracked filings for CIK %s", len(filings), cik_padded)
     return filings
+
+
+def fetch_company_facts(cik: str | int, *, client: httpx.Client | None = None) -> dict:
+    """Fetch XBRL CompanyFacts for a given CIK from SEC EDGAR."""
+    cik_padded = normalize_cik(cik)
+    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
+    headers = _sec_headers()
+
+    owns_client = client is None
+    active_client = client or httpx.Client(timeout=30.0, verify=_sec_verify_ssl())
+    try:
+        rate_limit_sec()
+        response = active_client.get(url, headers=headers)
+        if response.status_code == 404:
+            logger.warning("SEC CompanyFacts not found for CIK %s", cik_padded)
+            return {}
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, httpx.TimeoutException) as exc:
+        logger.warning("Failed to fetch SEC CompanyFacts for CIK %s: %s", cik_padded, exc)
+        return {}
+    finally:
+        if owns_client:
+            active_client.close()
+
+
+def parse_capex_facts(facts: dict) -> list[dict]:
+    """Extract quarterly capex observations from SEC CompanyFacts XBRL data.
+
+    Tries PaymentsToAcquirePropertyPlantAndEquipment first, falls back to
+    PropertyPlantAndEquipmentAdditions.
+
+    Returns a list of dicts with keys: fiscal_period_end, capex_amount, form, accession_no.
+    """
+    if not facts:
+        return []
+
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    if not us_gaap:
+        return []
+
+    # Try primary concept first, then fallback
+    concept_keys = [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PropertyPlantAndEquipmentAdditions",
+    ]
+
+    for concept_key in concept_keys:
+        concept = us_gaap.get(concept_key)
+        if not concept:
+            continue
+
+        units = concept.get("units", {})
+        usd_entries = units.get("USD", [])
+        if not usd_entries:
+            continue
+
+        results = []
+        seen = set()
+        for entry in usd_entries:
+            form = entry.get("form", "")
+            if form not in ("10-K", "10-Q"):
+                continue
+
+            # Only use quarterly (non-annual) values for 10-Q, and annual for 10-K
+            # Filter to entries that have a fiscal period like Q1, Q2, Q3, Q4, or FY
+            fp = entry.get("fp", "")
+            end_str = entry.get("end")
+            val = entry.get("val")
+            accession = entry.get("accn", "")
+
+            if not end_str or val is None:
+                continue
+
+            # For 10-Q: only take quarterly (non-annual) values
+            # For 10-K: take annual values (fp == "FY") but skip if we have quarterly data
+            if form == "10-K" and fp != "FY":
+                continue
+            if form == "10-Q" and fp not in ("Q1", "Q2", "Q3"):
+                continue
+
+            # Dedupe by period end date
+            dedup_key = (end_str, form)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            try:
+                from datetime import date as date_cls
+                fiscal_period_end = date_cls.fromisoformat(end_str)
+            except (ValueError, TypeError):
+                continue
+
+            results.append({
+                "fiscal_period_end": fiscal_period_end,
+                "capex_amount": abs(float(val)),  # Capex is often reported as negative in cash flow
+                "form": form,
+                "accession_no": accession,
+            })
+
+        if results:
+            return sorted(results, key=lambda r: r["fiscal_period_end"])
+
+    return []

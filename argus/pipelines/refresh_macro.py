@@ -11,6 +11,7 @@ import pandas as pd
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import JobRun, MacroObservation, MacroSeries
 from argus.pipelines.provider_health import execute_provider_request
+from argus.sources.eia_client import fetch_eia_series, is_eia_available
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class MacroSeriesDefinition:
     frequency: str
     units: str
     description: str
+    source: str = "fred"
 
 
 MACRO_SERIES: tuple[MacroSeriesDefinition, ...] = (
@@ -34,6 +36,22 @@ MACRO_SERIES: tuple[MacroSeriesDefinition, ...] = (
     MacroSeriesDefinition("CPIAUCSL", "CPI", "monthly", "index", "Consumer Price Index for All Urban Consumers"),
     MacroSeriesDefinition("CPILFESL", "Core CPI", "monthly", "index", "Consumer Price Index less food and energy"),
     MacroSeriesDefinition("PPIACO", "Producer Price Index", "monthly", "index", "Producer Price Index by commodity, all commodities"),
+    MacroSeriesDefinition(
+        "EIA_ELEC_PRICE",
+        "US Average Retail Electricity Price",
+        "monthly",
+        "cents per kilowatthour",
+        "Average retail price of electricity to ultimate customers, monthly",
+        source="eia",
+    ),
+    MacroSeriesDefinition(
+        "EIA_ELEC_DEMAND",
+        "US Hourly Demand",
+        "daily",
+        "megawatthours",
+        "Electricity hourly demand for Lower 48 balancing authorities, daily",
+        source="eia",
+    ),
 )
 
 
@@ -80,7 +98,7 @@ def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
         {
             "code": definition.code,
             "name": definition.name,
-            "source": "fred",
+            "source": definition.source,
             "frequency": definition.frequency,
             "units": definition.units,
             "description": definition.description,
@@ -97,18 +115,18 @@ def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
         },
     )
     session.execute(statement)
-
-
-def _upsert_observations(session, series_code: str, observations: pd.DataFrame) -> int:
+ 
+ 
+def _upsert_observations(session, series_code: str, observations: pd.DataFrame, provider: str = "fred") -> int:
     if observations.empty:
         return 0
-
+ 
     values = [
         {
             "series_code": series_code,
             "observation_date": row["observation_date"],
             "value": row["value"],
-            "provider": "fred",
+            "provider": provider,
         }
         for row in observations.to_dict(orient="records")
     ]
@@ -247,15 +265,45 @@ def refresh_macro(
 
                 try:
                     _upsert_macro_series(session, definition)
-                    observations = execute_provider_request(
-                        session,
-                        "fred",
-                        fetch_fred_series,
-                        code,
-                        client=client,
-                    )
-                    rows_read += len(observations)
-                    rows_written += _upsert_observations(session, code, observations)
+                    if definition.source == "eia":
+                        if not is_eia_available():
+                            logger.info("Skipping EIA series %s: EIA key not configured", code)
+                            continue
+                        if code == "EIA_ELEC_PRICE":
+                            route = "electricity/retail-sales"
+                            frequency = "monthly"
+                            facets = {"sectorid": ["ALL"], "stateid": ["US"]}
+                            data_column = "price"
+                        elif code == "EIA_ELEC_DEMAND":
+                            route = "electricity/rto/region-data"
+                            frequency = "daily"
+                            facets = {"respondent": ["US48"], "type": ["D"]}
+                            data_column = "value"
+                        else:
+                            raise ValueError(f"Unknown EIA series code: {code}")
+
+                        observations = execute_provider_request(
+                            session,
+                            "eia",
+                            fetch_eia_series,
+                            route,
+                            frequency=frequency,
+                            facets=facets,
+                            client=client,
+                            data_column=data_column,
+                        )
+                        rows_read += len(observations)
+                        rows_written += _upsert_observations(session, code, observations, provider="eia")
+                    else:
+                        observations = execute_provider_request(
+                            session,
+                            "fred",
+                            fetch_fred_series,
+                            code,
+                            client=client,
+                        )
+                        rows_read += len(observations)
+                        rows_written += _upsert_observations(session, code, observations, provider="fred")
                 except Exception as exc:
                     logger.warning("Failed to refresh macro series %s: %s", code, exc)
                     failed_series.append(code)

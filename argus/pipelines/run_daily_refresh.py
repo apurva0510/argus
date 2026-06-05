@@ -10,6 +10,7 @@ from argus.core.settings import settings
 from argus.pipelines.compute_metrics import compute_daily_metrics
 from argus.pipelines.compute_scores import compute_opportunity_scores
 from argus.pipelines.compute_signals import compute_signals
+from argus.pipelines.refresh_capex import refresh_capex
 from argus.pipelines.refresh_ciks import refresh_ciks
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import refresh_news
@@ -18,6 +19,7 @@ from argus.pipelines.refresh_earnings import refresh_earnings
 from argus.pipelines.refresh_fundamentals import refresh_fundamentals
 from argus.pipelines.refresh_index import refresh_index
 from argus.pipelines.refresh_macro import refresh_macro
+from argus.pipelines.refresh_release_calendar import refresh_release_calendar
 from argus.pipelines.run_alerts import run_alerts
 
 
@@ -80,6 +82,11 @@ def build_daily_refresh_steps(
 
     if include_macro:
         steps.append(("refresh_macro", refresh_macro))
+        if settings.fred_api_key.strip():
+            steps.append(("refresh_release_calendar", refresh_release_calendar))
+
+    if settings.sec_user_agent.strip():
+        steps.append(("refresh_capex", refresh_capex))
 
     if include_fundamentals:
         steps.append(("refresh_fundamentals", refresh_fundamentals))

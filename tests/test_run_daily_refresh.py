@@ -116,7 +116,11 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
     ]
 
 
-def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
+def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
+    from argus.pipelines import run_daily_refresh as module
+    monkeypatch.setattr(module.settings, "sec_user_agent", "")
+    monkeypatch.setattr(module.settings, "fred_api_key", "")
+
     step_names = [
         name
         for name, _ in build_daily_refresh_steps(
@@ -131,6 +135,37 @@ def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
     assert step_names == [
         "refresh_prices",
         "refresh_macro",
+        "refresh_fundamentals",
+        "refresh_earnings",
+        "compute_daily_metrics",
+        "compute_opportunity_scores",
+        "refresh_index",
+        "compute_signals",
+    ]
+
+
+def test_build_daily_refresh_steps_with_all_enabled(monkeypatch) -> None:
+    from argus.pipelines import run_daily_refresh as module
+    monkeypatch.setattr(module.settings, "sec_user_agent", "Argus/1.0 (test@example.com)")
+    monkeypatch.setattr(module.settings, "fred_api_key", "test-key")
+
+    step_names = [
+        name
+        for name, _ in build_daily_refresh_steps(
+            include_news=False,
+            include_filings=False,
+            include_alerts=False,
+            include_fundamentals=True,
+            include_earnings=True,
+            include_macro=True,
+        )
+    ]
+
+    assert step_names == [
+        "refresh_prices",
+        "refresh_macro",
+        "refresh_release_calendar",
+        "refresh_capex",
         "refresh_fundamentals",
         "refresh_earnings",
         "compute_daily_metrics",

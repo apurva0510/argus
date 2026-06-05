@@ -37,6 +37,7 @@ def upsert_capex_observation(
                 "source_label": source_label,
                 "source_url": source_url,
                 "notes": notes,
+                "source": "manual",
             }
         )
         statement = statement.on_conflict_do_update(
@@ -47,6 +48,7 @@ def upsert_capex_observation(
                 "source_label": statement.excluded.source_label,
                 "source_url": statement.excluded.source_url,
                 "notes": statement.excluded.notes,
+                "source": statement.excluded.source,
             },
         )
         session.execute(statement)

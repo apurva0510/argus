@@ -295,6 +295,7 @@ class CapexObservation(Base):
     source_label: Mapped[str | None] = mapped_column(String(128))
     source_url: Mapped[str | None] = mapped_column(String(1024))
     notes: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(64), default="manual", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

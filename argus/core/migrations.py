@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting
 
 
-CURRENT_SCHEMA_VERSION = "6"
+CURRENT_SCHEMA_VERSION = "7"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -21,6 +21,7 @@ def run_migrations(database_engine: Engine) -> None:
     safe upgrade path instead of relying on create_all alone.
     """
     _migrate_macro_tables_for_foreign_key(database_engine)
+    _migrate_capex_observations_source_column(database_engine)
     Base.metadata.create_all(bind=database_engine)
     _migrate_price_bars_bar_time(database_engine)
     _migrate_index_values_for_definitions(database_engine)
@@ -186,4 +187,20 @@ def _migrate_postgres_index_values(database_engine: Engine) -> None:
                 ON index_values (index_definition_id, date)
                 """
             )
+        )
+
+
+def _migrate_capex_observations_source_column(database_engine: Engine) -> None:
+    """Add source column to capex_observations for schema version 7."""
+    inspector = inspect(database_engine)
+    if "capex_observations" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("capex_observations")}
+    if "source" in columns:
+        return
+
+    with database_engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE capex_observations ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'manual'")
         )
