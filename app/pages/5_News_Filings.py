@@ -81,6 +81,20 @@ def _ticker_badges(tickers_str: str | None) -> str:
     return "".join(badges)
 
 
+def _to_et(val) -> datetime | None:
+    if val is None or pd.isna(val):
+        return None
+    try:
+        dt = pd.to_datetime(val)
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        else:
+            dt = dt.tz_convert("UTC")
+        return dt.tz_convert("America/New_York")
+    except Exception:
+        return None
+
+
 def render_page() -> None:
     render_sidebar_navigation()
     st.title("📰 News & SEC Filings")
@@ -167,7 +181,7 @@ def render_page() -> None:
             default_end = datetime.now(UTC).date()
             selected_start = st.date_input("Start Date", value=default_start)
             selected_end = st.date_input("End Date", value=default_end)
-
+ 
         with col3:
             if item_type == "News Only":
                 forms = ["All"]
@@ -226,7 +240,7 @@ def render_page() -> None:
         for _, row in news_df.iterrows():
             combined_items.append({
                 "type": "news",
-                "timestamp": pd.to_datetime(row["published_at"]),
+                "timestamp": _to_et(row["published_at"]),
                 "title": row["title"],
                 "summary": row["summary"],
                 "url": row["url"],
@@ -249,7 +263,16 @@ def render_page() -> None:
                 if not (symbol_match or company_match or form_match):
                     continue
 
-            ts = pd.to_datetime(row["acceptance_datetime"]) if pd.notna(row["acceptance_datetime"]) else pd.to_datetime(row["filing_date"])
+            if pd.notna(row["acceptance_datetime"]):
+                ts = _to_et(row["acceptance_datetime"])
+            else:
+                dt = pd.to_datetime(row["filing_date"])
+                ts = dt.tz_localize("America/New_York")
+
+            from zoneinfo import ZoneInfo
+            now_ny = datetime.now(ZoneInfo("America/New_York"))
+            is_new = (now_ny - ts) <= timedelta(hours=24) if ts is not None else False
+
             combined_items.append({
                 "type": "filing",
                 "timestamp": ts,
@@ -258,7 +281,7 @@ def render_page() -> None:
                 "form": row["form"],
                 "filing_detail_url": row["filing_detail_url"],
                 "primary_doc_url": row["primary_doc_url"],
-                "is_new": bool(row["is_new"]),
+                "is_new": is_new,
             })
 
     # Sort descending

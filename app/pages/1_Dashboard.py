@@ -133,13 +133,8 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
     if df.empty:
         return
 
-    # Standardize to US Eastern Time (New York) for market hour tick alignment
-    dates = pd.to_datetime(df["date"])
-    if dates.dt.tz is None:
-        dates = dates.dt.tz_localize("UTC")
-    else:
-        dates = dates.dt.tz_convert("UTC")
-    dates_ny = dates.dt.tz_convert("America/New_York")
+    # dates are already in US Eastern Time (New York) naive format
+    dates_ny = pd.to_datetime(df["date"])
 
     tickvals = []
     ticktext = []
@@ -168,6 +163,20 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
             ticktext=ticktext,
             tickangle=0,
         )
+
+
+def _format_dt_et(val) -> str:
+    if val is None or pd.isna(val):
+        return "Never"
+    try:
+        dt = pd.to_datetime(val)
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        else:
+            dt = dt.tz_convert("UTC")
+        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
+    except Exception:
+        return str(val)
 
 
 def _fmt_pct(value: float | None, digits: int = 2) -> str:
@@ -266,7 +275,10 @@ def _render_recent_news(news_df: pd.DataFrame) -> None:
             "url": "Link",
         }
     ).copy()
-    view["Published"] = pd.to_datetime(view["Published"]).dt.strftime("%Y-%m-%d %H:%M")
+    pub_dt = pd.to_datetime(view["Published"])
+    if pub_dt.dt.tz is None:
+        pub_dt = pub_dt.dt.tz_localize("UTC")
+    view["Published"] = pub_dt.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %I:%M %p")
     view["Ticker"] = view["Tickers"].apply(_split_tickers)
     view = view.explode("Ticker")
     view["Ticker"] = _link_ticker_series(view["Ticker"])
@@ -519,41 +531,41 @@ def render_dashboard() -> None:
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown(
-                f"**Last Successful Price Refresh**: `{last_price_refresh.isoformat() if last_price_refresh else 'Never'}`"
+                f"**Last Successful Price Refresh**: `{_format_dt_et(last_price_refresh)}`"
             )
             st.markdown(
-                f"**Last Successful Metrics Computation**: `{last_metrics_refresh.isoformat() if last_metrics_refresh else 'Never'}`"
+                f"**Last Successful Metrics Computation**: `{_format_dt_et(last_metrics_refresh)}`"
             )
             st.markdown(
-                f"**Last Successful News Refresh**: `{last_news_refresh.isoformat() if last_news_refresh else 'Never'}`"
+                f"**Last Successful News Refresh**: `{_format_dt_et(last_news_refresh)}`"
             )
             st.markdown(
-                f"**Last Successful Filings Refresh**: `{last_filings_refresh.isoformat() if last_filings_refresh else 'Never'}`"
+                f"**Last Successful Filings Refresh**: `{_format_dt_et(last_filings_refresh)}`"
             )
             st.markdown(
-                f"**Last Successful Macro Refresh**: `{last_macro_refresh.isoformat() if last_macro_refresh else 'Never'}`"
+                f"**Last Successful Macro Refresh**: `{_format_dt_et(last_macro_refresh)}`"
             )
         with col_t2:
             st.markdown(
-                f"**Last Price Attempt**: `{last_price_attempt.isoformat() if last_price_attempt else 'Never'}`"
+                f"**Last Price Attempt**: `{_format_dt_et(last_price_attempt)}`"
             )
             st.markdown(
-                f"**Last Metrics Attempt**: `{last_metrics_attempt.isoformat() if last_metrics_attempt else 'Never'}`"
+                f"**Last Metrics Attempt**: `{_format_dt_et(last_metrics_attempt)}`"
             )
             st.markdown(
-                f"**Last News Attempt**: `{last_news_attempt.isoformat() if last_news_attempt else 'Never'}`"
+                f"**Last News Attempt**: `{_format_dt_et(last_news_attempt)}`"
             )
             st.markdown(
-                f"**Last Filings Attempt**: `{last_filings_attempt.isoformat() if last_filings_attempt else 'Never'}`"
+                f"**Last Filings Attempt**: `{_format_dt_et(last_filings_attempt)}`"
             )
             st.markdown(
-                f"**Last Macro Attempt**: `{last_macro_attempt.isoformat() if last_macro_attempt else 'Never'}`"
+                f"**Last Macro Attempt**: `{_format_dt_et(last_macro_attempt)}`"
             )
             st.markdown(f"**Active Companies**: `{data['active_company_count']}`")
             st.markdown(f"**Stale Tickers (No recent prices)**: `{data['stale_tickers_count']}`")
             st.markdown(
                 "**Latest 15m Price Bar**: "
-                f"`{latest_intraday_price_time.isoformat() if latest_intraday_price_time else 'Never'}`"
+                f"`{_format_dt_et(latest_intraday_price_time)}`"
             )
             st.markdown(f"**Missing/Stale 30m Tickers**: `{data['intraday_stale_tickers_count']}`")
 
@@ -563,7 +575,7 @@ def render_dashboard() -> None:
         if failed_job:
             st.error(
                 f"**Latest Failed Job**: `{failed_job['job_name']}`\n\n"
-                f"**Finished At**: `{failed_job['finished_at']}`\n\n"
+                f"**Finished At**: `{_format_dt_et(failed_job['finished_at'])}`\n\n"
                 f"**Error**: `{failed_job['error_text']}`"
             )
         else:
@@ -630,7 +642,14 @@ def render_dashboard() -> None:
     if not index_data or index_data.get("rel_df") is None or index_data["rel_df"].empty:
         st.info("No index price history available yet.")
     else:
-        rel_df = index_data["rel_df"]
+        rel_df = index_data["rel_df"].copy()
+        if index_data.get("interval") == "15m":
+            dates = pd.to_datetime(rel_df["date"])
+            if dates.dt.tz is None:
+                dates = dates.dt.tz_localize("UTC")
+            else:
+                dates = dates.dt.tz_convert("UTC")
+            rel_df["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
         import plotly.graph_objects as go
 
         fig = go.Figure()

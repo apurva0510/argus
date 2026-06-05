@@ -110,7 +110,15 @@ def _parse_date(val) -> date | None:
 def _format_dt(val) -> str:
     if val is None or pd.isna(val):
         return "N/A"
-    return pd.to_datetime(val).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        dt = pd.to_datetime(val)
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        else:
+            dt = dt.tz_convert("UTC")
+        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
+    except Exception:
+        return str(val)
 
 
 def render_page() -> None:

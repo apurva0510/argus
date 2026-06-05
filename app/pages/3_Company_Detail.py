@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
@@ -26,6 +27,20 @@ from argus.services.company_service import (
 from app.components.metrics import render_metric_card, render_plain_metric_card
 
 get_relative_perf_df = build_relative_performance_frame
+
+
+def _to_et(val) -> datetime | None:
+    if val is None or pd.isna(val):
+        return None
+    try:
+        dt = pd.to_datetime(val)
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        else:
+            dt = dt.tz_convert("UTC")
+        return dt.tz_convert("America/New_York")
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=300)
@@ -157,13 +172,8 @@ def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) 
     if df.empty:
         return
 
-    # Standardize to US Eastern Time (New York) for market hour tick alignment
-    dates = pd.to_datetime(df["date"])
-    if dates.dt.tz is None:
-        dates = dates.dt.tz_localize("UTC")
-    else:
-        dates = dates.dt.tz_convert("UTC")
-    dates_ny = dates.dt.tz_convert("America/New_York")
+    # dates are already in US Eastern Time (New York) naive format
+    dates_ny = pd.to_datetime(df["date"])
 
     tickvals = []
     ticktext = []
@@ -288,6 +298,13 @@ def render_company_detail() -> None:
     # Latest price from price history or metrics
     df_daily_price = load_price_history(company["id"], "1d").copy()
     df_intraday_price = load_price_history(company["id"], "15m").copy()
+    if not df_intraday_price.empty:
+        dates = pd.to_datetime(df_intraday_price["date"])
+        if dates.dt.tz is None:
+            dates = dates.dt.tz_localize("UTC")
+        else:
+            dates = dates.dt.tz_convert("UTC")
+        df_intraday_price["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
     latest_price = _latest_price_from_history(df_daily_price, df_intraday_price)
     if not df_intraday_price.empty:
         df_intraday_price["date"] = pd.to_datetime(df_intraday_price["date"])
@@ -424,11 +441,25 @@ def render_company_detail() -> None:
 
                     if not df_qqq.empty:
                         df_qqq["date"] = pd.to_datetime(df_qqq["date"])
-                        if interval == "1d":
+                        if interval == "15m":
+                            dates = pd.to_datetime(df_qqq["date"])
+                            if dates.dt.tz is None:
+                                dates = dates.dt.tz_localize("UTC")
+                            else:
+                                dates = dates.dt.tz_convert("UTC")
+                            df_qqq["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                        elif interval == "1d":
                             df_qqq["date"] = df_qqq["date"].dt.date
                     if not df_nvda.empty:
                         df_nvda["date"] = pd.to_datetime(df_nvda["date"])
-                        if interval == "1d":
+                        if interval == "15m":
+                            dates = pd.to_datetime(df_nvda["date"])
+                            if dates.dt.tz is None:
+                                dates = dates.dt.tz_localize("UTC")
+                            else:
+                                dates = dates.dt.tz_convert("UTC")
+                            df_nvda["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                        elif interval == "1d":
                             df_nvda["date"] = df_nvda["date"].dt.date
 
                     rel_df = get_relative_perf_df(df_price, df_qqq, df_nvda, start_date)
@@ -465,8 +496,15 @@ def render_company_detail() -> None:
                         )
 
                     # Real AI Infra Core Index
-                    idx_rel = load_index_relative_returns(start_date, interval)
+                    idx_rel = load_index_relative_returns(start_date, interval).copy()
                     if not idx_rel.empty and "index_ret" in idx_rel:
+                        if interval == "15m":
+                            dates = pd.to_datetime(idx_rel["date"])
+                            if dates.dt.tz is None:
+                                dates = dates.dt.tz_localize("UTC")
+                            else:
+                                dates = dates.dt.tz_convert("UTC")
+                            idx_rel["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
                         fig_rel.add_trace(
                             go.Scatter(
                                 x=idx_rel["date"],
@@ -550,8 +588,9 @@ def render_company_detail() -> None:
             st.info("No research notes for this ticker yet.")
         else:
             for note in existing_notes:
+                created_at_et = _to_et(note["created_at"])
                 dt_str = (
-                    note["created_at"].strftime("%Y-%m-%d %H:%M") if note["created_at"] else "n/a"
+                    created_at_et.strftime("%Y-%m-%d %I:%M %p") if created_at_et else "n/a"
                 )
                 st.markdown(f"**{note['created_by'] or 'User'}** ({dt_str}):")
                 st.info(note["note_text"])
@@ -631,9 +670,10 @@ def render_company_detail() -> None:
             st.info("No recent news articles found in database.")
         else:
             for item in news_items:
+                published_at_et = _to_et(item["published_at"])
                 dt_str = (
-                    item["published_at"].strftime("%Y-%m-%d %H:%M")
-                    if item["published_at"]
+                    published_at_et.strftime("%Y-%m-%d %I:%M %p")
+                    if published_at_et
                     else "n/a"
                 )
                 st.markdown(f"##### [{item['title']}]({item['url']})")
