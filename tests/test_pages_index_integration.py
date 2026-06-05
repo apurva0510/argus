@@ -133,6 +133,51 @@ def test_dashboard_short_index_ranges_use_intraday_data(
     assert res["rel_df"].iloc[-1]["index_level"] == pytest.approx(105.0)
 
 
+def test_dashboard_short_index_ranges_exclude_non_market_intraday_bars(
+    sqlite_engine,
+    monkeypatch,
+    db_session: Session,
+) -> None:
+    c1 = Company(symbol="A", name="A", is_active=True, is_benchmark=False)
+    c2 = Company(symbol="B", name="B", is_active=True, is_benchmark=False)
+    db_session.add_all([c1, c2])
+    db_session.flush()
+    points = [
+        (datetime(2026, 6, 4, 12, 0), 10.0, 20.0),  # premarket
+        (datetime(2026, 6, 4, 14, 0), 10.0, 20.0),
+        (datetime(2026, 6, 4, 14, 15), 10.5, 21.0),
+        (datetime(2026, 6, 4, 20, 15), 15.0, 30.0),  # after-hours
+    ]
+    for bar_time, c1_price, c2_price in points:
+        for company_id, price in ((c1.id, c1_price), (c2.id, c2_price)):
+            db_session.add(
+                PriceBar(
+                    company_id=company_id,
+                    date=bar_time.date(),
+                    bar_time=bar_time,
+                    close=price,
+                    adj_close=price,
+                    volume=1000,
+                    provider="yfinance",
+                    interval="15m",
+                )
+            )
+    db_session.commit()
+
+    monkeypatch.setattr("argus.core.settings.settings.database_url", str(sqlite_engine.url))
+    monkeypatch.setattr("app.pages.1_Dashboard.get_dashboard_engine", lambda: sqlite_engine)
+    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
+    dashboard_module.load_index_data.clear()
+
+    res = dashboard_module.load_index_data("5D")
+
+    assert pd.to_datetime(res["rel_df"]["date"]).tolist() == [
+        pd.Timestamp(datetime(2026, 6, 4, 14, 0)),
+        pd.Timestamp(datetime(2026, 6, 4, 14, 15)),
+    ]
+    assert res["rel_df"].iloc[-1]["index_level"] == pytest.approx(105.0)
+
+
 def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_label() -> None:
     dashboard_source = (
         Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"

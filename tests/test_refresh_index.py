@@ -194,6 +194,51 @@ def test_calculate_equal_weight_index_uses_intraday_bars(sqlite_engine, monkeypa
     assert df["index_value"].tolist() == pytest.approx([100.0, 101.0, 103.02])
 
 
+def test_calculate_intraday_index_filters_to_market_hours(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    market_time = datetime(2026, 6, 4, 14, 0)  # 10:00 ET during EDT
+    points = [
+        (datetime(2026, 6, 4, 12, 0), 90.0, 180.0),  # premarket
+        (market_time, 100.0, 200.0),
+        (market_time + timedelta(minutes=15), 101.0, 202.0),
+        (datetime(2026, 6, 4, 20, 15), 150.0, 300.0),  # after-hours
+    ]
+    with db_module.session_scope() as session:
+        c1 = Company(symbol="AAA", name="AAA", is_active=True)
+        c2 = Company(symbol="BBB", name="BBB", is_active=True)
+        session.add_all([c1, c2])
+        session.flush()
+        for bar_time, c1_price, c2_price in points:
+            for company_id, price in ((c1.id, c1_price), (c2.id, c2_price)):
+                session.add(
+                    PriceBar(
+                        company_id=company_id,
+                        date=bar_time.date(),
+                        bar_time=bar_time,
+                        close=price,
+                        adj_close=price,
+                        provider="yfinance",
+                        interval="15m",
+                    )
+                )
+
+    with db_module.session_scope() as session:
+        df = calculate_equal_weight_index(
+            session,
+            symbols=["AAA", "BBB"],
+            interval="15m",
+        )
+
+    assert df["date"].tolist() == [market_time, market_time + timedelta(minutes=15)]
+    assert df["index_value"].tolist() == pytest.approx([100.0, 101.0])
+
+
 def test_calculate_intraday_index_forward_fills_sparse_recent_bars(
     sqlite_engine,
     monkeypatch,

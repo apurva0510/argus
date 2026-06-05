@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import pandas as pd
 from sqlalchemy.orm import Session
+from argus.analytics.market_hours import filter_regular_market_hours
 from argus.core.models import Company, PriceBar, IndexValue
 from argus.core.settings import settings
 
@@ -78,6 +79,10 @@ def calculate_equal_weight_index(
         return pd.DataFrame(columns=["date", "index_value"])
 
     df["date"] = pd.to_datetime(df["date"])
+    if interval == "15m":
+        df = filter_regular_market_hours(df)
+        if df.empty:
+            return pd.DataFrame(columns=["date", "index_value"])
 
     # Pivot so each column represents a ticker, and the index represents dates
     pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
@@ -153,6 +158,9 @@ def calculate_relative_performance(
         .order_by(point_column.asc())
     )
     bench_df = pd.read_sql_query(query.statement, session.connection())
+    if interval == "15m" and not bench_df.empty:
+        bench_df["date"] = pd.to_datetime(bench_df["date"])
+        bench_df = filter_regular_market_hours(bench_df)
 
     merged = idx_filtered[["date", "index_ret"]].copy()
 

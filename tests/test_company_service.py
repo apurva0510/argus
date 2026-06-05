@@ -142,6 +142,44 @@ def test_get_company_price_history_supports_intraday_interval(sqlite_engine, db_
     assert df.iloc[0]["adj_close"] == 153.0
 
 
+def test_get_company_price_history_filters_intraday_to_market_hours(
+    sqlite_engine,
+    db_session,
+    monkeypatch,
+) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    c = Company(symbol="AAPL", name="Apple", is_active=True)
+    db_session.add(c)
+    db_session.flush()
+
+    rows = [
+        (datetime(2026, 1, 2, 14, 15), 149.0),  # 9:15 ET, premarket
+        (datetime(2026, 1, 2, 14, 30), 150.0),  # 9:30 ET, open
+        (datetime(2026, 1, 2, 21, 0), 151.0),  # 16:00 ET, close
+        (datetime(2026, 1, 2, 21, 15), 152.0),  # 16:15 ET, after-hours
+    ]
+    for bar_time, price in rows:
+        db_session.add(
+            PriceBar(
+                company_id=c.id,
+                date=bar_time.date(),
+                bar_time=bar_time,
+                adj_close=price,
+                provider="yfinance",
+                interval="15m",
+            )
+        )
+    db_session.commit()
+
+    df = get_company_price_history(c.id, interval="15m")
+
+    assert pd.to_datetime(df["date"]).dt.time.tolist() == [
+        datetime(2026, 1, 2, 14, 30).time(),
+        datetime(2026, 1, 2, 21, 0).time(),
+    ]
+    assert df["adj_close"].tolist() == [150.0, 151.0]
+
+
 def test_get_company_fundamentals(sqlite_engine, db_session, monkeypatch) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     c = Company(symbol="AAPL", name="Apple", is_active=True)

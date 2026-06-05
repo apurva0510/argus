@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from argus.analytics.market_hours import filter_regular_market_hours
 from argus.core.db import session_scope
 from argus.core.settings import settings
 from argus.core.models import (
@@ -158,6 +159,9 @@ def get_company_price_history(company_id: int, interval: str = "1d") -> pd.DataF
             .order_by(point_column.asc())
         )
         df = pd.read_sql_query(query.statement, session.bind)
+        if interval == "15m":
+            df["date"] = pd.to_datetime(df["date"])
+            df = filter_regular_market_hours(df)
         return df
 
 
