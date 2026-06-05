@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from sqlalchemy.orm import Session, sessionmaker
-import pytest
 
 from argus.core.models import Company, NewsItem, NewsMention, JobRun, ProviderHealth
 from argus.services.news_filings_service import get_filtered_news

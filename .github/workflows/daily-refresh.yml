@@ -35,6 +35,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
       APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
+      APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
       EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
@@ -43,6 +44,7 @@ jobs:
       EMAIL_TO: ${{ secrets.EMAIL_TO }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
