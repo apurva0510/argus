@@ -45,6 +45,7 @@ def load_index_data(tf: str) -> dict:
         calculate_top_contributors,
         get_default_index_symbols,
     )
+    from argus.analytics.market_hours import filter_latest_market_sessions
 
     engine = get_dashboard_engine()
     SessionLocal = sessionmaker(bind=engine)
@@ -59,11 +60,16 @@ def load_index_data(tf: str) -> dict:
         if index_df.empty:
             return {}
 
+        if short_range:
+            index_df = filter_latest_market_sessions(index_df, 1 if tf == "1D" else 5)
+            if index_df.empty:
+                return {}
+
         latest_point = pd.to_datetime(index_df["date"]).max()
         if tf == "1D":
-            start_date = latest_point - pd.Timedelta(days=1)
+            start_date = pd.to_datetime(index_df["date"]).min()
         elif tf == "5D":
-            start_date = latest_point - pd.Timedelta(days=5)
+            start_date = pd.to_datetime(index_df["date"]).min()
         elif tf == "1M":
             start_date = latest_point - pd.Timedelta(days=30)
         elif tf == "3M":
@@ -110,6 +116,11 @@ def load_index_data(tf: str) -> dict:
             "constituent_count": len(symbols),
             "interval": interval,
         }
+
+
+def apply_intraday_xaxis(fig, interval: str) -> None:
+    if interval == "15m":
+        fig.update_xaxes(type="category")
 
 
 def _fmt_pct(value: float | None, digits: int = 2) -> str:
@@ -608,13 +619,15 @@ def render_dashboard() -> None:
 
         fig.update_layout(
             title=f"AI Infra Core Index vs Benchmarks (Rebased to 100 on {rel_df['date'].min()})",
-            xaxis_title="Date",
+            xaxis_title="Market Time" if index_data.get("interval") == "15m" else "Date",
             yaxis_title="Normalized Level",
             template="plotly_white",
             margin=dict(l=40, r=40, t=40, b=40),
             height=400,
             hovermode="x unified",
         )
+        if index_data.get("interval") == "15m":
+            apply_intraday_xaxis(fig, index_data["interval"])
         st.plotly_chart(fig, width="stretch")
 
         with st.expander("Methodology & Info"):

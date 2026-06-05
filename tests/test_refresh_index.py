@@ -63,7 +63,7 @@ def test_refresh_index_success_and_speedup(sqlite_engine, monkeypatch) -> None:
     with db_module.session_scope() as session:
         # Seed constituents
         c1 = Company(symbol="AAPL", name="Apple Inc", is_active=True, is_benchmark=False)
-        c2 = Company(symbol="MSFT", name="Microsoft Corp", is_active=True, is_benchmark=False)
+        c2 = Company(symbol="ETN", name="Eaton Corp", is_active=True, is_benchmark=False)
         session.add_all([c1, c2])
         session.flush()
 
@@ -74,6 +74,7 @@ def test_refresh_index_success_and_speedup(sqlite_engine, monkeypatch) -> None:
     # Run the index refresh pipeline
     result = refresh_index()
     assert result["status"] == "success"
+    assert result["rows_read"] == 6
     assert result["rows_written"] == 3
 
     # Check database persistence
@@ -88,11 +89,13 @@ def test_refresh_index_success_and_speedup(sqlite_engine, monkeypatch) -> None:
         # Verify JobRun entry
         job = session.query(JobRun).filter(JobRun.job_name == "refresh_index").one()
         assert job.status == "success"
+        assert job.rows_read == 6
         assert job.rows_written == 3
 
     # Test Idempotency (running refresh_index again should replace values cleanly)
     result_second = refresh_index()
     assert result_second["status"] == "success"
+    assert result_second["rows_read"] == 6
     assert result_second["rows_written"] == 3
 
     with db_module.session_scope() as session:
@@ -147,6 +150,7 @@ def test_refresh_index_recomputes_when_precalculated_values_are_stale(
     result = refresh_index()
 
     assert result["status"] == "success"
+    assert result["rows_read"] == 3
     assert result["rows_written"] == 3
 
     with db_module.session_scope() as session:
@@ -160,6 +164,34 @@ def test_refresh_index_recomputes_when_precalculated_values_are_stale(
         date(2026, 6, 3),
     ]
     assert latest_index_value == pytest.approx(102.01)
+
+
+def test_refresh_index_rows_read_excludes_non_index_constituents(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        constituent = Company(symbol="ETN", name="Eaton", is_active=True, is_benchmark=False)
+        excluded = Company(symbol="QQQ", name="Invesco QQQ", is_active=True, is_benchmark=True)
+        session.add_all([constituent, excluded])
+        session.flush()
+        start_date = date(2026, 6, 1)
+        _seed_prices(session, constituent.id, start_date, [100.0, 101.0])
+        _seed_prices(session, excluded.id, start_date, [500.0, 505.0])
+
+    result = refresh_index()
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 2
+    assert result["rows_written"] == 2
 
 
 def test_calculate_equal_weight_index_uses_intraday_bars(sqlite_engine, monkeypatch) -> None:

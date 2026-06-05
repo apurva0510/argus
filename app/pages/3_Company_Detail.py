@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 
 from app.components.sidebar import render_sidebar_navigation
 
+from argus.analytics.market_hours import filter_latest_market_sessions
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
     build_relative_performance_frame,
@@ -123,6 +124,27 @@ def _start_for_timeframe(latest_point, earliest_point, tf: str):
     if tf == "1Y":
         return (latest_ts - pd.Timedelta(days=365)).date()
     return earliest_point
+
+
+def _filter_price_timeframe(df: pd.DataFrame, tf: str, interval: str) -> tuple[pd.DataFrame, object]:
+    if df.empty:
+        return df, None
+
+    df_sorted = df.sort_values("date").copy()
+    if interval == "15m" and tf in {"1D", "5D"}:
+        filtered = filter_latest_market_sessions(df_sorted, 1 if tf == "1D" else 5)
+        if filtered.empty:
+            return filtered, None
+        return filtered, filtered["date"].min()
+
+    latest_date = df_sorted["date"].max()
+    start_date = _start_for_timeframe(latest_date, df_sorted["date"].min(), tf)
+    return df_sorted[df_sorted["date"] >= start_date], start_date
+
+
+def apply_intraday_xaxis(fig: go.Figure, interval: str) -> None:
+    if interval == "15m":
+        fig.update_xaxes(type="category")
 
 
 def _latest_price_from_history(daily_prices: pd.DataFrame, intraday_prices: pd.DataFrame):
@@ -282,52 +304,53 @@ def render_company_detail() -> None:
                     df_chart["50DMA"] = df_chart["adj_close"].rolling(50).mean()
                     df_chart["200DMA"] = df_chart["adj_close"].rolling(200).mean()
 
-                latest_date = df_chart["date"].max()
-                start_date = _start_for_timeframe(latest_date, df_chart["date"].min(), tf)
+                df_filtered, _start_date = _filter_price_timeframe(df_chart, tf, interval)
 
-                df_filtered = df_chart[df_chart["date"] >= start_date]
-
-                # Plotly Chart
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter(
-                        x=df_filtered["date"],
-                        y=df_filtered["adj_close"],
-                        name="Adj Close",
-                        line=dict(color="#1f77b4", width=2.5),
-                    )
-                )
-
-                # Overlay moving averages for daily ranges only.
-                if interval == "1d" and not df_filtered["50DMA"].isna().all():
+                if df_filtered.empty:
+                    st.info("No regular-market price history available for this timeframe.")
+                else:
+                    # Plotly Chart
+                    fig = go.Figure()
                     fig.add_trace(
                         go.Scatter(
                             x=df_filtered["date"],
-                            y=df_filtered["50DMA"],
-                            name="50 DMA",
-                            line=dict(color="#ff7f0e", width=1.5, dash="dash"),
-                        )
-                    )
-                if interval == "1d" and not df_filtered["200DMA"].isna().all():
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df_filtered["date"],
-                            y=df_filtered["200DMA"],
-                            name="200 DMA",
-                            line=dict(color="#d62728", width=1.5, dash="dash"),
+                            y=df_filtered["adj_close"],
+                            name="Adj Close",
+                            line=dict(color="#1f77b4", width=2.5),
                         )
                     )
 
-                fig.update_layout(
-                    title=f"{company['symbol']} {'Intraday' if interval == '15m' else 'Historical'} Price",
-                    xaxis_title="Date",
-                    yaxis_title="Price ($)",
-                    template="plotly_white",
-                    margin=dict(l=40, r=40, t=40, b=40),
-                    height=450,
-                    hovermode="x unified",
-                )
-                st.plotly_chart(fig, width="stretch")
+                    # Overlay moving averages for daily ranges only.
+                    if interval == "1d" and not df_filtered["50DMA"].isna().all():
+                        fig.add_trace(
+                            go.Scatter(
+                                x=df_filtered["date"],
+                                y=df_filtered["50DMA"],
+                                name="50 DMA",
+                                line=dict(color="#ff7f0e", width=1.5, dash="dash"),
+                            )
+                        )
+                    if interval == "1d" and not df_filtered["200DMA"].isna().all():
+                        fig.add_trace(
+                            go.Scatter(
+                                x=df_filtered["date"],
+                                y=df_filtered["200DMA"],
+                                name="200 DMA",
+                                line=dict(color="#d62728", width=1.5, dash="dash"),
+                            )
+                        )
+
+                    fig.update_layout(
+                        title=f"{company['symbol']} {'Intraday' if interval == '15m' else 'Historical'} Price",
+                        xaxis_title="Market Time" if interval == "15m" else "Date",
+                        yaxis_title="Price ($)",
+                        template="plotly_white",
+                        margin=dict(l=40, r=40, t=40, b=40),
+                        height=450,
+                        hovermode="x unified",
+                    )
+                    apply_intraday_xaxis(fig, interval)
+                    st.plotly_chart(fig, width="stretch")
 
         with chart_tabs[1]:
             st.write("### Relative Return Comparison")
@@ -336,30 +359,31 @@ def render_company_detail() -> None:
             if df_price.empty:
                 st.info("No price history available to calculate relative performance.")
             else:
-                # Get start date for relative calculation
-                latest_date = df_price["date"].max()
-                start_date = _start_for_timeframe(latest_date, df_price["date"].min(), tf)
+                df_price, start_date = _filter_price_timeframe(df_price, tf, interval)
+                if df_price.empty or start_date is None:
+                    st.info("No price history available to calculate relative performance.")
+                    rel_df = pd.DataFrame()
+                else:
+                    # Fetch QQQ and NVDAclose
+                    qqq_comp = get_company_by_symbol("QQQ")
+                    nvda_comp = get_company_by_symbol("NVDA")
+                    df_qqq = (
+                        load_price_history(qqq_comp["id"], interval).copy() if qqq_comp else pd.DataFrame()
+                    )
+                    df_nvda = (
+                        load_price_history(nvda_comp["id"], interval).copy() if nvda_comp else pd.DataFrame()
+                    )
 
-                # Fetch QQQ and NVDAclose
-                qqq_comp = get_company_by_symbol("QQQ")
-                nvda_comp = get_company_by_symbol("NVDA")
-                df_qqq = (
-                    load_price_history(qqq_comp["id"], interval).copy() if qqq_comp else pd.DataFrame()
-                )
-                df_nvda = (
-                    load_price_history(nvda_comp["id"], interval).copy() if nvda_comp else pd.DataFrame()
-                )
+                    if not df_qqq.empty:
+                        df_qqq["date"] = pd.to_datetime(df_qqq["date"])
+                        if interval == "1d":
+                            df_qqq["date"] = df_qqq["date"].dt.date
+                    if not df_nvda.empty:
+                        df_nvda["date"] = pd.to_datetime(df_nvda["date"])
+                        if interval == "1d":
+                            df_nvda["date"] = df_nvda["date"].dt.date
 
-                if not df_qqq.empty:
-                    df_qqq["date"] = pd.to_datetime(df_qqq["date"])
-                    if interval == "1d":
-                        df_qqq["date"] = df_qqq["date"].dt.date
-                if not df_nvda.empty:
-                    df_nvda["date"] = pd.to_datetime(df_nvda["date"])
-                    if interval == "1d":
-                        df_nvda["date"] = df_nvda["date"].dt.date
-
-                rel_df = get_relative_perf_df(df_price, df_qqq, df_nvda, start_date)
+                    rel_df = get_relative_perf_df(df_price, df_qqq, df_nvda, start_date)
 
                 if rel_df.empty:
                     st.info("No overlapping data found for this timeframe.")
@@ -406,13 +430,14 @@ def render_company_detail() -> None:
 
                     fig_rel.update_layout(
                         title=f"Relative Cumulative Return vs Benchmarks (Start Date: {start_date})",
-                        xaxis_title="Date",
+                        xaxis_title="Market Time" if interval == "15m" else "Date",
                         yaxis_title="Return (%)",
                         template="plotly_white",
                         margin=dict(l=40, r=40, t=40, b=40),
                         height=450,
                         hovermode="x unified",
                     )
+                    apply_intraday_xaxis(fig_rel, interval)
                     st.plotly_chart(fig_rel, width="stretch")
 
     with main_col2:

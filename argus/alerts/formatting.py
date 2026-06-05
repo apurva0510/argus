@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
+from urllib.parse import quote
+
 from argus.core.models import Alert, Company
+from argus.core.settings import settings
+
+
+def company_detail_url(symbol: str) -> str:
+    base_url = (settings.app_base_url or "https://argustracker.streamlit.app").rstrip("/")
+    ticker = quote(symbol.strip().upper())
+    return f"{base_url}/Company_Detail?ticker={ticker}"
 
 
 def format_alert_email(
@@ -124,7 +134,7 @@ def format_alert_email(
     local_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Detail URL link
-    detail_url = f"http://localhost:8501/Company_Detail?ticker={symbol}"
+    detail_url = company_detail_url(symbol)
 
     # Build plain text body
     plain_text_body = f"""Argus Alert Triggered

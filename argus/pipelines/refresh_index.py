@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from sqlalchemy import delete
 
 from argus.core.db import session_scope
-from argus.core.models import JobRun, IndexValue
-from argus.analytics.index_builder import calculate_equal_weight_index
+from argus.core.models import Company, JobRun, IndexValue, PriceBar
+from argus.core.settings import settings
+from argus.analytics.index_builder import calculate_equal_weight_index, get_default_index_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,22 @@ def refresh_index() -> dict[str, object]:
 
     try:
         with session_scope() as session:
-            # 1. Calculate equal-weight index using historical price bars
-            df = calculate_equal_weight_index(session, use_precomputed=False)
-            if not df.empty:
-                rows_read = len(df)
+            symbols = get_default_index_symbols(session)
+            if symbols:
+                rows_read = (
+                    session.query(PriceBar)
+                    .join(Company, Company.id == PriceBar.company_id)
+                    .filter(
+                        Company.symbol.in_(symbols),
+                        PriceBar.provider == settings.market_data_provider,
+                        PriceBar.interval == "1d",
+                    )
+                    .count()
+                )
 
+            # 1. Calculate equal-weight index using historical price bars
+            df = calculate_equal_weight_index(session, symbols=symbols, use_precomputed=False)
+            if not df.empty:
                 # 2. Clear existing pre-calculated index values to support historical updates/splits
                 session.execute(delete(IndexValue))
 

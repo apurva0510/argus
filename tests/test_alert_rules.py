@@ -36,7 +36,7 @@ from argus.alerts.rules import (
     evaluate_alert_for_company,
     RULE_CHECKERS,
 )
-from argus.alerts.formatting import format_alert_email
+from argus.alerts.formatting import company_detail_url, format_alert_email
 from argus.alerts.email_delivery import is_smtp_configured
 from argus.pipelines import run_alerts as run_alerts_module
 from argus.services import alert_service
@@ -907,6 +907,32 @@ class TestFormatting:
         assert "$82.00" in text
         assert "$90.00" in text
         assert "VRT" in html
+
+    def test_format_uses_hosted_company_detail_url(self, alert_session, sample_company, monkeypatch):
+        from argus.alerts import formatting
+
+        monkeypatch.setattr(
+            formatting.settings,
+            "app_base_url",
+            "https://argustracker.streamlit.app/",
+        )
+        alert = _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
+        payload = {"price": 82.0, "threshold": 90.0, "date": "2026-05-30"}
+
+        _subject, text, html = format_alert_email(alert, sample_company, payload)
+
+        expected_url = "https://argustracker.streamlit.app/Company_Detail?ticker=VRT"
+        assert expected_url in text
+        assert expected_url in html
+        assert "localhost" not in text
+        assert "localhost" not in html
+
+    def test_company_detail_url_uses_configured_base_url(self, monkeypatch):
+        from argus.alerts import formatting
+
+        monkeypatch.setattr(formatting.settings, "app_base_url", "https://example.test/argus/")
+
+        assert company_detail_url(" vrt ") == "https://example.test/argus/Company_Detail?ticker=VRT"
 
     def test_format_entered_pullback_zone(self, alert_session, sample_company):
         alert = _make_alert(alert_session, sample_company, "entered_pullback_zone", {})

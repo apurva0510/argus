@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     app_password: str = Field(default="", alias="APP_PASSWORD")
     app_auth_secret: str = Field(default="", alias="APP_AUTH_SECRET")
+    app_base_url: str = Field(default="https://argustracker.streamlit.app", alias="APP_BASE_URL")
     database_url: str = Field(default=f"sqlite:///{DATA_DIR / 'app.db'}", alias="DATABASE_URL")
     database_password: str = Field(default="", alias="DATABASE_PASSWORD")
     sec_user_agent: str = Field(default="", alias="SEC_USER_AGENT")
@@ -48,6 +49,7 @@ try:
         for secret_key, setting_name in (
             ("APP_PASSWORD", "app_password"),
             ("APP_AUTH_SECRET", "app_auth_secret"),
+            ("APP_BASE_URL", "app_base_url"),
             ("DATABASE_URL", "database_url"),
             ("DATABASE_PASSWORD", "database_password"),
             ("SEC_USER_AGENT", "sec_user_agent"),
