@@ -116,6 +116,32 @@ def test_get_company_price_history(sqlite_engine, db_session, monkeypatch) -> No
     assert list(df["adj_close"]) == [150.0, 152.0]
 
 
+def test_get_company_price_history_supports_intraday_interval(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    c = Company(symbol="AAPL", name="Apple", is_active=True)
+    db_session.add(c)
+    db_session.flush()
+
+    bar_time = datetime(2026, 1, 2, 14, 30)
+    db_session.add(
+        PriceBar(
+            company_id=c.id,
+            date=bar_time.date(),
+            bar_time=bar_time,
+            adj_close=153.0,
+            provider="yfinance",
+            interval="15m",
+        )
+    )
+    db_session.commit()
+
+    df = get_company_price_history(c.id, interval="15m")
+
+    assert len(df) == 1
+    assert pd.Timestamp(df.iloc[0]["date"]).to_pydatetime() == bar_time
+    assert df.iloc[0]["adj_close"] == 153.0
+
+
 def test_get_company_fundamentals(sqlite_engine, db_session, monkeypatch) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     c = Company(symbol="AAPL", name="Apple", is_active=True)

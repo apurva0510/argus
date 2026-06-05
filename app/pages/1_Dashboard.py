@@ -49,26 +49,42 @@ def load_index_data(tf: str) -> dict:
     engine = get_dashboard_engine()
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
-        index_df = calculate_equal_weight_index(session)
+        short_range = tf in {"1D", "5D"}
+        interval = "15m" if short_range else "1d"
+        index_df = calculate_equal_weight_index(
+            session,
+            interval=interval,
+            use_precomputed=not short_range,
+        )
         if index_df.empty:
             return {}
 
-        latest_date = index_df["date"].max()
-        if tf == "1M":
-            start_date = latest_date - pd.Timedelta(days=30)
+        latest_point = pd.to_datetime(index_df["date"]).max()
+        if tf == "1D":
+            start_date = latest_point - pd.Timedelta(days=1)
+        elif tf == "5D":
+            start_date = latest_point - pd.Timedelta(days=5)
+        elif tf == "1M":
+            start_date = latest_point - pd.Timedelta(days=30)
         elif tf == "3M":
-            start_date = latest_date - pd.Timedelta(days=90)
+            start_date = latest_point - pd.Timedelta(days=90)
         elif tf == "6M":
-            start_date = latest_date - pd.Timedelta(days=180)
+            start_date = latest_point - pd.Timedelta(days=180)
         elif tf == "1Y":
-            start_date = latest_date - pd.Timedelta(days=365)
+            start_date = latest_point - pd.Timedelta(days=365)
         else:
-            start_date = index_df["date"].min()
+            start_date = pd.to_datetime(index_df["date"]).min()
 
-        start_date = pd.to_datetime(start_date).date()
-        latest_date_date = pd.to_datetime(latest_date).date()
+        if not short_range:
+            start_date = pd.to_datetime(start_date).date()
+        latest_date_date = latest_point.date()
 
-        rel_df = calculate_relative_performance(session, index_df, start_date)
+        rel_df = calculate_relative_performance(
+            session,
+            index_df,
+            start_date,
+            interval=interval,
+        )
         if not rel_df.empty:
             rel_df["index_level"] = 100.0 + rel_df["index_ret"]
             if "qqq_ret" in rel_df and not rel_df["qqq_ret"].isna().all():
@@ -92,6 +108,7 @@ def load_index_data(tf: str) -> dict:
             "contrib_3m": contrib_3m,
             "contrib_ytd": contrib_ytd,
             "constituent_count": len(symbols),
+            "interval": interval,
         }
 
 
@@ -545,8 +562,8 @@ def render_dashboard() -> None:
 
     tf = st.radio(
         "Chart Timeframe",
-        ["1M", "3M", "6M", "1Y", "All"],
-        index=3,
+        ["1D", "5D", "1M", "3M", "6M", "1Y", "All"],
+        index=5,
         horizontal=True,
         key="index_tf_radio",
     )

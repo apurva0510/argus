@@ -28,12 +28,12 @@ get_relative_perf_df = build_relative_performance_frame
 
 
 @st.cache_data(ttl=300)
-def load_price_history(company_id: int) -> pd.DataFrame:
-    return get_company_price_history(company_id)
+def load_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
+    return get_company_price_history(company_id, interval=interval)
 
 
 @st.cache_data(ttl=300)
-def load_index_relative_returns(start_date) -> pd.DataFrame:
+def load_index_relative_returns(start_date, interval: str = "1d") -> pd.DataFrame:
     from argus.core.app_engine import create_migrated_database_engine
     from argus.core.settings import settings
     from sqlalchemy.orm import sessionmaker
@@ -45,10 +45,15 @@ def load_index_relative_returns(start_date) -> pd.DataFrame:
     engine = create_migrated_database_engine(settings.database_url)
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
-        index_df = calculate_equal_weight_index(session)
+        interval = interval.strip().lower()
+        index_df = calculate_equal_weight_index(
+            session,
+            interval=interval,
+            use_precomputed=interval == "1d",
+        )
         if index_df.empty:
             return pd.DataFrame()
-        rel_df = calculate_relative_performance(session, index_df, start_date)
+        rel_df = calculate_relative_performance(session, index_df, start_date, interval=interval)
         return rel_df
 
 
@@ -97,6 +102,45 @@ def _fmt_price_range(low: float | None, high: float | None) -> str:
         return "n/a"
     # Two literal dollar signs are parsed as inline LaTeX by st.markdown.
     return f"&#36;{low:.2f} - &#36;{high:.2f}"
+
+
+def _interval_for_timeframe(tf: str) -> str:
+    return "15m" if tf in {"1D", "5D"} else "1d"
+
+
+def _start_for_timeframe(latest_point, earliest_point, tf: str):
+    latest_ts = pd.to_datetime(latest_point)
+    if tf == "1D":
+        return latest_ts - pd.Timedelta(days=1)
+    if tf == "5D":
+        return latest_ts - pd.Timedelta(days=5)
+    if tf == "1M":
+        return (latest_ts - pd.Timedelta(days=30)).date()
+    if tf == "3M":
+        return (latest_ts - pd.Timedelta(days=90)).date()
+    if tf == "6M":
+        return (latest_ts - pd.Timedelta(days=180)).date()
+    if tf == "1Y":
+        return (latest_ts - pd.Timedelta(days=365)).date()
+    return earliest_point
+
+
+def _latest_price_from_history(daily_prices: pd.DataFrame, intraday_prices: pd.DataFrame):
+    if not intraday_prices.empty:
+        intraday_dates = pd.to_datetime(intraday_prices["date"])
+        latest_intraday_idx = intraday_dates.idxmax()
+        latest_intraday_date = intraday_dates.loc[latest_intraday_idx].date()
+        if daily_prices.empty:
+            return intraday_prices.loc[latest_intraday_idx, "adj_close"]
+        latest_daily_date = pd.to_datetime(daily_prices["date"]).max().date()
+        if latest_intraday_date >= latest_daily_date:
+            return intraday_prices.loc[latest_intraday_idx, "adj_close"]
+
+    if not daily_prices.empty:
+        daily_dates = pd.to_datetime(daily_prices["date"])
+        latest_daily_idx = daily_dates.idxmax()
+        return daily_prices.loc[latest_daily_idx, "adj_close"]
+    return None
 
 
 def _fmt_multiple(value: float | None) -> str:
@@ -173,11 +217,13 @@ def render_company_detail() -> None:
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
 
     # Latest price from price history or metrics
-    df_price = load_price_history(company["id"]).copy()
-    latest_price = None
-    if not df_price.empty:
-        df_price["date"] = pd.to_datetime(df_price["date"]).dt.date
-        latest_price = df_price.iloc[-1]["adj_close"]
+    df_daily_price = load_price_history(company["id"], "1d").copy()
+    df_intraday_price = load_price_history(company["id"], "15m").copy()
+    latest_price = _latest_price_from_history(df_daily_price, df_intraday_price)
+    if not df_intraday_price.empty:
+        df_intraday_price["date"] = pd.to_datetime(df_intraday_price["date"])
+    if not df_daily_price.empty:
+        df_daily_price["date"] = pd.to_datetime(df_daily_price["date"]).dt.date
 
     # Fetch returns from metrics
     ret_1d = metrics.get("return_1d") if metrics else None
@@ -219,31 +265,25 @@ def render_company_detail() -> None:
             # Timeframe selector
             tf = st.radio(
                 "Timeframe",
-                ["1M", "3M", "6M", "1Y", "All"],
-                index=3,
+                ["1D", "5D", "1M", "3M", "6M", "1Y", "All"],
+                index=5,
                 horizontal=True,
                 key="timeframe_radio",
             )
+            interval = _interval_for_timeframe(tf)
+            df_price = (df_intraday_price if interval == "15m" else df_daily_price).copy()
 
             if df_price.empty:
                 st.info("No price history available for this company.")
             else:
                 # Calculate rolling MAs on entire history first, so they are accurate at the beginning of the plot
                 df_chart = df_price.sort_values("date").copy()
-                df_chart["50DMA"] = df_chart["adj_close"].rolling(50).mean()
-                df_chart["200DMA"] = df_chart["adj_close"].rolling(200).mean()
+                if interval == "1d":
+                    df_chart["50DMA"] = df_chart["adj_close"].rolling(50).mean()
+                    df_chart["200DMA"] = df_chart["adj_close"].rolling(200).mean()
 
                 latest_date = df_chart["date"].max()
-                if tf == "1M":
-                    start_date = latest_date - pd.Timedelta(days=30)
-                elif tf == "3M":
-                    start_date = latest_date - pd.Timedelta(days=90)
-                elif tf == "6M":
-                    start_date = latest_date - pd.Timedelta(days=180)
-                elif tf == "1Y":
-                    start_date = latest_date - pd.Timedelta(days=365)
-                else:
-                    start_date = df_chart["date"].min()
+                start_date = _start_for_timeframe(latest_date, df_chart["date"].min(), tf)
 
                 df_filtered = df_chart[df_chart["date"] >= start_date]
 
@@ -258,8 +298,8 @@ def render_company_detail() -> None:
                     )
                 )
 
-                # Overlay moving averages if they exist in the filtered range
-                if not df_filtered["50DMA"].isna().all():
+                # Overlay moving averages for daily ranges only.
+                if interval == "1d" and not df_filtered["50DMA"].isna().all():
                     fig.add_trace(
                         go.Scatter(
                             x=df_filtered["date"],
@@ -268,7 +308,7 @@ def render_company_detail() -> None:
                             line=dict(color="#ff7f0e", width=1.5, dash="dash"),
                         )
                     )
-                if not df_filtered["200DMA"].isna().all():
+                if interval == "1d" and not df_filtered["200DMA"].isna().all():
                     fig.add_trace(
                         go.Scatter(
                             x=df_filtered["date"],
@@ -279,7 +319,7 @@ def render_company_detail() -> None:
                     )
 
                 fig.update_layout(
-                    title=f"{company['symbol']} Historical Price",
+                    title=f"{company['symbol']} {'Intraday' if interval == '15m' else 'Historical'} Price",
                     xaxis_title="Date",
                     yaxis_title="Price ($)",
                     template="plotly_white",
@@ -291,34 +331,33 @@ def render_company_detail() -> None:
 
         with chart_tabs[1]:
             st.write("### Relative Return Comparison")
+            interval = _interval_for_timeframe(tf)
+            df_price = (df_intraday_price if interval == "15m" else df_daily_price).copy()
             if df_price.empty:
                 st.info("No price history available to calculate relative performance.")
             else:
                 # Get start date for relative calculation
                 latest_date = df_price["date"].max()
-                if tf == "1M":
-                    start_date = latest_date - pd.Timedelta(days=30)
-                elif tf == "3M":
-                    start_date = latest_date - pd.Timedelta(days=90)
-                elif tf == "6M":
-                    start_date = latest_date - pd.Timedelta(days=180)
-                elif tf == "1Y":
-                    start_date = latest_date - pd.Timedelta(days=365)
-                else:
-                    start_date = df_price["date"].min()
+                start_date = _start_for_timeframe(latest_date, df_price["date"].min(), tf)
 
                 # Fetch QQQ and NVDAclose
                 qqq_comp = get_company_by_symbol("QQQ")
                 nvda_comp = get_company_by_symbol("NVDA")
-                df_qqq = load_price_history(qqq_comp["id"]).copy() if qqq_comp else pd.DataFrame()
+                df_qqq = (
+                    load_price_history(qqq_comp["id"], interval).copy() if qqq_comp else pd.DataFrame()
+                )
                 df_nvda = (
-                    load_price_history(nvda_comp["id"]).copy() if nvda_comp else pd.DataFrame()
+                    load_price_history(nvda_comp["id"], interval).copy() if nvda_comp else pd.DataFrame()
                 )
 
                 if not df_qqq.empty:
-                    df_qqq["date"] = pd.to_datetime(df_qqq["date"]).dt.date
+                    df_qqq["date"] = pd.to_datetime(df_qqq["date"])
+                    if interval == "1d":
+                        df_qqq["date"] = df_qqq["date"].dt.date
                 if not df_nvda.empty:
-                    df_nvda["date"] = pd.to_datetime(df_nvda["date"]).dt.date
+                    df_nvda["date"] = pd.to_datetime(df_nvda["date"])
+                    if interval == "1d":
+                        df_nvda["date"] = df_nvda["date"].dt.date
 
                 rel_df = get_relative_perf_df(df_price, df_qqq, df_nvda, start_date)
 
@@ -354,7 +393,7 @@ def render_company_detail() -> None:
                         )
 
                     # Real AI Infra Core Index
-                    idx_rel = load_index_relative_returns(start_date)
+                    idx_rel = load_index_relative_returns(start_date, interval)
                     if not idx_rel.empty and "index_ret" in idx_rel:
                         fig_rel.add_trace(
                             go.Scatter(

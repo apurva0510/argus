@@ -24,12 +24,20 @@ def calculate_equal_weight_index(
     symbols: list[str] | None = None,
     base_value: float = 100.0,
     use_precomputed: bool = True,
+    interval: str = "1d",
 ) -> pd.DataFrame:
     """
     Build an equal-weight index. If symbols is None and the pre-calculated
     index_values table has data, we load it directly from the database for speed.
     Otherwise, we calculate it dynamically from price_bars.
     """
+    interval = interval.strip().lower()
+    if interval not in {"1d", "15m"}:
+        raise ValueError("calculate_equal_weight_index supports interval='1d' or interval='15m'")
+
+    if interval == "15m":
+        use_precomputed = False
+
     if symbols is None and use_precomputed:
         try:
             query = session.query(IndexValue.date, IndexValue.index_value).order_by(
@@ -53,28 +61,29 @@ def calculate_equal_weight_index(
     if not symbols:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    # Query daily price bars for the requested symbols
+    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
     query = (
-        session.query(PriceBar.date, Company.symbol, PriceBar.adj_close)
+        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
         .join(Company, Company.id == PriceBar.company_id)
         .filter(
             Company.symbol.in_(symbols),
             PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == "1d",
+            PriceBar.interval == interval,
         )
-        .order_by(PriceBar.date.asc())
+        .order_by(point_column.asc())
     )
     df = pd.read_sql_query(query.statement, session.connection())
 
     if df.empty:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    # Convert date to datetime to facilitate formatting/sorting
     df["date"] = pd.to_datetime(df["date"])
 
     # Pivot so each column represents a ticker, and the index represents dates
     pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
     pivot_df = pivot_df.sort_index().astype(float)
+    if interval == "15m":
+        pivot_df = pivot_df.ffill(limit=4)
 
     # Calculate daily percentage returns (pct_change naturally handles NaNs)
     returns_df = pivot_df.pct_change(fill_method=None)
@@ -93,7 +102,8 @@ def calculate_equal_weight_index(
 
     result = index_values.reset_index()
     result.columns = ["date", "index_value"]
-    result["date"] = result["date"].dt.date
+    if interval == "1d":
+        result["date"] = result["date"].dt.date
     return result
 
 
@@ -101,6 +111,7 @@ def calculate_relative_performance(
     session: Session,
     index_df: pd.DataFrame,
     start_date: date,
+    interval: str = "1d",
 ) -> pd.DataFrame:
     """
     Build cumulative returns starting at 0% (relative performance percentage) or 100 on start_date for:
@@ -112,6 +123,10 @@ def calculate_relative_performance(
     """
     if index_df.empty:
         return pd.DataFrame()
+
+    interval = interval.strip().lower()
+    if interval not in {"1d", "15m"}:
+        raise ValueError("calculate_relative_performance supports interval='1d' or interval='15m'")
 
     # Filter index to start date
     idx_filtered = index_df[index_df["date"] >= start_date].copy()
@@ -125,16 +140,17 @@ def calculate_relative_performance(
 
     # Fetch price bars for QQQ and NVDA
     benchmarks = ["QQQ", "NVDA"]
+    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
     query = (
-        session.query(PriceBar.date, Company.symbol, PriceBar.adj_close)
+        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
         .join(Company, Company.id == PriceBar.company_id)
         .filter(
             Company.symbol.in_(benchmarks),
             PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == "1d",
-            PriceBar.date >= start_date,
+            PriceBar.interval == interval,
+            point_column >= start_date,
         )
-        .order_by(PriceBar.date.asc())
+        .order_by(point_column.asc())
     )
     bench_df = pd.read_sql_query(query.statement, session.connection())
 
@@ -145,7 +161,9 @@ def calculate_relative_performance(
         if sym_df.empty:
             merged[f"{symbol.lower()}_ret"] = pd.NA
             continue
-        sym_df["date"] = pd.to_datetime(sym_df["date"]).dt.date
+        sym_df["date"] = pd.to_datetime(sym_df["date"])
+        if interval == "1d":
+            sym_df["date"] = sym_df["date"].dt.date
         sym_df = sym_df.sort_values("date")
 
         # Merge onto index dates to align timelines

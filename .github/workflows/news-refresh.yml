@@ -2,17 +2,11 @@ name: News Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. These UTC times cover one market-open news
-    # refresh and one market-close news refresh in both EDT and EST.
+    # GitHub cron is UTC-only. Every scheduled invocation runs the refresh
+    # job; there is no Actions-side time-window skip.
     - cron: "30 12,13 * * 1-5"
     - cron: "0 21,22 * * 1-5"
-  workflow_dispatch:
-    inputs:
-      force:
-        description: 'Bypass and reset provider cooldowns'
-        required: false
-        default: false
-        type: boolean
+  workflow_dispatch: {}
 
 
 concurrency:
@@ -32,59 +26,27 @@ jobs:
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
-      - name: Determine if news refresh window (ET)
-        id: news_refresh_window
-        run: |
-          python - <<'PY'
-          from datetime import datetime, time
-          from zoneinfo import ZoneInfo
-          import os
-
-          is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          now_et = datetime.now(ZoneInfo("America/New_York"))
-          is_weekday = now_et.weekday() < 5
-          open_start = time(8, 30)
-          open_end = time(9, 0)
-          close_start = time(17, 0)
-          close_end = time(17, 30)
-          in_window = is_weekday and (
-              open_start <= now_et.time() < open_end
-              or close_start <= now_et.time() < close_end
-          )
-          run_job = is_manual or in_window
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"run_job={'true' if run_job else 'false'}\n")
-          print(f"now_et={now_et.isoformat()} is_manual={is_manual} in_window={in_window}")
-          PY
-
       - name: Validate required secrets
-        if: steps.news_refresh_window.outputs.run_job == 'true'
         run: |
           test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
 
       - name: Checkout repository
-        if: steps.news_refresh_window.outputs.run_job == 'true'
         uses: actions/checkout@v6
 
       - name: Set up Python 3.12
-        if: steps.news_refresh_window.outputs.run_job == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
-        if: steps.news_refresh_window.outputs.run_job == 'true'
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
 
       - name: Refresh news
-        if: steps.news_refresh_window.outputs.run_job == 'true'
-        run: |
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            python scripts/refresh_news.py --force
-          else
-            python scripts/refresh_news.py
-          fi
+        run: python scripts/refresh_news.py --bypass-refresh-throttle
+
+      - name: Compute signals
+        run: python scripts/compute_signals.py

@@ -1090,6 +1090,104 @@ def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -
         assert item.url == "https://example.com/story"
 
 
+def test_upsert_news_item_populates_transparent_scores(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        company = Company(symbol="ETN", name="Eaton", is_active=True)
+        session.add(company)
+        session.flush()
+        rows = news_module._upsert_news_item(
+            session,
+            {
+                "title": "Eaton wins data center power contract",
+                "summary": "AI infrastructure demand accelerates.",
+                "url": "https://example.com/etn-win",
+                "source_name": "Example",
+                "provider": "rss",
+                "published_at": datetime(2026, 3, 10, 12, 0),
+            },
+            [
+                {
+                    "company_id": company.id,
+                    "ticker": "ETN",
+                    "is_primary_match": True,
+                    "matched_keywords": "ETN, data center, power grid",
+                }
+            ],
+        )
+
+    assert rows == 1
+    with db_module.session_scope() as session:
+        item = session.query(NewsItem).one()
+        assert item.sentiment_score is not None
+        assert item.sentiment_score > 0
+        assert item.relevance_score == pytest.approx(0.9)
+
+
+def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        primary = Company(symbol="ETN", name="Eaton", is_active=True)
+        secondary = Company(symbol="VRT", name="Vertiv", is_active=True)
+        session.add_all([primary, secondary])
+        session.flush()
+        article = {
+            "title": "Eaton wins data center power contract",
+            "summary": "Vertiv mentioned as a supplier.",
+            "url": "https://example.com/stable-relevance",
+            "source_name": "Example",
+            "provider": "rss",
+            "published_at": datetime(2026, 3, 10, 12, 0),
+        }
+        news_module._upsert_news_item(
+            session,
+            article,
+            [
+                {
+                    "company_id": primary.id,
+                    "ticker": "ETN",
+                    "is_primary_match": True,
+                    "matched_keywords": "ETN, data center, power grid",
+                }
+            ],
+        )
+        news_module._upsert_news_item(
+            session,
+            article,
+            [
+                {
+                    "company_id": secondary.id,
+                    "ticker": "VRT",
+                    "is_primary_match": False,
+                    "matched_keywords": "VRT",
+                }
+            ],
+        )
+
+    with db_module.session_scope() as session:
+        item = session.query(NewsItem).one()
+        assert item.relevance_score == pytest.approx(0.9)
+
+
 def test_refresh_news_skips_when_recent_success(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_news as news_module
@@ -1163,6 +1261,68 @@ def test_refresh_news_force_bypasses_refresh_throttle(sqlite_engine, monkeypatch
 
     assert result["status"] == "success"
     assert calls == 1
+
+
+def test_refresh_news_bypass_recent_success_respects_provider_cooldown(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_news as news_module
+
+    rss_calls = 0
+    gdelt_calls = 0
+
+    def mock_fetch_rss(query: str) -> list[dict]:
+        nonlocal rss_calls
+        rss_calls += 1
+        return []
+
+    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
+        nonlocal gdelt_calls
+        gdelt_calls += 1
+        return []
+
+    monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
+    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
+    monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    disabled_until = datetime.now(UTC).replace(tzinfo=None, microsecond=0) + timedelta(hours=2)
+    with db_module.session_scope() as session:
+        session.add(
+            JobRun(
+                job_name="refresh_news",
+                started_at=datetime(2026, 5, 30, 9, 0, 0),
+                finished_at=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+                status="success",
+            )
+        )
+        session.add(
+            ProviderHealth(
+                provider="rss",
+                status="unhealthy",
+                failure_count=1,
+                disabled_until=disabled_until,
+                last_error="RSS disabled until tomorrow due to rate limit",
+            )
+        )
+
+    result = refresh_news(
+        bypass_recent_success=True,
+        queries=["data center AI"],
+    )
+
+    assert result["status"] == "partial_success"
+    assert rss_calls == 0
+    assert gdelt_calls == 1
+    with db_module.session_scope() as session:
+        health = session.query(ProviderHealth).filter_by(provider="rss").one()
+        assert health.disabled_until == disabled_until
 
 
 def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engine, monkeypatch) -> None:
@@ -1423,5 +1583,3 @@ def test_refresh_news_default_queries_split(sqlite_engine, monkeypatch) -> None:
     assert set(rss_calls) == {"NVDA", "MSFT"}
     # GDELT should query the default NEWS_QUERIES
     assert gdelt_calls == NEWS_QUERIES
-
-

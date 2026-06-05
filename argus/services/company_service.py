@@ -25,6 +25,9 @@ def build_relative_performance_frame(
     start_date,
 ) -> pd.DataFrame:
     """Build cumulative relative performance without backfilling future benchmark data."""
+    company_prices = company_prices.sort_values("date").copy()
+    qqq_prices = qqq_prices.sort_values("date").copy() if not qqq_prices.empty else qqq_prices
+    nvda_prices = nvda_prices.sort_values("date").copy() if not nvda_prices.empty else nvda_prices
     company_frame = company_prices[company_prices["date"] >= start_date].copy()
     if company_frame.empty:
         return pd.DataFrame()
@@ -129,12 +132,30 @@ def get_company_metrics(company_id: int) -> dict | None:
         }
 
 
-def get_company_price_history(company_id: int) -> pd.DataFrame:
+def get_company_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
+    interval = interval.strip().lower()
+    if interval not in {"1d", "15m"}:
+        raise ValueError("get_company_price_history supports interval='1d' or interval='15m'")
     with session_scope() as session:
+        point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
         query = (
-            session.query(PriceBar)
-            .filter(PriceBar.company_id == company_id, PriceBar.provider == settings.market_data_provider, PriceBar.interval == "1d")
-            .order_by(PriceBar.date.asc())
+            session.query(
+                point_column.label("date"),
+                PriceBar.open,
+                PriceBar.high,
+                PriceBar.low,
+                PriceBar.close,
+                PriceBar.adj_close,
+                PriceBar.volume,
+                PriceBar.provider,
+                PriceBar.interval,
+            )
+            .filter(
+                PriceBar.company_id == company_id,
+                PriceBar.provider == settings.market_data_provider,
+                PriceBar.interval == interval,
+            )
+            .order_by(point_column.asc())
         )
         df = pd.read_sql_query(query.statement, session.bind)
         return df

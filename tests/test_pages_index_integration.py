@@ -1,7 +1,8 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import importlib
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
 from argus.core.models import Company, PriceBar
@@ -21,6 +22,28 @@ def _seed_prices(session: Session, company_id: int, start_date: date, prices: li
                 volume=1000,
                 provider="yfinance",
                 interval="1d",
+            )
+        )
+
+
+def _seed_intraday_prices(
+    session: Session,
+    company_id: int,
+    start_time: datetime,
+    prices: list[float],
+) -> None:
+    for offset, price in enumerate(prices):
+        bar_time = start_time + timedelta(minutes=15 * offset)
+        session.add(
+            PriceBar(
+                company_id=company_id,
+                date=bar_time.date(),
+                bar_time=bar_time,
+                close=price,
+                adj_close=price,
+                volume=1000,
+                provider="yfinance",
+                interval="15m",
             )
         )
 
@@ -83,6 +106,33 @@ def test_dashboard_and_detail_pages_load_index_data(
     assert rel_returns.iloc[2]["index_ret"] == pytest.approx(21.0)
 
 
+def test_dashboard_short_index_ranges_use_intraday_data(
+    sqlite_engine,
+    monkeypatch,
+    db_session: Session,
+) -> None:
+    c1 = Company(symbol="A", name="A", is_active=True, is_benchmark=False)
+    c2 = Company(symbol="B", name="B", is_active=True, is_benchmark=False)
+    db_session.add_all([c1, c2])
+    db_session.flush()
+    start_time = datetime(2026, 6, 4, 14, 0)
+    _seed_intraday_prices(db_session, c1.id, start_time, [10.0, 10.5])
+    _seed_intraday_prices(db_session, c2.id, start_time, [20.0, 21.0])
+    db_session.commit()
+
+    monkeypatch.setattr("argus.core.settings.settings.database_url", str(sqlite_engine.url))
+    monkeypatch.setattr("app.pages.1_Dashboard.get_dashboard_engine", lambda: sqlite_engine)
+    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
+    dashboard_module.load_index_data.clear()
+
+    res = dashboard_module.load_index_data("1D")
+
+    assert res["interval"] == "15m"
+    assert not res["rel_df"].empty
+    assert pd.to_datetime(res["rel_df"]["date"]).max() == start_time + timedelta(minutes=15)
+    assert res["rel_df"].iloc[-1]["index_level"] == pytest.approx(105.0)
+
+
 def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_label() -> None:
     dashboard_source = (
         Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
@@ -110,6 +160,32 @@ def test_company_detail_52w_range_avoids_markdown_math_parsing() -> None:
 
     assert detail_module._fmt_price_range(4.05, 16.85) == "&#36;4.05 - &#36;16.85"
     assert detail_module._fmt_price_range(None, 16.85) == "n/a"
+
+
+def test_company_detail_latest_price_ignores_stale_intraday_data() -> None:
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    daily = pd.DataFrame(
+        [{"date": date(2026, 6, 4), "adj_close": 155.0}]
+    )
+    intraday = pd.DataFrame(
+        [{"date": datetime(2026, 6, 3, 20, 0), "adj_close": 150.0}]
+    )
+
+    assert detail_module._latest_price_from_history(daily, intraday) == 155.0
+
+
+def test_company_detail_latest_price_uses_current_intraday_data() -> None:
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    daily = pd.DataFrame(
+        [{"date": date(2026, 6, 4), "adj_close": 155.0}]
+    )
+    intraday = pd.DataFrame(
+        [{"date": datetime(2026, 6, 4, 18, 0), "adj_close": 158.0}]
+    )
+
+    assert detail_module._latest_price_from_history(daily, intraday) == 158.0
 
 
 def test_dashboard_recent_news_renders_multiple_ticker_links_in_dataframe(monkeypatch) -> None:

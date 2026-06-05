@@ -112,6 +112,7 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
         "compute_daily_metrics",
         "compute_opportunity_scores",
         "refresh_index",
+        "compute_signals",
     ]
 
 
@@ -135,6 +136,7 @@ def test_build_daily_refresh_steps_includes_new_pipelines() -> None:
         "compute_daily_metrics",
         "compute_opportunity_scores",
         "refresh_index",
+        "compute_signals",
     ]
 
 
@@ -155,4 +157,5 @@ def test_build_daily_refresh_steps_syncs_ciks_before_filings(monkeypatch) -> Non
         )
     ]
 
-    assert step_names[-2:] == ["refresh_ciks", "refresh_filings"]
+    assert step_names.index("refresh_ciks") < step_names.index("refresh_filings")
+    assert step_names[step_names.index("refresh_filings") + 1] == "compute_signals"

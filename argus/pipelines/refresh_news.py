@@ -7,6 +7,7 @@ from hashlib import sha256
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import select
 
+from argus.analytics.news_signals import score_news_article
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, NewsItem, NewsMention
 from argus.core.settings import settings
@@ -288,6 +289,18 @@ def stable_article_key(article: dict) -> str:
     return "urn:argus-news:" + sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _mention_dict(mention) -> dict:
+    if isinstance(mention, dict):
+        return {
+            "is_primary_match": mention.get("is_primary_match"),
+            "matched_keywords": mention.get("matched_keywords"),
+        }
+    return {
+        "is_primary_match": mention.is_primary_match,
+        "matched_keywords": mention.matched_keywords,
+    }
+
+
 def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
     """Inserts a news item and its mentions if it doesn't exist.
 
@@ -305,6 +318,11 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
             seen_company_ids.add(m["company_id"])
             unique_mentions.append(m)
     mentions = unique_mentions
+    sentiment_score, relevance_score = score_news_article(
+        art["title"],
+        art.get("summary"),
+        mentions,
+    )
 
     if existing_item is None:
         # Create news item
@@ -315,6 +333,8 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
             source_name=art["source_name"][:128] if art["source_name"] else None,
             provider=art["provider"],
             published_at=art["published_at"],
+            sentiment_score=sentiment_score,
+            relevance_score=relevance_score,
         )
         session.add(item)
         session.flush()
@@ -329,6 +349,7 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
                 matched_keywords=m["matched_keywords"],
             )
             session.add(mention)
+        session.flush()
         return 1
 
     else:
@@ -336,6 +357,8 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         existing_item.title = art["title"][:512]
         if art["summary"] and not existing_item.summary:
             existing_item.summary = art["summary"][:2000]
+        existing_item.sentiment_score = sentiment_score
+        existing_item.relevance_score = relevance_score
 
         # Check existing mentions
         existing_mentions = (
@@ -357,7 +380,13 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
                 )
                 session.add(mention)
                 existing_company_ids.add(m["company_id"])  # Prevent duplicates within the same batch in case they were not fully filtered
+                existing_mentions.append(mention)
                 written += 1
+        existing_item.sentiment_score, existing_item.relevance_score = score_news_article(
+            existing_item.title,
+            existing_item.summary,
+            [_mention_dict(mention) for mention in existing_mentions],
+        )
         return 1 if written > 0 else 0
 
 
@@ -372,6 +401,7 @@ def _fetch_provider_query(provider: str, query: str) -> list[dict]:
 def refresh_news(
     *,
     force: bool = False,
+    bypass_recent_success: bool = False,
     max_queries: int | None = None,
     queries: list[str] | None = None,
 ) -> dict[str, object]:
@@ -393,7 +423,11 @@ def refresh_news(
     try:
         with session_scope() as session:
             now = _utc_now()
-            if _should_skip_refresh(session, force=force, now=now):
+            if _should_skip_refresh(
+                session,
+                force=force or bypass_recent_success,
+                now=now,
+            ):
                 status = "skipped"
                 error_text = "Skipped refresh_news because the last successful run is recent."
                 return {
