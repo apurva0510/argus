@@ -24,12 +24,14 @@ def test_password_protection_bypass(monkeypatch):
         
         # Check st.Page calls
         page_calls = mock_st.Page.call_args_list
-        assert len(page_calls) == 5
+        assert len(page_calls) == 7
         assert page_calls[0] == call("pages/1_Dashboard.py", title="Dashboard")
         assert page_calls[1] == call("pages/2_Watchlists.py", title="Watchlists")
         assert page_calls[2] == call("pages/3_Company_Detail.py", title="Company Detail", url_path="Company_Detail")
         assert page_calls[3] == call("pages/4_Pullback_Finder.py", title="Pullback Finder")
-        assert page_calls[4] == call("pages/5_News_Filings_Alerts.py", title="News Filings Alerts")
+        assert page_calls[4] == call("pages/5_News_Filings.py", title="News & Filings")
+        assert page_calls[5] == call("pages/6_Calendar_Alerts.py", title="Calendar & Alerts")
+        assert page_calls[6] == call("pages/7_Admin_Data_Health.py", title="Admin / Data Health")
 
 
 def test_password_protection_rejects_forged_cookie(monkeypatch):
@@ -159,7 +161,7 @@ def test_password_protection_active_correct(monkeypatch):
         # Verify navigation registered all 5 pages to prevent 404
         mock_st.navigation.assert_called_once()
         page_calls = mock_st.Page.call_args_list
-        assert len(page_calls) == 5
+        assert len(page_calls) == 7
         
         # Check login logic set correct state
         assert mock_st.session_state["password_correct"] is True
@@ -190,7 +192,7 @@ def test_password_protection_active_incorrect(monkeypatch):
         # Verify navigation registered all 5 pages
         mock_st.navigation.assert_called_once()
         page_calls = mock_st.Page.call_args_list
-        assert len(page_calls) == 5
+        assert len(page_calls) == 7
         
         # Check error was handled
         assert mock_st.session_state.get("password_correct") is not True

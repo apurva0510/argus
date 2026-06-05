@@ -125,7 +125,9 @@ pages = [
     st.Page("pages/2_Watchlists.py", title="Watchlists"),
     st.Page("pages/3_Company_Detail.py", title="Company Detail", url_path="Company_Detail"),
     st.Page("pages/4_Pullback_Finder.py", title="Pullback Finder"),
-    st.Page("pages/5_News_Filings_Alerts.py", title="News Filings Alerts"),
+    st.Page("pages/5_News_Filings.py", title="News & Filings"),
+    st.Page("pages/6_Calendar_Alerts.py", title="Calendar & Alerts"),
+    st.Page("pages/7_Admin_Data_Health.py", title="Admin / Data Health"),
 ]
 
 navigation = st.navigation(pages)

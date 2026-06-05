@@ -13,6 +13,8 @@ def get_filtered_news(
     keyword: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    min_relevance: float | None = None,
+    sentiment_band: str | None = None,
     limit: int = 100,
 ) -> pd.DataFrame:
     """Fetch news items applying filters for ticker, source, keyword search, and date range.
@@ -38,6 +40,8 @@ def get_filtered_news(
             ni.url,
             ni.source_name,
             ni.provider,
+            ni.sentiment_score,
+            ni.relevance_score,
             (
                 SELECT {tickers_agg}
                 FROM news_mentions nm2
@@ -74,6 +78,18 @@ def get_filtered_news(
     if end_date:
         query += f" AND {date_cast_published} <= :end_date"
         params["end_date"] = end_date.isoformat()
+
+    if min_relevance is not None:
+        query += " AND ni.relevance_score >= :min_relevance"
+        params["min_relevance"] = min_relevance
+
+    if sentiment_band and sentiment_band != "All":
+        if sentiment_band == "Positive":
+            query += " AND ni.sentiment_score > 0.05"
+        elif sentiment_band == "Negative":
+            query += " AND ni.sentiment_score < -0.05"
+        elif sentiment_band == "Neutral":
+            query += " AND ni.sentiment_score >= -0.05 AND ni.sentiment_score <= 0.05"
 
     query += " ORDER BY ni.published_at DESC LIMIT :limit"
     params["limit"] = limit

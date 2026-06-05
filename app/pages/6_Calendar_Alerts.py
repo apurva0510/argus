@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime
 import pandas as pd
 import streamlit as st
 
@@ -9,12 +9,6 @@ from app.components.sidebar import render_sidebar_navigation
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 from argus.services.company_service import get_company_options
-from argus.services.news_filings_service import (
-    get_all_news_sources,
-    get_filtered_filings,
-    get_filtered_news,
-    get_last_job_run,
-)
 from argus.services.alert_service import (
     get_all_alerts,
     get_recent_alert_events,
@@ -22,6 +16,8 @@ from argus.services.alert_service import (
     toggle_alert,
     delete_alert,
 )
+from sqlalchemy import text
+
 
 RULE_TYPES = [
     "price_below",
@@ -58,31 +54,37 @@ def get_db_engine():
 
 
 @st.cache_data(ttl=60)
-def load_news(ticker, source, keyword, start_date, end_date) -> pd.DataFrame:
-    return get_filtered_news(
-        get_db_engine(),
-        ticker=ticker,
-        source=source,
-        keyword=keyword,
-        start_date=start_date,
-        end_date=end_date,
-    )
+def load_earnings_calendar(today: date) -> pd.DataFrame:
+    query = """
+        SELECT
+            ee.event_date,
+            c.symbol,
+            c.name as company_name,
+            ee.fiscal_period,
+            ee.source
+        FROM earnings_events ee
+        JOIN companies c ON c.id = ee.company_id
+        WHERE ee.event_date >= :today
+        ORDER BY ee.event_date ASC, c.symbol ASC
+    """
+    with get_db_engine().connect() as conn:
+        return pd.read_sql_query(text(query), conn, params={"today": today.isoformat()})
 
 
 @st.cache_data(ttl=60)
-def load_filings(ticker, form, start_date, end_date) -> pd.DataFrame:
-    return get_filtered_filings(
-        get_db_engine(),
-        ticker=ticker,
-        form=form,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-
-@st.cache_data(ttl=300)
-def load_sources() -> list[str]:
-    return get_all_news_sources(get_db_engine())
+def load_macro_calendar(today: date) -> pd.DataFrame:
+    query = """
+        SELECT
+            mre.release_date,
+            mre.series_code,
+            mre.event_name,
+            mre.status
+        FROM macro_release_events mre
+        WHERE mre.release_date >= :today
+        ORDER BY mre.release_date ASC
+    """
+    with get_db_engine().connect() as conn:
+        return pd.read_sql_query(text(query), conn, params={"today": today.isoformat()})
 
 
 @st.cache_data(ttl=30)
@@ -106,9 +108,7 @@ def _parse_job_time(val) -> str:
 
 
 def _render_create_alert_form() -> None:
-    """Render the form to create a new alert rule."""
-    st.markdown("#### ➕ Create New Alert")
-
+    st.markdown("### ➕ Create New Alert")
     with st.form("create_alert_form", clear_on_submit=True):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -116,7 +116,6 @@ def _render_create_alert_form() -> None:
         with col_b:
             rule_type = st.selectbox("Rule Type", options=RULE_TYPES)
 
-        # Show rule description
         st.caption(RULE_DESCRIPTIONS.get(rule_type, ""))
 
         col_c, col_d = st.columns(2)
@@ -124,10 +123,8 @@ def _render_create_alert_form() -> None:
             tickers = ["— None (use watchlist) —"] + get_company_options()
             selected_ticker = st.selectbox("Target Company", options=tickers, key="alert_ticker")
         with col_d:
-            # Watchlist-based targeting placeholder
             st.caption("Or leave company blank to target a whole watchlist (future).")
 
-        # Dynamic config inputs based on rule type
         config = {}
         if rule_type in ("price_below", "price_above"):
             config["threshold"] = st.number_input(
@@ -188,9 +185,7 @@ def _render_create_alert_form() -> None:
             else:
                 company_id = None
                 if selected_ticker != "— None (use watchlist) —":
-                    # Resolve ticker to company_id
                     from argus.services.company_service import get_company_by_symbol
-
                     company_info = get_company_by_symbol(selected_ticker)
                     if company_info:
                         company_id = company_info["id"]
@@ -209,18 +204,13 @@ def _render_create_alert_form() -> None:
                         st.error(str(exc))
                     else:
                         st.success(f"Alert '{alert_name}' created successfully!")
-                        # Clear relevant Streamlit cache
                         load_alerts.clear()
-                        load_alert_history.clear()
                         st.cache_data.clear()
-                        # Rerun the app
                         st.rerun()
 
 
 def _render_active_alerts() -> None:
-    """Render active alerts table with toggle/delete actions."""
-    st.markdown("#### 📋 Active Alert Rules")
-
+    st.markdown("### 📋 Active Alert Rules")
     alerts_df = load_alerts()
     if alerts_df.empty:
         st.info("No alert rules defined yet. Use the form below to create one.")
@@ -256,28 +246,22 @@ def _render_active_alerts() -> None:
                 btn_label = "Disable" if enabled else "Enable"
                 if st.button(btn_label, key=f"toggle_{alert_id}"):
                     toggle_alert(alert_id, new_state)
-                    # Clear relevant Streamlit cache
                     load_alerts.clear()
                     st.cache_data.clear()
-                    # Rerun the app
                     st.rerun()
             with c4:
                 if st.button("🗑️", key=f"delete_{alert_id}"):
                     delete_alert(alert_id)
-                    # Clear relevant Streamlit cache
                     load_alerts.clear()
                     load_alert_history.clear()
                     st.cache_data.clear()
-                    # Rerun the app
                     st.rerun()
 
         st.divider()
 
 
 def _render_alert_history() -> None:
-    """Render recent alert trigger history."""
-    st.markdown("#### 📜 Alert Trigger History")
-
+    st.markdown("### 📜 Alert Trigger History")
     history_df = load_alert_history(limit=50)
     if history_df.empty:
         st.info("No alert events recorded yet. Run the alert pipeline via CLI: `python scripts/run_alerts.py`")
@@ -286,7 +270,6 @@ def _render_alert_history() -> None:
     display = history_df.copy()
     display["triggered_at"] = pd.to_datetime(display["triggered_at"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Color-code delivery status
     def _status_badge(status):
         if status == "sent":
             return "✅ Sent"
@@ -299,7 +282,7 @@ def _render_alert_history() -> None:
     st.dataframe(
         display[["alert_name", "event_type", "ticker", "triggered_at", "delivery"]],
         hide_index=True,
-        width='stretch',
+        width="stretch",
         column_config={
             "alert_name": "Alert",
             "event_type": "Rule Type",
@@ -312,184 +295,109 @@ def _render_alert_history() -> None:
 
 def render_page() -> None:
     render_sidebar_navigation()
-    st.title("Catalysts: News, Filings & Alerts")
+    st.title("🗓️ Calendar & Alerts")
+    st.markdown("View upcoming events and manage custom automated alert triggers.")
 
-    # Ingestion Status Banner
-    engine = get_db_engine()
-    last_news_job = get_last_job_run(engine, "refresh_news")
-    last_filings_job = get_last_job_run(engine, "refresh_filings")
+    today = datetime.now(UTC).date()
+    earnings_df = load_earnings_calendar(today)
+    macro_df = load_macro_calendar(today)
 
-    col_status1, col_status2, col_status3 = st.columns([2, 2, 1])
+    tab_earnings, tab_macro, tab_combined, tab_alert_rules, tab_alert_logs = st.tabs([
+        "📅 Earnings Calendar",
+        "🌍 Macro Release Calendar",
+        "🔀 Combined Calendar",
+        "🔔 Alerts Manager",
+        "📜 Delivery Logs",
+    ])
 
-    with col_status1:
-        if last_news_job:
-            status_emoji = "✅" if last_news_job["status"] == "success" else "⚠️"
-            st.caption(
-                f"**News Job:** {status_emoji} {last_news_job['status'].upper()} | "
-                f"Ran: {_parse_job_time(last_news_job['finished_at'])} | "
-                f"Read: {last_news_job['rows_read']}, Written: {last_news_job['rows_written']}"
-            )
+    # 1. Earnings Tab
+    with tab_earnings:
+        st.subheader("Upcoming Corporate Earnings Calls")
+        if earnings_df.empty:
+            st.info("No upcoming corporate earnings calls found in the database.")
         else:
-            st.caption("**News Job:** No runs recorded.")
-
-    with col_status2:
-        if last_filings_job:
-            status_emoji = "✅" if last_filings_job["status"] == "success" else "⚠️"
-            st.caption(
-                f"**SEC Job:** {status_emoji} {last_filings_job['status'].upper()} | "
-                f"Ran: {_parse_job_time(last_filings_job['finished_at'])} | "
-                f"Read: {last_filings_job['rows_read']}, Written: {last_filings_job['rows_written']}"
-            )
-        else:
-            st.caption("**SEC Job:** No runs recorded.")
-
-    with col_status3:
-        if st.button("Refresh / Clear Cache", width="stretch"):
-            load_news.clear()
-            load_filings.clear()
-            load_sources.clear()
-            load_alerts.clear()
-            load_alert_history.clear()
-            st.rerun()
-
-    # Tabs
-    tab_news, tab_filings, tab_alerts = st.tabs(["Catalyst News", "SEC Filings", "Alerts Manager"])
-
-    # Shared Filters Expandable Section
-    with st.expander("Filter Options", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            tickers = ["All"] + get_company_options()
-            selected_ticker = st.selectbox("Company / Ticker Filter", options=tickers)
-
-        with col2:
-            # Let's support date ranges up to past 90 days by default
-            default_start = (datetime.now(UTC) - timedelta(days=30)).date()
-            default_end = datetime.now(UTC).date()
-            selected_start = st.date_input("Start Date", value=default_start)
-
-        with col3:
-            selected_end = st.date_input("End Date", value=default_end)
-
-    # 1. Catalyst News Tab
-    with tab_news:
-        st.subheader("Latest News Headlines")
-
-        # News specific filters
-        n_col1, n_col2 = st.columns([1, 2])
-        with n_col1:
-            sources = ["All"] + load_sources()
-            selected_source = st.selectbox("Filter by Source", options=sources)
-        with n_col2:
-            search_keyword = st.text_input("Search headlines, summary or keywords")
-
-        news_df = load_news(
-            selected_ticker,
-            selected_source,
-            search_keyword,
-            selected_start,
-            selected_end,
-        )
-
-        if news_df.empty:
-            st.info("No news items found matching the current filters.")
-        else:
-            for _, item in news_df.iterrows():
-                # Card-like layout for news headlines
-                published_str = ""
-                if item["published_at"]:
-                    published_str = pd.to_datetime(item["published_at"]).strftime("%b %d, %Y %I:%M %p")
-
-                st.markdown(f"### [{item['title']}]({item['url']})")
-                st.markdown(
-                    f"**Source:** `{item['source_name']}` | **Provider:** `{item['provider']}` | **Date:** {published_str}"
-                )
-
-                if item["summary"]:
-                    st.write(item["summary"])
-
-                # Tickers and Keywords badges
-                badges = []
-                if item["tickers"]:
-                    badges.append(f"🏷️ **Tickers:** {item['tickers']}")
-                if item["keywords"]:
-                    badges.append(f"🔑 **Keywords:** {item['keywords']}")
-
-                if badges:
-                    st.caption("  •  ".join(badges))
-
-                st.markdown("---")
-
-    # 2. SEC Filings Tab
-    with tab_filings:
-        st.subheader("SEC EDGAR Filings")
-
-        # Filings specific filters
-        f_col1 = st.columns(1)[0]
-        with f_col1:
-            forms = ["All", "10-K", "10-Q", "8-K", "6-K", "20-F", "40-F"]
-            selected_form = st.selectbox("Form Type Filter", options=forms)
-
-        filings_df = load_filings(
-            selected_ticker,
-            selected_form,
-            selected_start,
-            selected_end,
-        )
-
-        if filings_df.empty:
-            st.info("No filings found matching the current filters.")
-        else:
-            # Table formatting
-            df_view = filings_df.copy()
-            df_view["Filing Date"] = pd.to_datetime(df_view["filing_date"]).dt.strftime("%Y-%m-%d")
-            df_view["Acceptance Time"] = pd.to_datetime(df_view["acceptance_datetime"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-            df_view["New?"] = df_view["is_new"].apply(lambda x: "⭐ New" if x else "")
-
-            df_view = df_view.rename(
-                columns={
-                    "symbol": "Ticker",
+            df_view = earnings_df.copy()
+            df_view["event_date"] = pd.to_datetime(df_view["event_date"]).dt.strftime("%Y-%m-%d")
+            df_view["fiscal_period"] = df_view["fiscal_period"].fillna("n/a")
+            df_view["Ticker"] = df_view["symbol"].apply(lambda s: f"[View Detail](/Company_Detail?ticker={s})")
+            
+            st.dataframe(
+                df_view[["event_date", "symbol", "company_name", "fiscal_period", "source"]],
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "event_date": "Earnings Date",
+                    "symbol": "Symbol",
                     "company_name": "Company Name",
-                    "form": "Form",
-                    "filing_detail_url": "Detail Link",
-                    "primary_doc_url": "Document Link",
+                    "fiscal_period": "Fiscal Period",
+                    "source": "Source",
                 }
             )
 
+    # 2. Macro Release Tab
+    with tab_macro:
+        st.subheader("Scheduled Macroeconomic Release Events")
+        if macro_df.empty:
+            st.info("No scheduled macroeconomic release schedules found. Register a FRED API key to populate.")
+        else:
+            df_view = macro_df.copy()
+            df_view["release_date"] = pd.to_datetime(df_view["release_date"]).dt.strftime("%Y-%m-%d")
             st.dataframe(
-                df_view[
-                    [
-                        "New?",
-                        "Ticker",
-                        "Company Name",
-                        "Form",
-                        "Filing Date",
-                        "Acceptance Time",
-                        "Detail Link",
-                        "Document Link",
-                    ]
-                ],
+                df_view[["release_date", "event_name", "series_code", "status"]],
+                hide_index=True,
+                width="stretch",
                 column_config={
-                    "Detail Link": st.column_config.LinkColumn("Detail Link", display_text="Index Page"),
-                    "Document Link": st.column_config.LinkColumn("Document Link", display_text="PDF/HTML Filing"),
-                },
+                    "release_date": "Release Date",
+                    "event_name": "Release Event",
+                    "series_code": "FRED Series Code",
+                    "status": "Status",
+                }
+            )
+
+    # 3. Combined Tab
+    with tab_combined:
+        st.subheader("Combined Events Timeline")
+        combined_events = []
+
+        if not earnings_df.empty:
+            for _, row in earnings_df.iterrows():
+                fp = f" ({row['fiscal_period']})" if row["fiscal_period"] else ""
+                combined_events.append({
+                    "Date": pd.to_datetime(row["event_date"]),
+                    "Type": "Earnings",
+                    "Target / Description": f"{row['symbol']} - {row['company_name']}{fp}",
+                    "Source": row["source"],
+                })
+
+        if not macro_df.empty:
+            for _, row in macro_df.iterrows():
+                combined_events.append({
+                    "Date": pd.to_datetime(row["release_date"]),
+                    "Type": "Macro Release",
+                    "Target / Description": f"{row['event_name']} ({row['series_code']})",
+                    "Source": "FRED API",
+                })
+
+        if not combined_events:
+            st.info("No upcoming calendar events recorded.")
+        else:
+            combined_df = pd.DataFrame(combined_events).sort_values("Date", ascending=True)
+            combined_df["Date"] = combined_df["Date"].dt.strftime("%Y-%m-%d")
+            st.dataframe(
+                combined_df[["Date", "Type", "Target / Description", "Source"]],
                 hide_index=True,
                 width="stretch",
             )
 
-    # 3. Alerts Manager Tab
-    with tab_alerts:
-        st.subheader("Alert Setup & Rules")
-        st.caption(
-            "Define alert rules below. To evaluate alerts and send notifications, "
-            "run the alert pipeline from the CLI: `python scripts/run_alerts.py`"
-        )
-
+    # 4. Alerts Manager Tab
+    with tab_alert_rules:
         _render_active_alerts()
         _render_create_alert_form()
 
-        st.markdown("---")
+    # 5. Delivery Logs Tab
+    with tab_alert_logs:
         _render_alert_history()
 
 
-render_page()
+if __name__ == "__main__":
+    render_page()
