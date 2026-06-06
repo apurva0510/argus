@@ -16,7 +16,8 @@ from argus.core.models import (
 )
 from argus.core.settings import settings
 
-DEFAULT_INDEX_NAME = "AI Infra Core Equal Weight"
+DEFAULT_INDEX_NAME = "AI Infra Core"
+LEGACY_DEFAULT_INDEX_NAME = "AI Infra Core Equal Weight"
 INDEX_MODE_EQUAL = "equal"
 INDEX_MODE_EXPOSURE = "exposure"
 INDEX_MODE_MANUAL = "manual"
@@ -75,6 +76,17 @@ def ensure_default_index_definition(session: Session) -> IndexDefinition:
         .one_or_none()
     )
     dirty = False
+    if definition is None:
+        legacy_definition = (
+            session.query(IndexDefinition)
+            .filter(IndexDefinition.name == LEGACY_DEFAULT_INDEX_NAME)
+            .one_or_none()
+        )
+        if legacy_definition is not None:
+            legacy_definition.name = DEFAULT_INDEX_NAME
+            definition = legacy_definition
+            dirty = True
+
     if definition is None:
         definition = IndexDefinition(
             name=DEFAULT_INDEX_NAME,

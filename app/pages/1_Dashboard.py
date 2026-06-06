@@ -10,6 +10,7 @@ from app.auth_links import company_detail_url
 import os
 from argus.core.app_engine import create_migrated_database_engine
 
+from argus.analytics.market_hours import append_market_close_markers
 from argus.core.settings import settings
 from argus.core.timezones import format_et_datetime, to_et_naive_series
 from argus.services.dashboard_service import (
@@ -20,8 +21,12 @@ from argus.services.dashboard_service import (
     rank_top_gainers,
     rank_top_losers,
 )
-from app.components.metrics import render_metric_card, render_plain_metric_card
-from app.components.tables import style_positive_green_negative_red
+from app.components.metrics import (
+    render_metric_card,
+    render_plain_metric_card,
+    render_plain_metric_card_parts,
+)
+from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 
 
 @st.cache_resource
@@ -63,6 +68,7 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
         get_index_weights,
     )
     from argus.analytics.market_hours import filter_latest_market_sessions
+    from argus.core.models import Company, PriceBar
 
     engine = get_dashboard_engine()
     SessionLocal = sessionmaker(bind=engine)
@@ -109,12 +115,91 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
             start_date,
             interval=interval,
         )
+        daily_close_levels = pd.DataFrame()
         if not rel_df.empty:
             rel_df["index_level"] = 100.0 + rel_df["index_ret"]
             if "qqq_ret" in rel_df and not rel_df["qqq_ret"].isna().all():
                 rel_df["qqq_level"] = 100.0 + rel_df["qqq_ret"]
             if "nvda_ret" in rel_df and not rel_df["nvda_ret"].isna().all():
                 rel_df["nvda_level"] = 100.0 + rel_df["nvda_ret"]
+
+            if short_range:
+                daily_index_df = calculate_weighted_index(
+                    session,
+                    definition_id=index_definition_id,
+                    interval="1d",
+                    use_precomputed=True,
+                )
+                if daily_index_df.empty:
+                    daily_index_df = calculate_weighted_index(
+                        session,
+                        definition_id=index_definition_id,
+                        interval="1d",
+                        use_precomputed=False,
+                    )
+                if not daily_index_df.empty:
+                    daily_close_levels = _daily_close_levels_from_session_returns(
+                        rel_df,
+                        daily_index_df,
+                        daily_value_column="index_value",
+                        output_column="index_level",
+                    )
+
+                benchmark_bases = {}
+                for symbol in ("QQQ", "NVDA"):
+                    close_column = f"{symbol.lower()}_level"
+                    if close_column not in rel_df or rel_df[close_column].isna().all():
+                        continue
+                    intraday_bench = (
+                        session.query(PriceBar.adj_close)
+                        .join(Company, Company.id == PriceBar.company_id)
+                        .filter(
+                            Company.symbol == symbol,
+                            PriceBar.provider == settings.market_data_provider,
+                            PriceBar.interval == "15m",
+                            PriceBar.bar_time >= start_date,
+                        )
+                        .order_by(PriceBar.bar_time.asc())
+                        .first()
+                    )
+                    if intraday_bench and intraday_bench[0]:
+                        benchmark_bases[symbol] = float(intraday_bench[0])
+
+                if benchmark_bases:
+                    benchmark_daily = pd.read_sql_query(
+                        session.query(PriceBar.date, Company.symbol, PriceBar.adj_close)
+                        .join(Company, Company.id == PriceBar.company_id)
+                        .filter(
+                            Company.symbol.in_(list(benchmark_bases)),
+                            PriceBar.provider == settings.market_data_provider,
+                            PriceBar.interval == "1d",
+                        )
+                        .order_by(PriceBar.date.asc())
+                        .statement,
+                        session.connection(),
+                    )
+                    if not benchmark_daily.empty:
+                        for symbol in benchmark_bases:
+                            level_column = f"{symbol.lower()}_level"
+                            symbol_daily = benchmark_daily[benchmark_daily["symbol"] == symbol].copy()
+                            if symbol_daily.empty:
+                                continue
+                            symbol_close_levels = _daily_close_levels_from_session_returns(
+                                rel_df,
+                                symbol_daily,
+                                daily_value_column="adj_close",
+                                output_column=level_column,
+                            )
+                            if symbol_close_levels.empty:
+                                continue
+                            if daily_close_levels.empty:
+                                daily_close_levels = symbol_close_levels.copy()
+                            else:
+                                daily_close_levels = daily_close_levels.merge(
+                                    symbol_close_levels,
+                                    on="date",
+                                    how="outer",
+                                )
 
         weights = get_index_weights(session, index_definition_id)
         symbols = list(weights)
@@ -149,6 +234,7 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
             "contrib_ytd": contrib_ytd,
             "constituent_count": len(symbols),
             "interval": interval,
+            "daily_close_levels": daily_close_levels,
         }
 
 
@@ -216,6 +302,60 @@ def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
     if value is None or pd.isna(value):
         return "n/a"
     return f"{value * 100:.{digits}f}%"
+
+
+def _daily_close_levels_from_session_returns(
+    intraday_frame: pd.DataFrame,
+    daily_frame: pd.DataFrame,
+    *,
+    daily_value_column: str,
+    output_column: str,
+) -> pd.DataFrame:
+    """Map official daily returns onto each session's intraday opening level."""
+    if (
+        intraday_frame.empty
+        or daily_frame.empty
+        or "date" not in intraday_frame
+        or "date" not in daily_frame
+        or output_column not in intraday_frame
+        or daily_value_column not in daily_frame
+    ):
+        return pd.DataFrame(columns=["date", output_column])
+
+    intraday = intraday_frame[["date", output_column]].copy()
+    intraday["session_date"] = pd.to_datetime(to_et_naive_series(intraday["date"])).dt.date
+    intraday[output_column] = pd.to_numeric(intraday[output_column], errors="coerce")
+    session_open_levels = (
+        intraday.dropna(subset=[output_column])
+        .sort_values("date")
+        .groupby("session_date", as_index=False)[output_column]
+        .first()
+    )
+    if session_open_levels.empty:
+        return pd.DataFrame(columns=["date", output_column])
+
+    daily = daily_frame[["date", daily_value_column]].copy()
+    daily["date"] = pd.to_datetime(daily["date"]).dt.date
+    daily[daily_value_column] = pd.to_numeric(daily[daily_value_column], errors="coerce")
+    daily = daily.dropna(subset=[daily_value_column]).sort_values("date")
+    daily["session_return"] = daily[daily_value_column] / daily[daily_value_column].shift(1) - 1.0
+
+    close_levels = session_open_levels.merge(
+        daily[["date", "session_return"]],
+        left_on="session_date",
+        right_on="date",
+        how="inner",
+    ).dropna(subset=["session_return"])
+    if close_levels.empty:
+        return pd.DataFrame(columns=["date", output_column])
+
+    close_levels[output_column] = close_levels[output_column] * (1.0 + close_levels["session_return"])
+    return pd.DataFrame(
+        {
+            "date": close_levels["session_date"],
+            output_column: close_levels[output_column],
+        }
+    )
 
 
 def _fmt_bps(value: float | None) -> str:
@@ -546,7 +686,7 @@ def render_dashboard() -> None:
         return
 
     # 1. Controls Bar (Top controls)
-    ctrl_col1, ctrl_col2 = st.columns([5, 3])
+    ctrl_col1, _, ctrl_col2 = st.columns([6, 3, 0.75])
     
     with ctrl_col1:
         index_options = load_index_options()
@@ -566,7 +706,7 @@ def render_dashboard() -> None:
 
     with ctrl_col2:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("Refresh", key="refresh_dashboard_btn", use_container_width=True):
+        if st.button("Refresh", key="refresh_dashboard_btn", use_container_width=False):
             load_dashboard_data.clear()
             load_intraday_core_return.clear()
             load_index_data.clear()
@@ -580,8 +720,8 @@ def render_dashboard() -> None:
 
     st.write("---")
 
-    # 3. Main Split (60/40 Split Columns)
-    left_col, right_col = st.columns([3, 2])
+    # 3. Main Split (70/30 Split Columns)
+    left_col, right_col = st.columns([7, 3])
     
     with left_col:
         st.subheader(f"📈 {selected_index_name} Performance")
@@ -618,14 +758,17 @@ def render_dashboard() -> None:
             power_val = latest_signals["power_signal"].dropna().iloc[0] if len(latest_signals["power_signal"].dropna()) > 0 else None
 
         # KPI 4: Top Opportunity
-        top_opp_display = "n/a"
+        top_opp_ticker = "n/a"
+        top_opp_score_display = ""
+        top_opp_color = "#8b949e"
         if "opportunity_score" in metrics_df.columns:
             valid_opps = metrics_df.dropna(subset=["opportunity_score"])
             if not valid_opps.empty:
                 top_opp_row = valid_opps.sort_values("opportunity_score", ascending=False).iloc[0]
-                top_opp_ticker = top_opp_row["symbol"]
+                top_opp_ticker = str(top_opp_row["symbol"])
                 top_opp_score = top_opp_row["opportunity_score"]
-                top_opp_display = f"{top_opp_ticker} ({top_opp_score:.0f})"
+                top_opp_color = "#3fb950" if top_opp_score >= 70 else "#f0b429" if top_opp_score >= 40 else "#f85149"
+                top_opp_score_display = f"{top_opp_score:.0f}"
 
         # KPI 5: Next Earnings
         next_earn_display = "n/a"
@@ -650,7 +793,12 @@ def render_dashboard() -> None:
                 unsafe_allow_html=True,
             )
             kpi_col4.markdown(
-                render_plain_metric_card("Top Opportunity", top_opp_display),
+                render_plain_metric_card_parts(
+                    "Top Opportunity",
+                    top_opp_ticker,
+                    top_opp_score_display,
+                    secondary_color=top_opp_color,
+                ),
                 unsafe_allow_html=True,
             )
             kpi_col5.markdown(
@@ -665,6 +813,12 @@ def render_dashboard() -> None:
             x_column = "date"
             if index_data.get("interval") == "15m":
                 rel_df["date"] = to_et_naive_series(rel_df["date"])
+                rel_df = append_market_close_markers(
+                    rel_df,
+                    index_data.get("daily_close_levels", pd.DataFrame()),
+                    value_columns=["index_level", "qqq_level", "nvda_level"],
+                    timeframe=tf,
+                )
                 rel_df["date_label"] = pd.to_datetime(rel_df["date"]).dt.strftime(
                     "%b %d, %Y %I:%M %p ET"
                 )
@@ -815,6 +969,8 @@ def render_dashboard() -> None:
                 
                 styled_opps = opps_view[["Ticker", "Company", "Drawdown %", "RSI 14", "Score", "Signal Explanation"]].style.map(
                     style_positive_green_negative_red, subset=["Drawdown %"]
+                ).map(
+                    style_score_traffic_light, subset=["Score"]
                 )
                 st.dataframe(
                     styled_opps,

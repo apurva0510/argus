@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import argparse
 
 
 def ensure_project_root_on_path() -> None:
@@ -9,12 +10,20 @@ def ensure_project_root_on_path() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Refresh persisted Index Lab values.")
+    parser.add_argument("--index-definition-id", type=int, default=None)
+    parser.add_argument("--all-active", action="store_true")
+    args = parser.parse_args()
+
     ensure_project_root_on_path()
     from argus.core.logging import configure_logging
-    from argus.pipelines.refresh_index import refresh_index
+    from argus.pipelines.refresh_index import refresh_all_indexes, refresh_index
 
     configure_logging()
-    result = refresh_index()
+    if args.all_active:
+        result = refresh_all_indexes()
+    else:
+        result = refresh_index(index_definition_id=args.index_definition_id)
     print(
         "Index refresh finished.",
         f"status={result['status']}",

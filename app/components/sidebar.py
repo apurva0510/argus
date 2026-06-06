@@ -75,7 +75,6 @@ def render_sidebar_navigation() -> None:
         return
     
     with st.sidebar:
-        st.write("---")
         st.subheader("🔍 Quick Ticker Detail")
         options = ["Select..."] + symbols
         selected_ticker = st.selectbox(
@@ -88,12 +87,12 @@ def render_sidebar_navigation() -> None:
             st.session_state.selected_ticker = selected_ticker
             st.switch_page("pages/3_Company_Detail.py")
 
-        st.write("---")
+        st.markdown("---")
         health_status, health_color = get_system_health_status()
         st.markdown(
             f"""
-            <div style='text-align: center; margin-top: 30px; padding: 10px 0;'>
-                <span style='background-color: rgba(22, 27, 34, 0.6); color: {health_color}; border: 1px solid {health_color}33; border-radius: 20px; padding: 6px 12px; font-size: 14px; font-weight: 600; white-space: nowrap;'>
+            <div style='text-align: left; margin-top: 8px; padding: 4px 0;'>
+                <span style='background-color: rgba(22, 27, 34, 0.6); color: {health_color}; border: 1px solid {health_color}33; border-radius: 20px; padding: 6px 12px; font-size: 14px; font-weight: 600; white-space: nowrap; display: inline-block;'>
                     {health_status}
                 </span>
             </div>

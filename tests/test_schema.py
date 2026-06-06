@@ -171,7 +171,7 @@ def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_
             text("SELECT name FROM index_definitions WHERE id = :definition_id"),
             {"definition_id": val},
         ).scalar_one()
-        assert definition_name == "AI Infra Core Equal Weight"
+        assert definition_name == "AI Infra Core"
     test_engine.dispose()
 
 

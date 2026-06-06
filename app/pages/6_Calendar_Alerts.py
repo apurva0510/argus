@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from html import escape
 import pandas as pd
 import streamlit as st
 
@@ -111,106 +112,135 @@ def _parse_job_time(val) -> str:
         return str(val)
 
 
+def _format_alert_config(config_val) -> str:
+    if config_val is None or pd.isna(config_val):
+        return "No extra parameters"
+    try:
+        cfg = config_val if isinstance(config_val, dict) else json.loads(config_val)
+    except Exception:
+        return str(config_val)
+    if not cfg:
+        return "No extra parameters"
+    return " · ".join(f"{key}: {value}" for key, value in cfg.items())
+
+
+def _render_alert_rule_card(row: pd.Series, target_html: str, config_text: str, last_trigger: str) -> str:
+    enabled = bool(row["is_enabled"])
+    status_class = "enabled" if enabled else "disabled"
+    status_label = "Enabled" if enabled else "Disabled"
+    return f"""
+    <div style="
+        background: linear-gradient(135deg, rgba(22, 27, 34, 0.4) 0%, rgba(17, 22, 29, 0.5) 100%);
+        border: 1px solid rgba(240, 246, 252, 0.1);
+        border-radius: 10px;
+        padding: 14px 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        margin-bottom: 8px;
+    ">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+            <div style="font-size:16px; font-weight:700; color:#f0f6fc;">{escape(str(row["name"]), quote=True)}</div>
+            <span class="alert-rule-status {status_class}">{status_label}</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; color:#c9d1d9; font-size:13px;">
+            <span style="color:#8b949e; font-weight:600; text-transform:uppercase; letter-spacing:0.6px;">{escape(str(row["rule_type"]), quote=True)}</span>
+            <span style="color:#484f58;">-></span>
+            <span>{target_html}</span>
+        </div>
+        <div style="margin-top:8px; color:#8b949e; font-size:12px;">{escape(config_text, quote=True)}</div>
+        <div style="margin-top:6px; color:#8b949e; font-size:12px;">Last triggered: {escape(last_trigger, quote=True)}</div>
+    </div>
+    """
+
+
 def _render_create_alert_form() -> None:
     st.markdown("### ➕ Create New Alert")
-    with st.form("create_alert_form", clear_on_submit=True):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            alert_name = st.text_input("Alert Name", placeholder="e.g., NVDA price drop alert")
-        with col_b:
-            rule_type = st.selectbox("Rule Type", options=RULE_TYPES)
+    col_a, col_b = st.columns(2)
+    with col_a:
+        alert_name = st.text_input("Alert Name", placeholder="e.g., NVDA price drop alert")
+    with col_b:
+        rule_type = st.selectbox("Rule Type", options=RULE_TYPES, key="alert_rule_type")
 
-        st.caption(RULE_DESCRIPTIONS.get(rule_type, ""))
+    st.caption(RULE_DESCRIPTIONS.get(rule_type, ""))
 
-        col_c, col_d = st.columns(2)
-        with col_c:
-            tickers = ["— None (use watchlist) —"] + get_company_options()
-            selected_ticker = st.selectbox("Target Company", options=tickers, key="alert_ticker")
-        with col_d:
-            st.caption("Or leave company blank to target a whole watchlist (future).")
+    tickers = ["— Select target company —"] + get_company_options()
+    selected_ticker = st.selectbox("Target Company", options=tickers, key="alert_ticker")
 
-        config = {}
-        if rule_type in ("price_below", "price_above"):
-            config["threshold"] = st.number_input(
-                "Price Threshold ($)", min_value=0.01, value=100.0, step=1.0
+    config = {}
+    if rule_type in ("price_below", "price_above"):
+        config["threshold"] = st.number_input(
+            "Price Threshold ($)", min_value=0.01, value=100.0, step=1.0
+        )
+    elif rule_type == "daily_move_gt":
+        config["threshold_pct"] = st.number_input(
+            "Move Threshold (%)", min_value=0.1, value=5.0, step=0.5
+        )
+    elif rule_type == "drawdown_52w_gt":
+        config["threshold_pct"] = st.number_input(
+            "Drawdown Threshold (%)", min_value=1.0, value=15.0, step=1.0
+        )
+    elif rule_type == "rsi_below":
+        config["threshold"] = st.number_input(
+            "RSI Threshold", min_value=1.0, max_value=100.0, value=30.0, step=1.0
+        )
+    elif rule_type in ("crossed_50dma", "crossed_200dma"):
+        config["direction"] = st.selectbox("Cross Direction", options=["any", "above", "below"])
+    elif rule_type == "new_sec_filing":
+        forms_input = st.text_input(
+            "Form Types (comma-separated, or leave blank for all)",
+            placeholder="e.g., 10-K, 8-K",
+        )
+        if forms_input.strip():
+            config["forms"] = [form.strip() for form in forms_input.split(",") if form.strip()]
+    elif rule_type == "news_keyword_match":
+        keywords_input = st.text_input(
+            "Keywords (comma-separated)", placeholder="e.g., AI infrastructure, data center"
+        )
+        if keywords_input.strip():
+            config["keywords"] = keywords_input
+    elif rule_type == "earnings_within_days":
+        config["days"] = st.number_input("Days Before Earnings", min_value=1, value=7, step=1)
+    elif rule_type == "entered_pullback_zone":
+        p_col1, p_col2, p_col3 = st.columns(3)
+        with p_col1:
+            config["min_drawdown_pct"] = st.number_input(
+                "Min Drawdown (%)", min_value=1.0, value=10.0, step=1.0
             )
-        elif rule_type == "daily_move_gt":
-            config["threshold_pct"] = st.number_input(
-                "Move Threshold (%)", min_value=0.1, value=5.0, step=0.5
+        with p_col2:
+            config["max_rsi"] = st.number_input(
+                "Max RSI", min_value=1.0, max_value=100.0, value=55.0, step=1.0
             )
-        elif rule_type == "drawdown_52w_gt":
-            config["threshold_pct"] = st.number_input(
-                "Drawdown Threshold (%)", min_value=1.0, value=15.0, step=1.0
+        with p_col3:
+            config["min_distance_from_200dma"] = st.number_input(
+                "Min Dist from 200DMA (%)", value=-5.0, step=1.0
             )
-        elif rule_type == "rsi_below":
-            config["threshold"] = st.number_input(
-                "RSI Threshold", min_value=1.0, max_value=100.0, value=30.0, step=1.0
-            )
-        elif rule_type in ("crossed_50dma", "crossed_200dma"):
-            config["direction"] = st.selectbox(
-                "Cross Direction", options=["any", "above", "below"]
-            )
-        elif rule_type == "new_sec_filing":
-            forms_input = st.text_input(
-                "Form Types (comma-separated, or leave blank for all)",
-                placeholder="e.g., 10-K, 8-K",
-            )
-            if forms_input.strip():
-                config["forms"] = [f.strip() for f in forms_input.split(",")]
-        elif rule_type == "news_keyword_match":
-            keywords_input = st.text_input(
-                "Keywords (comma-separated)", placeholder="e.g., AI infrastructure, data center"
-            )
-            if keywords_input.strip():
-                config["keywords"] = keywords_input
-        elif rule_type == "earnings_within_days":
-            config["days"] = st.number_input(
-                "Days Before Earnings", min_value=1, value=7, step=1
-            )
-        elif rule_type == "entered_pullback_zone":
-            p_col1, p_col2, p_col3 = st.columns(3)
-            with p_col1:
-                config["min_drawdown_pct"] = st.number_input(
-                    "Min Drawdown (%)", min_value=1.0, value=10.0, step=1.0
-                )
-            with p_col2:
-                config["max_rsi"] = st.number_input(
-                    "Max RSI", min_value=1.0, max_value=100.0, value=55.0, step=1.0
-                )
-            with p_col3:
-                config["min_distance_from_200dma"] = st.number_input(
-                    "Min Dist from 200DMA (%)", value=-5.0, step=1.0
-                )
 
-        submitted = st.form_submit_button("Create Alert", type="primary")
-        if submitted:
-            if not alert_name.strip():
-                st.error("Alert name is required.")
-            else:
-                company_id = None
-                if selected_ticker != "— None (use watchlist) —":
-                    from argus.services.company_service import get_company_by_symbol
-                    company_info = get_company_by_symbol(selected_ticker)
-                    if company_info:
-                        company_id = company_info["id"]
-
-                if company_id is None:
-                    st.error("Select a target company before creating an alert.")
-                else:
-                    try:
-                        create_alert(
-                            name=alert_name.strip(),
-                            rule_type=rule_type,
-                            company_id=company_id,
-                            config_json=config if config else None,
-                        )
-                    except ValueError as exc:
-                        st.error(str(exc))
-                    else:
-                        st.success(f"Alert '{alert_name}' created successfully!")
-                        load_alerts.clear()
-                        st.cache_data.clear()
-                        st.rerun()
+    if st.button("Create Alert", type="primary"):
+        if not alert_name.strip():
+            st.error("Alert name is required.")
+            return
+        if selected_ticker == "— Select target company —":
+            st.error("Select a target company before creating an alert.")
+            return
+        from argus.services.company_service import get_company_by_symbol
+        company_info = get_company_by_symbol(selected_ticker)
+        if not company_info:
+            st.error("Selected company was not found.")
+            return
+        try:
+            create_alert(
+                name=alert_name.strip(),
+                rule_type=rule_type,
+                company_id=company_info["id"],
+                config_json=config if config else None,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Alert '{alert_name}' created successfully.")
+            load_alerts.clear()
+            st.cache_data.clear()
+            st.rerun()
+    return
 
 
 def _render_active_alerts() -> None:
@@ -220,37 +250,55 @@ def _render_active_alerts() -> None:
         st.info("No alert rules defined yet. Use the form below to create one.")
         return
 
+    st.markdown(
+        """
+        <style>
+        .alert-rule-status {
+            display: inline-flex;
+            align-items: center;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 3px 8px;
+            border-radius: 12px;
+        }
+        .alert-rule-status.enabled {
+            color: #3fb950;
+            background: rgba(46, 160, 67, 0.12);
+            border: 1px solid rgba(46, 160, 67, 0.2);
+        }
+        .alert-rule-status.disabled {
+            color: #8b949e;
+            background: rgba(139, 148, 158, 0.12);
+            border: 1px solid rgba(139, 148, 158, 0.2);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     for _, row in alerts_df.iterrows():
         alert_id = int(row["id"])
         enabled = bool(row["is_enabled"])
-        status_icon = "🟢" if enabled else "🔴"
         last_trigger = _parse_job_time(row.get("last_triggered_at"))
+        from app.auth_links import company_detail_url
+        ticker = row.get("ticker")
+        if ticker:
+            safe_ticker = escape(str(ticker), quote=True)
+            target_html = f'<a href="{company_detail_url(str(ticker))}" target="_self" style="color:#58a6ff; text-decoration:none; font-weight:700;">{safe_ticker}</a>'
+        else:
+            target_html = f'<span style="font-weight:700;">{escape(str(row.get("watchlist") or "All"), quote=True)}</span>'
+        config_str = _format_alert_config(row.get("config_json"))
 
         with st.container():
-            c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
+            c1, c2, c3 = st.columns([7, 1, 1])
             with c1:
-                from app.auth_links import company_detail_url
-                ticker = row.get("ticker")
-                if ticker:
-                    target_link = f"[{ticker}]({company_detail_url(ticker)})"
-                else:
-                    target_link = f"`{row.get('watchlist') or 'All'}`"
-                config_str = ""
-                if row.get("config_json"):
-                    try:
-                        cfg = row["config_json"] if isinstance(row["config_json"], dict) else json.loads(row["config_json"])
-                        config_str = " | ".join(f"{k}={v}" for k, v in cfg.items())
-                    except Exception:
-                        config_str = str(row["config_json"])
-
                 st.markdown(
-                    f"{status_icon} **{row['name']}** — `{row['rule_type']}` → {target_link}"
+                    _render_alert_rule_card(row, target_html, config_str, last_trigger),
+                    unsafe_allow_html=True,
                 )
-                if config_str:
-                    st.caption(f"Config: {config_str}")
             with c2:
-                st.caption(f"Last triggered: {last_trigger}")
-            with c3:
                 new_state = not enabled
                 btn_label = "Disable" if enabled else "Enable"
                 if st.button(btn_label, key=f"toggle_{alert_id}"):
@@ -258,7 +306,7 @@ def _render_active_alerts() -> None:
                     load_alerts.clear()
                     st.cache_data.clear()
                     st.rerun()
-            with c4:
+            with c3:
                 if st.button("🗑️", key=f"delete_{alert_id}"):
                     delete_alert(alert_id)
                     load_alerts.clear()
@@ -317,10 +365,9 @@ def render_page() -> None:
     earnings_df = load_earnings_calendar(today)
     macro_df = load_macro_calendar(today)
 
-    tab_earnings, tab_macro, tab_combined, tab_alert_rules, tab_alert_logs = st.tabs([
+    tab_earnings, tab_macro, tab_alert_rules, tab_alert_logs = st.tabs([
         "📅 Earnings Calendar",
         "🌍 Macro Release Calendar",
-        "🔀 Combined Calendar",
         "🔔 Alerts Manager",
         "📜 Delivery Logs",
     ])
@@ -370,59 +417,12 @@ def render_page() -> None:
                 }
             )
 
-    # 3. Combined Tab
-    with tab_combined:
-        st.subheader("Combined Events Timeline")
-        combined_events = []
-
-        if not earnings_df.empty:
-            for _, row in earnings_df.iterrows():
-                fp = f" ({row['fiscal_period']})" if row["fiscal_period"] else ""
-                combined_events.append({
-                    "Date": pd.to_datetime(row["event_date"]),
-                    "Type": "Earnings",
-                    "Symbol": row["symbol"],
-                    "Target / Description": f"{row['company_name']}{fp}",
-                    "Source": row["source"],
-                })
-
-        if not macro_df.empty:
-            for _, row in macro_df.iterrows():
-                combined_events.append({
-                    "Date": pd.to_datetime(row["release_date"]),
-                    "Type": "Macro Release",
-                    "Symbol": "",
-                    "Target / Description": f"{row['event_name']} ({row['series_code']})",
-                    "Source": "FRED API",
-                })
-
-        if not combined_events:
-            st.info("No upcoming calendar events recorded.")
-        else:
-            combined_df = pd.DataFrame(combined_events).sort_values("Date", ascending=True)
-            combined_df["Date"] = combined_df["Date"].dt.strftime("%Y-%m-%d")
-            from app.auth_links import company_detail_url
-            combined_df["Symbol"] = combined_df["Symbol"].apply(lambda s: company_detail_url(s) if s else "")
-            
-            st.dataframe(
-                combined_df[["Date", "Type", "Symbol", "Target / Description", "Source"]],
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Date": "Date",
-                    "Type": "Event Type",
-                    "Symbol": st.column_config.LinkColumn("Symbol", display_text=r"ticker=([^&]+)"),
-                    "Target / Description": "Target / Description",
-                    "Source": "Source",
-                }
-            )
-
-    # 4. Alerts Manager Tab
+    # 3. Alerts Manager Tab
     with tab_alert_rules:
         _render_active_alerts()
         _render_create_alert_form()
 
-    # 5. Delivery Logs Tab
+    # 4. Delivery Logs Tab
     with tab_alert_logs:
         _render_alert_history()
 

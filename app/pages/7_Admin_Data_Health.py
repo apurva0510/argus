@@ -291,19 +291,9 @@ def render_page() -> None:
                 border-radius: 10px;
                 padding: 14px 16px;
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                 display: flex;
                 flex-direction: column;
                 justify-content: space-between;
-            }
-            .freshness-card:hover {
-                border-color: rgba(56, 139, 253, 0.4);
-                transform: translateY(-2px);
-                box-shadow: 0 6px 16px rgba(56, 139, 253, 0.1);
-            }
-            .freshness-card.stale:hover {
-                border-color: rgba(248, 81, 73, 0.4);
-                box-shadow: 0 6px 16px rgba(248, 81, 73, 0.1);
             }
             .freshness-card-header {
                 display: flex;

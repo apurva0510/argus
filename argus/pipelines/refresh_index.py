@@ -11,6 +11,7 @@ from argus.analytics.index_builder import (
     calculate_weighted_index,
     ensure_default_index_definition,
     get_index_weights,
+    list_index_definitions,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,4 +110,22 @@ def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
         "rows_read": rows_read,
         "rows_written": rows_written,
         "error_text": error_text,
+    }
+
+
+def refresh_all_indexes() -> dict[str, object]:
+    """Refresh every active index definition."""
+    with session_scope() as session:
+        definitions = list_index_definitions(session)
+        definition_ids = [definition.id for definition in definitions]
+
+    results = [refresh_index(index_definition_id=definition_id) for definition_id in definition_ids]
+    failed = [result for result in results if result["status"] != "success"]
+    return {
+        "status": "failed" if failed else "success",
+        "definitions": len(results),
+        "rows_read": sum(int(result["rows_read"] or 0) for result in results),
+        "rows_written": sum(int(result["rows_written"] or 0) for result in results),
+        "error_text": "; ".join(str(result["error_text"]) for result in failed if result["error_text"]) or None,
+        "results": results,
     }

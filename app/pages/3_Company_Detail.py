@@ -7,7 +7,11 @@ import plotly.graph_objects as go
 
 from app.components.sidebar import render_sidebar_navigation
 
-from argus.analytics.market_hours import filter_latest_market_sessions, MARKET_TZ
+from argus.analytics.market_hours import (
+    MARKET_TZ,
+    append_market_close_markers,
+    filter_latest_market_sessions,
+)
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
     build_relative_performance_frame,
@@ -85,6 +89,20 @@ def _to_et(val) -> datetime | None:
         return dt.tz_convert("America/New_York")
     except Exception:
         return None
+
+
+def _fmt_as_of_date(val) -> str:
+    if val is None or pd.isna(val):
+        return "n/a"
+    try:
+        dt = pd.to_datetime(val)
+    except Exception:
+        return str(val)
+    if getattr(dt, "tzinfo", None) is not None:
+        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
+    if isinstance(val, datetime) or (" " in str(val) or "T" in str(val)):
+        return dt.tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
+    return dt.strftime("%Y-%m-%d")
 
 
 @st.cache_data(ttl=300)
@@ -568,9 +586,13 @@ def render_company_detail() -> None:
                 if df_filtered.empty:
                     st.info("No regular-market price history available for this timeframe.")
                 else:
-                    # For 1D, append the official 4:00 PM closing bar if the session is complete
-                    if tf == "1D" and interval == "15m":
-                        df_filtered = _maybe_append_close_bar(df_filtered, df_daily_price, tf)
+                    if interval == "15m":
+                        df_filtered = append_market_close_markers(
+                            df_filtered,
+                            df_daily_price,
+                            value_columns=["adj_close"],
+                            timeframe=tf,
+                        )
 
                     x_column = "date"
                     if interval == "15m":
@@ -909,7 +931,8 @@ def render_company_detail() -> None:
                     f"- **Data Provider:** {fundamentals.get('provider')}", unsafe_allow_html=True
                 )
                 st.markdown(
-                    f"- **As of Date:** {fundamentals.get('as_of_date')}", unsafe_allow_html=True
+                    f"- **As of Date:** {_fmt_as_of_date(fundamentals.get('as_of_date'))}",
+                    unsafe_allow_html=True,
                 )
 
     with bottom_tabs[1]:

@@ -11,12 +11,12 @@ from app.auth_links import company_detail_url
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 from argus.core.timezones import ET, to_et
-from argus.services.company_service import get_company_options
 from argus.services.news_filings_service import (
     get_all_news_sources,
     get_filtered_filings,
     get_filtered_news,
 )
+from sqlalchemy import text
 
 
 @st.cache_resource
@@ -52,6 +52,85 @@ def load_filings(ticker, form, start_date, end_date) -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def load_sources() -> list[str]:
     return get_all_news_sources(get_db_engine())
+
+
+@st.cache_data(ttl=60)
+def load_feed_filter_options(
+    item_type: str,
+    start_date,
+    end_date,
+    selected_ticker: str = "All",
+) -> dict[str, list[str]]:
+    engine = get_db_engine()
+    news_ticker_sql = """
+        SELECT DISTINCT c.symbol
+        FROM news_items ni
+        JOIN news_mentions nm ON nm.news_id = ni.id
+        JOIN companies c ON c.id = nm.company_id
+        WHERE date(ni.published_at) >= :start_date
+          AND date(ni.published_at) <= :end_date
+    """
+    filing_ticker_sql = """
+        SELECT DISTINCT c.symbol
+        FROM sec_filings sf
+        JOIN companies c ON c.id = sf.company_id
+        WHERE sf.filing_date >= :start_date
+          AND sf.filing_date <= :end_date
+    """
+    forms_sql = """
+        SELECT DISTINCT sf.form
+        FROM sec_filings sf
+        JOIN companies c ON c.id = sf.company_id
+        WHERE sf.filing_date >= :start_date
+          AND sf.filing_date <= :end_date
+    """
+    sources_sql = """
+        SELECT DISTINCT ni.source_name
+        FROM news_items ni
+        LEFT JOIN news_mentions nm ON nm.news_id = ni.id
+        LEFT JOIN companies c ON c.id = nm.company_id
+        WHERE ni.source_name IS NOT NULL
+          AND date(ni.published_at) >= :start_date
+          AND date(ni.published_at) <= :end_date
+    """
+    params: dict[str, object] = {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
+    if selected_ticker != "All":
+        forms_sql += " AND c.symbol = :ticker"
+        sources_sql += " AND c.symbol = :ticker"
+        params["ticker"] = selected_ticker
+
+    with engine.connect() as conn:
+        ticker_frames = []
+        if item_type in ("All", "News Only"):
+            ticker_frames.append(pd.read_sql_query(text(news_ticker_sql), conn, params=params))
+        if item_type in ("All", "Filing Only"):
+            ticker_frames.append(pd.read_sql_query(text(filing_ticker_sql), conn, params=params))
+        ticker_options = (
+            sorted(pd.concat(ticker_frames, ignore_index=True)["symbol"].dropna().unique().tolist())
+            if ticker_frames
+            else []
+        )
+        form_options = (
+            pd.read_sql_query(text(forms_sql + " ORDER BY sf.form"), conn, params=params)["form"].dropna().tolist()
+            if item_type != "News Only"
+            else []
+        )
+        source_options = (
+            pd.read_sql_query(text(sources_sql + " ORDER BY ni.source_name"), conn, params=params)["source_name"]
+            .dropna()
+            .tolist()
+            if item_type != "Filing Only"
+            else []
+        )
+
+    return {
+        "tickers": ticker_options,
+        "forms": form_options,
+        "sources": source_options,
+    }
 
 
 def _sentiment_badge(score: float | None) -> str:
@@ -111,6 +190,22 @@ def _should_load_filings(
         and ((min_relevance is not None and min_relevance > 0) or sentiment_band != "All")
     )
     return item_type in ("All", "Filing Only") and selected_source == "All" and not news_only_filters_active
+
+
+def _news_only_filters_active(item_type: str) -> bool:
+    if item_type == "Filing Only":
+        return False
+    min_relevance = float(st.session_state.get("news_min_relevance_filter", 0.0) or 0.0)
+    sentiment_band = st.session_state.get("news_sentiment_band_filter", "All")
+    selected_source = st.session_state.get("news_source_filter", "All")
+    return min_relevance > 0 or sentiment_band != "All" or selected_source != "All"
+
+
+def _sec_only_filters_active(item_type: str) -> bool:
+    if item_type == "News Only":
+        return False
+    selected_form = st.session_state.get("news_form_filter", "All")
+    return selected_form != "All"
 
 
 def render_page() -> None:
@@ -190,38 +285,69 @@ def render_page() -> None:
     with st.expander("🔍 Filter Options", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
-            tickers = ["All"] + get_company_options()
-            selected_ticker = st.selectbox("Company / Ticker Filter", options=tickers)
-            item_type = st.selectbox("Item Type", options=["All", "News Only", "Filing Only"])
-        
+            item_type = st.selectbox(
+                "Item Type",
+                options=["All", "News Only", "Filing Only"],
+                key="news_item_type_filter",
+            )
+
         with col2:
             default_start = (datetime.now(UTC) - timedelta(days=30)).date()
             default_end = datetime.now(UTC).date()
             selected_start = st.date_input("Start Date", value=default_start)
             selected_end = st.date_input("End Date", value=default_end)
- 
+
+        base_filter_options = load_feed_filter_options(item_type, selected_start, selected_end)
+        tickers = ["All"] + base_filter_options["tickers"]
+        with col1:
+            selected_ticker = st.selectbox("Company / Ticker Filter", options=tickers)
+
+        filter_options = load_feed_filter_options(item_type, selected_start, selected_end, selected_ticker)
+        hide_sec_filters = _news_only_filters_active(item_type)
         with col3:
-            if item_type == "News Only":
+            if item_type == "News Only" or hide_sec_filters:
                 forms = ["All"]
                 selected_form = "All"
             else:
-                forms = ["All", "10-K", "10-Q", "8-K", "6-K", "20-F", "40-F"]
-                selected_form = st.selectbox("Form Type Filter", options=forms)
+                forms = ["All"] + filter_options["forms"]
+                selected_form = st.selectbox(
+                    "Form Type Filter",
+                    options=forms,
+                    key="news_form_filter",
+                )
 
-            if item_type == "Filing Only":
+            hide_news_filters = _sec_only_filters_active(item_type)
+            if item_type == "Filing Only" or hide_news_filters:
                 selected_source = "All"
                 min_relevance = 0.0
                 sentiment_band = "All"
             else:
-                sources = ["All"] + load_sources()
-                selected_source = st.selectbox("Filter by Source", options=sources)
+                sources = ["All"] + filter_options["sources"]
+                if st.session_state.get("news_source_filter") not in [None, *sources]:
+                    st.session_state.news_source_filter = "All"
+                selected_source = st.selectbox(
+                    "Filter by Source",
+                    options=sources,
+                    key="news_source_filter",
+                )
 
-        if item_type != "Filing Only":
+        if item_type != "Filing Only" and not hide_news_filters:
             col4, col5 = st.columns(2)
             with col4:
-                min_relevance = st.slider("Minimum Relevance", min_value=0.0, max_value=1.0, value=0.0, step=0.1)
+                min_relevance = st.slider(
+                    "Minimum Relevance",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.0,
+                    step=0.1,
+                    key="news_min_relevance_filter",
+                )
             with col5:
-                sentiment_band = st.selectbox("Sentiment Band", options=["All", "Positive", "Neutral", "Negative"])
+                sentiment_band = st.selectbox(
+                    "Sentiment Band",
+                    options=["All", "Positive", "Neutral", "Negative"],
+                    key="news_sentiment_band_filter",
+                )
         else:
             min_relevance = 0.0
             sentiment_band = "All"

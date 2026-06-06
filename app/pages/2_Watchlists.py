@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.auth_links import company_detail_url
 from app.components.sidebar import render_sidebar_navigation
+from app.auth_links import company_detail_url
 from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.seed import WATCH_STATUSES
@@ -45,24 +45,50 @@ def render_watchlists() -> None:
     render_sidebar_navigation()
     st.title("Watchlists")
 
-    theme_options_df = load_watchlist_table(get_watchlist_engine())
-    theme_options = sorted(theme_options_df["theme"].dropna().unique().tolist()) if not theme_options_df.empty else []
-    ticker_options = sorted(theme_options_df["ticker"].dropna().unique().tolist()) if not theme_options_df.empty else []
+    all_options_df = load_watchlist_table(get_watchlist_engine())
 
     top1, top2, top3 = st.columns([2, 2, 3])
-    with top1:
-        selected_theme = st.selectbox("Theme", ["All"] + theme_options)
     with top2:
         selected_statuses = st.multiselect(
             "Watch Status",
             sorted(WATCH_STATUSES),
             default=sorted(WATCH_STATUSES),
+            key="watchlist_status_filter",
         )
+
+    selected_ticker_state = st.session_state.get("watchlist_ticker_filter", [])
+    theme_options_df = all_options_df.copy()
+    if selected_statuses:
+        theme_options_df = theme_options_df[theme_options_df["watch_status"].isin(selected_statuses)]
+    if selected_ticker_state:
+        theme_options_df = theme_options_df[theme_options_df["ticker"].isin(selected_ticker_state)]
+    theme_options = sorted(theme_options_df["theme"].dropna().unique().tolist()) if not theme_options_df.empty else []
+    if st.session_state.get("watchlist_theme_filter") not in [None, "All", *theme_options]:
+        st.session_state.watchlist_theme_filter = "All"
+
+    with top1:
+        selected_theme = st.selectbox(
+            "Theme",
+            ["All"] + theme_options,
+            key="watchlist_theme_filter",
+        )
+
+    ticker_options_df = all_options_df.copy()
+    if selected_theme != "All":
+        ticker_options_df = ticker_options_df[ticker_options_df["theme"] == selected_theme]
+    if selected_statuses:
+        ticker_options_df = ticker_options_df[ticker_options_df["watch_status"].isin(selected_statuses)]
+    ticker_options = sorted(ticker_options_df["ticker"].dropna().unique().tolist()) if not ticker_options_df.empty else []
+    if selected_ticker_state:
+        st.session_state.watchlist_ticker_filter = [
+            ticker for ticker in selected_ticker_state if ticker in ticker_options
+        ]
     with top3:
         selected_tickers = st.multiselect(
             "Ticker Filter",
             options=ticker_options,
             placeholder="Select tickers...",
+            key="watchlist_ticker_filter",
         )
 
     if st.button("Refresh table"):
@@ -79,6 +105,7 @@ def render_watchlists() -> None:
         return
 
     editor_df = df.copy()
+    editor_df["ticker"] = editor_df["ticker"].apply(lambda t: company_detail_url(t) if t else "")
     editor_df["price"] = editor_df["price"].round(2)
     editor_df["1D %"] = editor_df["return_1d"].apply(_fmt_pct)
     editor_df["1W %"] = editor_df["return_1w"].apply(_fmt_pct)
@@ -113,22 +140,6 @@ def render_watchlists() -> None:
         ]
     ]
 
-    # Compact same-tab navigation
-    ticker_list = editor_df["ticker"].unique().tolist()
-    nav_ticker = st.selectbox(
-        "🔍 Jump to Company Detail",
-        ticker_list,
-        index=None,
-        placeholder="Select a ticker to view…",
-    )
-    if nav_ticker:
-        st.session_state.selected_ticker = nav_ticker
-        st.session_state.ticker_selector_selectbox = nav_ticker
-        st.switch_page("pages/3_Company_Detail.py")
-
-    # Format ticker as link for data editor
-    editor_df["ticker"] = editor_df["ticker"].apply(company_detail_url)
-
     styled_editor_df = editor_df.style.map(
         style_positive_green_negative_red,
         subset=["1D %", "1W %", "1M %", "3M %", "YTD %", "drawdown from 52W high"]
@@ -146,7 +157,7 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)"),
+            "ticker": st.column_config.LinkColumn("ticker", disabled=True, display_text=r"ticker=([^&]+)"),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True, format="$%.2f"),

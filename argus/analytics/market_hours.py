@@ -96,3 +96,73 @@ def filter_latest_market_sessions(
 
     result = result[result["_market_session_date"].isin(session_dates)].copy()
     return result.drop(columns=["_market_session_date"])
+
+
+def append_market_close_markers(
+    intraday_frame: pd.DataFrame,
+    daily_frame: pd.DataFrame,
+    *,
+    value_columns: list[str],
+    timeframe: str,
+    date_column: str = "date",
+    daily_date_column: str = "date",
+) -> pd.DataFrame:
+    """Append synthetic 4:00 PM ET close rows to completed intraday sessions.
+
+    The caller must pass intraday timestamps that are already ET-naive. The
+    daily frame should contain the official daily close values for the same
+    columns listed in ``value_columns``.
+    """
+    if (
+        timeframe not in {"1D", "5D"}
+        or intraday_frame.empty
+        or daily_frame.empty
+        or date_column not in intraday_frame.columns
+        or daily_date_column not in daily_frame.columns
+    ):
+        return intraday_frame
+
+    frame = intraday_frame.copy()
+    daily = daily_frame.copy()
+    frame[date_column] = pd.to_datetime(frame[date_column])
+    daily["_market_close_date"] = pd.to_datetime(daily[daily_date_column]).dt.date
+    today_et = pd.Timestamp.now(tz=MARKET_TZ).date()
+
+    rows_to_append = []
+    session_dates = sorted(frame[date_column].dt.date.dropna().unique())
+    if timeframe == "1D":
+        session_dates = session_dates[-1:]
+
+    for session_date in session_dates:
+        if session_date >= today_et:
+            continue
+        session_rows = frame[frame[date_column].dt.date == session_date]
+        if session_rows.empty:
+            continue
+        if pd.to_datetime(session_rows[date_column]).max().time() != time(15, 45):
+            continue
+        close_ts = pd.Timestamp(
+            session_date.year,
+            session_date.month,
+            session_date.day,
+            MARKET_CLOSE.hour,
+            MARKET_CLOSE.minute,
+        )
+        if (frame[date_column] == close_ts).any():
+            continue
+        daily_match = daily[daily["_market_close_date"] == session_date]
+        if daily_match.empty:
+            continue
+
+        close_row = {date_column: close_ts}
+        daily_row = daily_match.iloc[-1]
+        for column in value_columns:
+            if column in frame.columns and column in daily.columns:
+                close_row[column] = daily_row[column]
+        rows_to_append.append(close_row)
+
+    if not rows_to_append:
+        return intraday_frame
+
+    append_frame = pd.DataFrame(rows_to_append)
+    return pd.concat([frame, append_frame], ignore_index=True).sort_values(date_column).reset_index(drop=True)

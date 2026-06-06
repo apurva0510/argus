@@ -18,3 +18,18 @@ def style_positive_green_negative_red(val):
         elif val < 0:
             return "color: #f85149; font-weight: 600;"
     return ""
+
+
+def style_score_traffic_light(val):
+    """Color opportunity scores as red/yellow/green traffic-light bands."""
+    if val is None or pd.isna(val):
+        return ""
+    try:
+        score = float(str(val).strip())
+    except (TypeError, ValueError):
+        return ""
+    if score >= 70:
+        return "color: #3fb950; font-weight: 700;"
+    if score >= 40:
+        return "color: #f0b429; font-weight: 700;"
+    return "color: #f85149; font-weight: 700;"

@@ -16,7 +16,7 @@ from argus.services.pullback_finder_service import (
     get_filter_options,
     load_pullback_candidates,
 )
-from app.components.tables import style_positive_green_negative_red
+from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 
 
 @st.cache_resource
@@ -69,6 +69,16 @@ def render_explanation_card(ticker: str, company: str, explanation: str, score: 
     """
 
 
+def _filter_value(key: str) -> str:
+    value = st.session_state.get(key, "All")
+    return value if isinstance(value, str) else "All"
+
+
+def _reset_invalid_filter(key: str, options: list[str]) -> None:
+    if st.session_state.get(key) not in [None, "All", *options]:
+        st.session_state[key] = "All"
+
+
 def render_pullback_finder() -> None:
     render_sidebar_navigation()
     st.title("Pullback Finder")
@@ -105,23 +115,67 @@ def render_pullback_finder() -> None:
     if stale_reasons:
         st.warning("Data warning: " + " ".join(stale_reasons))
 
-    options = get_filter_options(candidates)
+    selected_sector_state = _filter_value("pullback_sector_filter")
+    selected_family_state = _filter_value("pullback_theme_family_filter")
+    selected_theme_state = _filter_value("pullback_theme_filter")
+
+    sector_base = apply_pullback_filters(
+        candidates,
+        theme_family=None if selected_family_state == "All" else selected_family_state,
+        theme=None if selected_theme_state == "All" else selected_theme_state,
+    )
+    sector_options = get_filter_options(sector_base)["sectors"]
+    _reset_invalid_filter("pullback_sector_filter", sector_options)
+    selected_sector_state = _filter_value("pullback_sector_filter")
+
+    family_base = apply_pullback_filters(
+        candidates,
+        sector=None if selected_sector_state == "All" else selected_sector_state,
+        theme=None if selected_theme_state == "All" else selected_theme_state,
+    )
+    family_options = get_filter_options(family_base)["theme_families"]
+    _reset_invalid_filter("pullback_theme_family_filter", family_options)
+    selected_family_state = _filter_value("pullback_theme_family_filter")
+
+    theme_base = apply_pullback_filters(
+        candidates,
+        sector=None if selected_sector_state == "All" else selected_sector_state,
+        theme_family=None if selected_family_state == "All" else selected_family_state,
+    )
+    theme_options = get_filter_options(theme_base)["themes"]
+    _reset_invalid_filter("pullback_theme_filter", theme_options)
 
     filter1, filter2, filter3, filter4 = st.columns(4)
     with filter1:
-        selected_sector = st.selectbox("Sector", ["All"] + options["sectors"])
+        selected_sector = st.selectbox(
+            "Sector",
+            ["All"] + sector_options,
+            key="pullback_sector_filter",
+        )
     with filter2:
         selected_theme_family = st.selectbox(
             "Theme Family",
-            ["All"] + options["theme_families"],
+            ["All"] + family_options,
+            key="pullback_theme_family_filter",
         )
     with filter3:
-        selected_theme = st.selectbox("Theme", ["All"] + options["themes"])
+        selected_theme = st.selectbox(
+            "Theme",
+            ["All"] + theme_options,
+            key="pullback_theme_filter",
+        )
     with filter4:
+        status_base = apply_pullback_filters(
+            candidates,
+            sector=None if selected_sector == "All" else selected_sector,
+            theme_family=None if selected_theme_family == "All" else selected_theme_family,
+            theme=None if selected_theme == "All" else selected_theme,
+        )
+        status_options = sorted(status_base["watch_status"].dropna().unique().tolist()) if "watch_status" in status_base else sorted(WATCH_STATUSES)
         selected_statuses = st.multiselect(
             "Watch Status",
-            sorted(WATCH_STATUSES),
-            default=sorted(WATCH_STATUSES),
+            status_options,
+            default=status_options,
         )
 
     filter4, filter5, filter6 = st.columns(3)
@@ -190,6 +244,9 @@ def render_pullback_finder() -> None:
     styled_table_df = table_df.style.map(
         style_positive_green_negative_red,
         subset=["drawdown", "200DMA", "vs QQQ 3M"]
+    ).map(
+        style_score_traffic_light,
+        subset=["score"],
     )
     event = st.dataframe(
         styled_table_df,

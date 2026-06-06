@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from argus.core.models import Company
+from argus.core.models import Company, CompanyThemeExposure, Theme
 from argus.analytics.index_builder import (
     INDEX_MODE_MANUAL,
     list_index_definitions,
@@ -12,7 +12,6 @@ from argus.analytics.index_builder import (
     calculate_theme_concentration,
     calculate_top_contributors_for_definition,
     get_index_constituent_table,
-    get_default_index_symbols,
     create_index_definition,
     validate_manual_weights,
 )
@@ -42,6 +41,12 @@ def get_index_preview_data(
         use_precomputed=True,
     )
     if index_df.empty:
+        index_df = calculate_weighted_index(
+            session,
+            definition_id=index_definition_id,
+            use_precomputed=False,
+        )
+    if index_df.empty:
         return {
             "index_df": pd.DataFrame(),
             "rel_df": pd.DataFrame(),
@@ -60,7 +65,7 @@ def get_index_preview_data(
     elif timeframe == "1Y":
         start_date = (latest_point - pd.Timedelta(days=365)).date()
     else:
-        start_date = pd.to_datetime(index_df["date"]).min()
+        start_date = pd.to_datetime(index_df["date"]).min().date()
 
     rel_df = calculate_relative_performance(session, index_df, start_date)
     if not rel_df.empty:
@@ -87,24 +92,48 @@ def get_index_preview_data(
 
 
 def get_candidate_weights_data(session: Session) -> pd.DataFrame:
-    """Fetch default companies universe with initial equal weights assigned."""
-    default_symbols = set(get_default_index_symbols(session))
-    companies = (
-        session.query(Company)
-        .filter(Company.is_active.is_(True), Company.symbol.in_(default_symbols))
-        .order_by(Company.symbol.asc())
+    """Fetch active non-hyperscaler, non-benchmark companies for index creation."""
+    rows = (
+        session.query(
+            Company.id,
+            Company.symbol,
+            Company.name,
+            Theme.name.label("theme_name"),
+        )
+        .outerjoin(CompanyThemeExposure, CompanyThemeExposure.company_id == Company.id)
+        .outerjoin(Theme, Theme.id == CompanyThemeExposure.theme_id)
+        .filter(
+            Company.is_active.is_(True),
+            Company.is_benchmark.is_(False),
+            Company.is_hyperscaler.is_(False),
+        )
+        .order_by(Company.symbol.asc(), Theme.name.asc())
         .all()
     )
+    companies: dict[int, dict[str, object]] = {}
+    for row in rows:
+        company = companies.setdefault(
+            row.id,
+            {
+                "symbol": row.symbol,
+                "name": row.name,
+                "themes": set(),
+            },
+        )
+        if row.theme_name:
+            company["themes"].add(row.theme_name)
+
     weight = 100.0 / len(companies) if companies else 0.0
     return pd.DataFrame(
         [
             {
                 "Include": True,
-                "Ticker": company.symbol,
-                "Company": company.name,
+                "Ticker": company["symbol"],
+                "Company": company["name"],
+                "Theme": ", ".join(sorted(company["themes"])) if company["themes"] else "n/a",
                 "Weight %": weight,
             }
-            for company in companies
+            for company in companies.values()
         ]
     )
 

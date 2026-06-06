@@ -192,7 +192,11 @@ def _migrate_postgres_index_values(database_engine: Engine) -> None:
 
 
 def _ensure_default_index_definition(database_engine: Engine) -> None:
-    from argus.analytics.index_builder import DEFAULT_INDEX_NAME, INDEX_MODE_EQUAL
+    from argus.analytics.index_builder import (
+        DEFAULT_INDEX_NAME,
+        INDEX_MODE_EQUAL,
+        LEGACY_DEFAULT_INDEX_NAME,
+    )
 
     with Session(database_engine) as session:
         definition = (
@@ -200,6 +204,14 @@ def _ensure_default_index_definition(database_engine: Engine) -> None:
             .filter(IndexDefinition.name == DEFAULT_INDEX_NAME)
             .one_or_none()
         )
+        if definition is None:
+            definition = (
+                session.query(IndexDefinition)
+                .filter(IndexDefinition.name == LEGACY_DEFAULT_INDEX_NAME)
+                .one_or_none()
+            )
+            if definition is not None:
+                definition.name = DEFAULT_INDEX_NAME
         if definition is None:
             definition = IndexDefinition(
                 name=DEFAULT_INDEX_NAME,

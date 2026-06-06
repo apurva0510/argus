@@ -179,6 +179,36 @@ def test_dashboard_short_index_ranges_exclude_non_market_intraday_bars(
     assert res["rel_df"].iloc[-1]["index_level"] == pytest.approx(105.0)
 
 
+def test_dashboard_daily_close_level_uses_session_return_not_absolute_daily_scale() -> None:
+    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
+    intraday = pd.DataFrame(
+        {
+            "date": [
+                datetime(2026, 6, 4, 13, 30),
+                datetime(2026, 6, 4, 19, 45),
+            ],
+            "index_level": [100.0, 101.0],
+        }
+    )
+    daily = pd.DataFrame(
+        {
+            "date": [date(2026, 6, 3), date(2026, 6, 4)],
+            "index_value": [250.0, 252.5],
+        }
+    )
+
+    close_levels = dashboard_module._daily_close_levels_from_session_returns(
+        intraday,
+        daily,
+        daily_value_column="index_value",
+        output_column="index_level",
+    )
+
+    assert close_levels.to_dict("records") == [
+        {"date": date(2026, 6, 4), "index_level": pytest.approx(101.0)}
+    ]
+
+
 def test_dashboard_1d_range_uses_latest_market_session_only(
     sqlite_engine,
     monkeypatch,
@@ -439,6 +469,13 @@ def test_company_detail_latest_price_ignores_stale_intraday_data() -> None:
     assert detail_module._latest_price_from_history(daily, intraday) == 155.0
 
 
+def test_company_detail_as_of_date_formats_timestamp_in_et() -> None:
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    assert detail_module._fmt_as_of_date("2026-06-06T01:30:00Z") == "2026-06-05 09:30 PM ET"
+    assert detail_module._fmt_as_of_date(date(2026, 6, 5)) == "2026-06-05"
+
+
 def test_company_detail_latest_price_uses_current_intraday_data() -> None:
     detail_module = importlib.import_module("app.pages.3_Company_Detail")
 
@@ -645,4 +682,3 @@ def test_company_detail_load_index_relative_returns_intraday(
     assert rel_returns.iloc[0]["index_ret"] == pytest.approx(0.0)
     assert rel_returns.iloc[1]["index_ret"] == pytest.approx(5.0)
     assert rel_returns.iloc[2]["index_ret"] == pytest.approx(10.0)
-

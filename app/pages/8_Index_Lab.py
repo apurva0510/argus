@@ -7,6 +7,7 @@ import streamlit as st
 from sqlalchemy.orm import sessionmaker
 
 from app.auth_links import company_detail_url
+from app.components.metrics import render_plain_metric_card, render_plain_metric_card_parts
 from app.components.sidebar import render_sidebar_navigation
 from app.components.tables import style_positive_green_negative_red
 from argus.analytics.index_builder import (
@@ -200,79 +201,6 @@ def render_index_lab() -> None:
     created_at = selected["created_at"]
     created_label = format_et_datetime(created_at, fmt="%Y-%m-%d %I:%M %p ET") if created_at else "n/a"
 
-    def _index_card(label: str, primary: str, secondary: str = "") -> str:
-        secondary_html = (
-            f'<span class="ix-card-sub">{secondary}</span>' if secondary else ""
-        )
-        return f"""
-        <div class="ix-card">
-            <div class="ix-card-label">{label}</div>
-            <div class="ix-card-value">
-                <span class="ix-card-primary">{primary}</span>
-                {secondary_html}
-            </div>
-        </div>
-        """
-
-    st.markdown(
-        """
-        <style>
-        .ix-card-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin: 12px 0 20px 0;
-        }
-        .ix-card {
-            background: linear-gradient(135deg, rgba(22,27,34,0.4) 0%, rgba(17,22,29,0.5) 100%);
-            border: 1px solid rgba(240,246,252,0.1);
-            border-radius: 10px;
-            padding: 14px 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-        .ix-card:hover {
-            border-color: rgba(56,139,253,0.4);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(56,139,253,0.1);
-        }
-        .ix-card-label {
-            font-size: 11px;
-            color: #8b949e;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            margin-bottom: 10px;
-        }
-        .ix-card-value {
-            display: flex;
-            align-items: baseline;
-            flex-wrap: wrap;
-            gap: 4px;
-        }
-        .ix-card-primary {
-            font-size: 15px;
-            font-weight: 600;
-            color: #f0f6fc;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        }
-        .ix-card-sub {
-            font-size: 12px;
-            color: #8b949e;
-            font-weight: 400;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        }
-        @media (max-width: 768px) {
-            .ix-card-grid { grid-template-columns: 1fr; }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # Split Created timestamp into date + time parts for the secondary sub-label
     if created_label and created_label != "n/a":
         created_parts = created_label.split(" ", 1)
@@ -282,17 +210,21 @@ def render_index_lab() -> None:
         created_primary = "n/a"
         created_secondary = ""
 
-    st.markdown(
-        f"""
-        <div class="ix-card-grid">
-            {_index_card("Mode", _mode_label(str(selected["mode"])))}
-            {_index_card("Base Value", f"{float(selected['base_value']):.1f}")}
-            {_index_card("Created", created_primary, created_secondary)}
-        </div>
-        """,
+    card_col1, card_col2, card_col3 = st.columns(3)
+    card_col1.markdown(
+        render_plain_metric_card("Mode", _mode_label(str(selected["mode"])), value_font_size=21),
+        unsafe_allow_html=True,
+    )
+    card_col2.markdown(
+        render_plain_metric_card("Base Value", f"{float(selected['base_value']):.1f}", value_font_size=21),
+        unsafe_allow_html=True,
+    )
+    card_col3.markdown(
+        render_plain_metric_card_parts("Created", created_primary, created_secondary, value_font_size=21),
         unsafe_allow_html=True,
     )
 
+    st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
     timeframe = st.radio(
         "Preview Timeframe",
         ["1M", "3M", "6M", "1Y", "All"],
@@ -315,7 +247,7 @@ def render_index_lab() -> None:
         st.caption("Saved definitions are immutable. Changes create a new definition.")
         candidates = load_candidate_weights()
         if candidates.empty:
-            st.info("No default AI Infra Core candidates found.")
+            st.info("No active companies found.")
             return
 
         mode_label = st.selectbox(
@@ -344,7 +276,11 @@ def render_index_lab() -> None:
             st.info("Manual weight uses the Weight % column and requires included weights to total 100%.")
 
         manual_mode = mode == INDEX_MODE_MANUAL
-        disabled_columns = ["Ticker", "Company"] if manual_mode else ["Ticker", "Company", "Weight %"]
+        disabled_columns = (
+            ["Ticker", "Company", "Theme"]
+            if manual_mode
+            else ["Ticker", "Company", "Theme", "Weight %"]
+        )
 
         with st.form("create_index_definition_form"):
             name = st.text_input("Definition Name", value="")
