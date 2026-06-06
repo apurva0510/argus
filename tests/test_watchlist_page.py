@@ -1,6 +1,5 @@
 import importlib
 import pandas as pd
-import pytest
 
 
 def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
