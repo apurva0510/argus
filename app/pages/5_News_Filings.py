@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from html import escape
+from textwrap import dedent
 import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
+from argus.core.timezones import ET, to_et
 from argus.services.company_service import get_company_options
 from argus.services.news_filings_service import (
     get_all_news_sources,
@@ -75,24 +78,37 @@ def _ticker_badges(tickers_str: str | None) -> str:
     for t in sorted(tickers_str.split(",")):
         t_clean = t.strip()
         if t_clean:
+            ticker = escape(t_clean, quote=True)
             badges.append(
-                f'<a href="/Company_Detail?ticker={t_clean}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 4px;">{t_clean}</a>'
+                f'<a href="/Company_Detail?ticker={ticker}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 4px;">{ticker}</a>'
             )
     return "".join(badges)
 
 
 def _to_et(val) -> datetime | None:
-    if val is None or pd.isna(val):
-        return None
-    try:
-        dt = pd.to_datetime(val)
-        if dt.tz is None:
-            dt = dt.tz_localize("UTC")
-        else:
-            dt = dt.tz_convert("UTC")
-        return dt.tz_convert("America/New_York")
-    except Exception:
-        return None
+    return to_et(val)
+
+
+def _html(value: object) -> str:
+    return escape("" if value is None or pd.isna(value) else str(value), quote=True)
+
+
+def _html_block(markup: str) -> str:
+    return "\n".join(line for line in dedent(markup).splitlines() if line.strip()).strip()
+
+
+def _should_load_filings(
+    *,
+    item_type: str,
+    selected_source: str,
+    min_relevance: float | None,
+    sentiment_band: str,
+) -> bool:
+    news_only_filters_active = (
+        item_type != "Filing Only"
+        and ((min_relevance is not None and min_relevance > 0) or sentiment_band != "All")
+    )
+    return item_type in ("All", "Filing Only") and selected_source == "All" and not news_only_filters_active
 
 
 def render_page() -> None:
@@ -209,7 +225,6 @@ def render_page() -> None:
             sentiment_band = "All"
 
     search_keyword = st.text_input("📝 Search headlines, summary or keywords")
-
     news_df = pd.DataFrame()
     filings_df = pd.DataFrame()
 
@@ -224,8 +239,15 @@ def render_page() -> None:
             min_relevance if min_relevance > 0 else None,
             sentiment_band,
         )
-    # SEC filings do not have news sources. If a specific news source filter is active, do not load filings.
-    if item_type in ("All", "Filing Only") and selected_source == "All":
+    # SEC filings do not have news source/relevance/sentiment fields.
+    if (
+        _should_load_filings(
+            item_type=item_type,
+            selected_source=selected_source,
+            min_relevance=min_relevance,
+            sentiment_band=sentiment_band,
+        )
+    ):
         filings_df = load_filings(
             selected_ticker,
             selected_form,
@@ -267,10 +289,9 @@ def render_page() -> None:
                 ts = _to_et(row["acceptance_datetime"])
             else:
                 dt = pd.to_datetime(row["filing_date"])
-                ts = dt.tz_localize("America/New_York")
+                ts = dt.tz_localize(ET).to_pydatetime()
 
-            from zoneinfo import ZoneInfo
-            now_ny = datetime.now(ZoneInfo("America/New_York"))
+            now_ny = datetime.now(ET)
             is_new = (now_ny - ts) <= timedelta(hours=24) if ts is not None else False
 
             combined_items.append({
@@ -285,7 +306,10 @@ def render_page() -> None:
             })
 
     # Sort descending
-    combined_items.sort(key=lambda x: x["timestamp"], reverse=True)
+    combined_items.sort(
+        key=lambda x: x["timestamp"] or datetime.min.replace(tzinfo=ET),
+        reverse=True,
+    )
 
     if not combined_items:
         st.info("No items found matching the current filters.")
@@ -293,62 +317,85 @@ def render_page() -> None:
 
     # Render unified list
     for item in combined_items:
-        time_str = item["timestamp"].strftime("%b %d, %Y %I:%M %p")
+        time_str = (
+            item["timestamp"].strftime("%b %d, %Y %I:%M %p ET")
+            if item["timestamp"]
+            else "Unknown time"
+        )
         
         if item["type"] == "news":
             sentiment_html = _sentiment_badge(item["sentiment_score"])
             relevance_html = _relevance_badge(item["relevance_score"])
             tickers_html = _ticker_badges(item["tickers"])
+            title = _html(item["title"])
+            summary = _html(item["summary"])
+            source_name = _html(item["source_name"])
+            provider = _html(item["provider"]).upper()
+            url = _html(item["url"])
             
             st.markdown(
-                f"""
+                _html_block(
+                    f"""
                 <div class="feed-card">
                     <div class="feed-header">
                         <div>
                             <span class="type-badge-news">News</span>
-                            <span style="margin-left: 8px; font-weight: bold; color: #58a6ff;">{item['source_name']}</span>
+                            <span style="margin-left: 8px; font-weight: bold; color: #58a6ff;">{source_name}</span>
                         </div>
                         <span style="font-size: 13px; color: #8b949e;">{time_str}</span>
                     </div>
-                    <div class="feed-title"><a href="{item['url']}" target="_blank" style="color: #c9d1d9; text-decoration: none;">{item['title']}</a></div>
-                    <div class="feed-summary">{item['summary'] or ''}</div>
+                    <div class="feed-title"><a href="{url}" target="_blank" style="color: #c9d1d9; text-decoration: none;">{title}</a></div>
+                    <div class="feed-summary">{summary}</div>
                     <div class="feed-badges">
                         {tickers_html}
                         {sentiment_html}
                         {relevance_html}
-                        <span style="font-size: 12px; color: #8b949e; margin-left: auto;">Provider: {item['provider'].upper()}</span>
+                        <span style="font-size: 12px; color: #8b949e; margin-left: auto;">Provider: {provider}</span>
                     </div>
                 </div>
-                """,
+                """
+                ),
                 unsafe_allow_html=True,
             )
             
         else:
             new_star = "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>" if item["is_new"] else ""
-            ticker_badge = f'<a href="/Company_Detail?ticker={item["ticker"]}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px;">{item["ticker"]}</a>'
+            ticker = _html(item["ticker"])
+            company_name = _html(item["company_name"])
+            form = _html(item["form"])
+            filing_detail_url = _html(item["filing_detail_url"])
+            primary_doc_url = _html(item["primary_doc_url"])
+            ticker_badge = f'<a href="/Company_Detail?ticker={ticker}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px;">{ticker}</a>'
+            raw_document_link = (
+                f'<a href="{primary_doc_url}" target="_blank" style="background: rgba(139, 148, 158, 0.15); color: #c9d1d9; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">Raw SEC Document</a>'
+                if primary_doc_url
+                else ""
+            )
             
             st.markdown(
-                f"""
+                _html_block(
+                    f"""
                 <div class="feed-card">
                     <div class="feed-header">
                         <div>
                             <span class="type-badge-filing">SEC Filing</span>
-                            <span style="margin-left: 8px; font-weight: bold; color: #f78166;">{item['form']}</span>
+                            <span style="margin-left: 8px; font-weight: bold; color: #f78166;">{form}</span>
                         </div>
                         <span style="font-size: 13px; color: #8b949e;">{time_str}</span>
                     </div>
                     <div class="feed-title" style="color: #c9d1d9;">
                         {new_star}
                         {ticker_badge}
-                        <strong>{item['company_name']}</strong>
+                        <strong>{company_name}</strong>
                     </div>
-                    <div class="feed-summary">Official {item['form']} filing submitted to the SEC.</div>
+                    <div class="feed-summary">Official {form} filing submitted to the SEC.</div>
                     <div class="feed-badges">
-                        <a href="{item['filing_detail_url']}" target="_blank" style="background: rgba(139, 148, 158, 0.15); color: #c9d1d9; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">Filing Index</a>
-                        <a href="{item['primary_doc_url']}" target="_blank" style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">View Document</a>
+                        <a href="{filing_detail_url}" target="_blank" style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">SEC Filing Page</a>
+                        {raw_document_link}
                     </div>
                 </div>
-                """,
+                """
+                ),
                 unsafe_allow_html=True,
             )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import pandas as pd
+import numpy as np
 from sqlalchemy.orm import Session
 from argus.analytics.market_hours import filter_regular_market_hours
 from argus.core.models import Company, PriceBar, IndexValue
@@ -226,6 +227,10 @@ def calculate_top_contributors(
         return pd.DataFrame(columns=["symbol", "name", "return", "contribution"])
 
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["adj_close"] = pd.to_numeric(df["adj_close"], errors="coerce")
+    df = df.replace([np.inf, -np.inf], pd.NA).dropna(subset=["adj_close"])
+    if df.empty:
+        return pd.DataFrame(columns=["symbol", "name", "return", "contribution"])
 
     active_symbols = df["symbol"].unique()
     n_constituents = len(active_symbols)
@@ -242,19 +247,17 @@ def calculate_top_contributors(
     records = []
     for sym in active_symbols:
         sym_df = df[df["symbol"] == sym].sort_values("date")
-        if sym_df.empty:
+        if len(sym_df) < 2:
             continue
         start_row = sym_df.iloc[0]
         end_row = sym_df.iloc[-1]
 
-        if start_row["date"] == end_row["date"]:
-            ret = 0.0
+        base_price = start_row["adj_close"]
+        end_price = end_row["adj_close"]
+        if base_price and base_price > 0 and pd.notna(end_price):
+            ret = (end_price / base_price) - 1.0
         else:
-            base_price = start_row["adj_close"]
-            if base_price and base_price != 0:
-                ret = (end_row["adj_close"] / base_price) - 1.0
-            else:
-                ret = 0.0
+            continue
 
         contrib = ret / n_constituents
         records.append(
@@ -266,7 +269,7 @@ def calculate_top_contributors(
             }
         )
 
-    res_df = pd.DataFrame(records)
+    res_df = pd.DataFrame(records, columns=["symbol", "name", "return", "contribution"])
     if not res_df.empty:
         res_df = res_df.sort_values("contribution", ascending=False)
     return res_df

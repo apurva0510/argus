@@ -1,6 +1,6 @@
 # Argus Daily Refresh — GitHub Actions Workflow
 #
-# Runs the daily close pipeline (prices → macro → metrics → scores → index → filings → alerts)
+# Runs the daily close pipeline (prices → macro → metrics → scores → index → alerts)
 # against a Supabase Postgres database on a weekday schedule.
 #
 # Required repository secrets:
@@ -16,9 +16,10 @@ name: Daily Close Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. These two UTC times cover 5:30 PM ET in both
-    # EDT and EST; the Python gate below is the source of truth.
-    - cron: "30 21,22 * * 1-5"
+    # GitHub cron is UTC-only. These two UTC times cover the target 4:41 PM ET
+    # daily-close run in both EDT and EST; the Python gate below is the source
+    # of truth for the requested 4:30-5:30 PM ET weekday window.
+    - cron: "41 20,21 * * 1-5"
   workflow_dispatch: {}
 
 
@@ -59,8 +60,8 @@ jobs:
           is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
           now_et = datetime.now(ZoneInfo("America/New_York"))
           is_weekday = now_et.weekday() < 5
-          start = time(17, 30)
-          end = time(18, 0)
+          start = time(16, 30)
+          end = time(17, 30)
           in_window = is_weekday and (start <= now_et.time() < end)
           run_job = is_manual or in_window
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
@@ -94,4 +95,4 @@ jobs:
 
       - name: Run daily refresh
         if: steps.daily_close_window.outputs.run_job == 'true'
-        run: python scripts/run_daily_refresh.py --period 2y --skip-news
+        run: python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings

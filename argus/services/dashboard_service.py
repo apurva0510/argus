@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
 
 from argus.core.db import session_scope
@@ -20,6 +20,7 @@ from argus.core.models import (
     WatchlistItem,
 )
 from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS, AI_INFRA_CORE_INDEX_SYMBOLS
+from argus.analytics.market_hours import filter_regular_market_hours, market_session_date
 from argus.services.macro_capex_service import load_macro_capex_context_from_engine
 
 STALE_DAYS_THRESHOLD = 3
@@ -321,6 +322,71 @@ def summarize_core_returns(metrics_df: pd.DataFrame) -> dict[str, float | None]:
         "return_1w": _mean_or_none(core_metrics, "return_1w"),
         "return_1m": _mean_or_none(core_metrics, "return_1m"),
     }
+
+
+def calculate_intraday_core_return_from_engine(engine: Engine) -> float | None:
+    with engine.connect() as conn:
+        price_df = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    c.symbol,
+                    pb.bar_time,
+                    pb.adj_close
+                FROM price_bars pb
+                JOIN companies c ON c.id = pb.company_id
+                WHERE c.is_active = TRUE
+                    AND c.symbol IN :symbols
+                    AND pb.provider = :provider
+                    AND pb.interval = '15m'
+                    AND pb.adj_close IS NOT NULL
+                ORDER BY pb.bar_time ASC
+                """
+            ).bindparams(bindparam("symbols", expanding=True)),
+            conn,
+            params={
+                "provider": settings.market_data_provider,
+                "symbols": sorted(AI_INFRA_CORE_INDEX_SYMBOLS),
+            },
+        )
+
+    return calculate_intraday_core_return(price_df)
+
+
+def calculate_intraday_core_return(price_df: pd.DataFrame) -> float | None:
+    if price_df.empty or not {"symbol", "bar_time", "adj_close"}.issubset(price_df.columns):
+        return None
+
+    df = price_df.copy()
+    df["bar_time"] = pd.to_datetime(df["bar_time"])
+    df["adj_close"] = pd.to_numeric(df["adj_close"], errors="coerce")
+    df = df.dropna(subset=["bar_time", "adj_close"])
+    if df.empty:
+        return None
+
+    df = df.rename(columns={"bar_time": "date"})
+    df = filter_regular_market_hours(df, column="date")
+    if df.empty:
+        return None
+
+    df["session_date"] = pd.to_datetime(df["date"]).apply(market_session_date)
+    latest_session = df["session_date"].dropna().max()
+    if latest_session is None:
+        return None
+
+    session_df = df[df["session_date"] == latest_session].sort_values(["symbol", "date"])
+    returns: list[float] = []
+    for _symbol, sym_df in session_df.groupby("symbol"):
+        if len(sym_df) < 2:
+            continue
+        first_price = float(sym_df.iloc[0]["adj_close"])
+        latest_price = float(sym_df.iloc[-1]["adj_close"])
+        if first_price > 0:
+            returns.append((latest_price / first_price) - 1.0)
+
+    if not returns:
+        return None
+    return float(pd.Series(returns).mean(skipna=True))
 
 
 def rank_top_gainers(metrics_df: pd.DataFrame, *, limit: int = 5) -> pd.DataFrame:

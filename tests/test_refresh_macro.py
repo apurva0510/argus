@@ -80,6 +80,34 @@ def test_refresh_macro_records_partial_failure(sqlite_engine, monkeypatch) -> No
         assert "DGS30" in (job.error_text or "")
 
 
+def test_refresh_macro_uses_daily_eia_demand_route(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+
+    monkeypatch.setattr(settings, "eia_api_key", "test-key-123")
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_fetch_eia(route: str, **kwargs) -> pd.DataFrame:
+        captured["route"] = route
+        captured.update(kwargs)
+        return pd.DataFrame([{"observation_date": date(2026, 1, 1), "value": 5000.0}])
+
+    monkeypatch.setattr("argus.pipelines.refresh_macro.fetch_eia_series", fake_fetch_eia)
+
+    result = refresh_macro(series_codes=["EIA_ELEC_DEMAND"])
+
+    assert result["status"] == "success"
+    assert captured["route"] == "electricity/rto/daily-region-data"
+    assert captured["frequency"] == "daily"
+    assert captured["facets"] == {"respondent": ["US48"], "type": ["D"]}
+
+
 def test_parse_fred_csv_requires_series_column() -> None:
     with pytest.raises(ValueError, match="missing expected series"):
         parse_fred_csv("DGS10", "observation_date,OTHER\n2026-01-01,4.1\n")
@@ -173,5 +201,4 @@ def test_fetch_fred_series_official_api_json(monkeypatch) -> None:
 
     finally:
         settings.fred_api_key = original_key
-
 

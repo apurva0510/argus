@@ -14,17 +14,17 @@ from scripts.enable_rls import _quote_identifier
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_intraday_workflow_runs_every_30_minutes_through_5pm_et() -> None:
+def test_intraday_workflow_runs_every_30_minutes_during_market_hours_et() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "intraday-prices.yml").read_text(
         encoding="utf-8"
     )
 
     assert "GitHub cron is UTC-only" in workflow
     assert "covers the requested" in workflow
-    assert 'cron: "*/30 12-22 * * 1-5"' in workflow
+    assert 'cron: "*/30 13-21 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
-    assert "start = time(8, 30)" in workflow
-    assert "end = time(17, 0)" in workflow
+    assert "start = time(9, 30)" in workflow
+    assert "end = time(16, 0)" in workflow
     assert 'os.environ["GITHUB_OUTPUT"]' in workflow
     assert 'open("$GITHUB_OUTPUT"' not in workflow
     assert "python scripts/backfill_prices.py --period 5d --interval 15m" in workflow
@@ -38,21 +38,21 @@ def test_intraday_workflow_runs_every_30_minutes_through_5pm_et() -> None:
     )
 
 
-def test_daily_close_workflow_runs_at_530pm_et_with_manual_override() -> None:
+def test_daily_close_workflow_runs_at_441pm_et_with_manual_override() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "daily-refresh.yml").read_text(
         encoding="utf-8"
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "cover 5:30 PM ET in both" in workflow
-    assert 'cron: "30 21,22 * * 1-5"' in workflow
+    assert "target 4:41 PM ET" in workflow
+    assert 'cron: "41 20,21 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
     assert 'os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"' in workflow
-    assert "start = time(17, 30)" in workflow
-    assert "end = time(18, 0)" in workflow
+    assert "start = time(16, 30)" in workflow
+    assert "end = time(17, 30)" in workflow
     assert "is_manual or in_window" in workflow
     assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
-    assert "python scripts/run_daily_refresh.py --period 2y --skip-news" in workflow
+    assert "python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings" in workflow
 
 
 def test_daily_refresh_orchestrator_includes_refresh_index() -> None:
@@ -62,6 +62,8 @@ def test_daily_refresh_orchestrator_includes_refresh_index() -> None:
 
     assert "from argus.pipelines.refresh_index import refresh_index" in source
     assert '("refresh_index", refresh_index)' in source
+    assert "from argus.pipelines.run_alerts import run_alerts" in source
+    assert '("run_alerts", run_alerts)' in source
 
 
 def test_filings_workflow_syncs_ciks_before_refreshing_filings() -> None:
@@ -69,10 +71,15 @@ def test_filings_workflow_syncs_ciks_before_refreshing_filings() -> None:
         encoding="utf-8"
     )
 
+    assert "Every 3 hours, every day" in workflow
+    assert 'cron: "0 */3 * * *"' in workflow
     assert "python scripts/refresh_ciks.py" in workflow
     assert "python scripts/refresh_filings.py" in workflow
     assert workflow.index("python scripts/refresh_ciks.py") < workflow.index(
         "python scripts/refresh_filings.py"
+    )
+    assert workflow.index("python scripts/refresh_filings.py") < workflow.index(
+        "python scripts/run_alerts.py"
     )
 
 
@@ -97,10 +104,8 @@ def test_news_workflow_has_no_github_actions_skip_gate() -> None:
         encoding="utf-8"
     )
 
-    assert "GitHub cron is UTC-only" in workflow
-    assert "Every scheduled invocation runs the refresh" in workflow
-    assert 'cron: "30 12,13 * * 1-5"' in workflow
-    assert 'cron: "0 21,22 * * 1-5"' in workflow
+    assert "Every 2 hours, every day" in workflow
+    assert 'cron: "0 */2 * * *"' in workflow
     assert "Determine if news refresh window" not in workflow
     assert "steps.news_refresh_window.outputs.run_job" not in workflow
     assert "python scripts/refresh_news.py --bypass-refresh-throttle" in workflow
@@ -108,23 +113,31 @@ def test_news_workflow_has_no_github_actions_skip_gate() -> None:
     assert workflow.index("python scripts/refresh_news.py") < workflow.index(
         "python scripts/compute_signals.py"
     )
+    assert workflow.index("python scripts/compute_signals.py") < workflow.index(
+        "python scripts/run_alerts.py"
+    )
     assert "--force" not in workflow
 
 
-def test_ir_feeds_workflow_has_no_github_actions_skip_gate() -> None:
+def test_ir_feeds_workflow_runs_once_daily_at_522pm_et() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "ir-feeds-refresh.yml").read_text(
         encoding="utf-8"
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "Every scheduled invocation runs the refresh" in workflow
-    assert 'cron: "30 22,23 * * 1-5"' in workflow
-    assert "Determine if IR refresh window" not in workflow
-    assert "steps.ir_refresh_window.outputs.run_job" not in workflow
+    assert "target 5:22 PM ET" in workflow
+    assert 'cron: "22 21,22 * * *"' in workflow
+    assert "Determine if IR refresh window" in workflow
+    assert "steps.ir_refresh_window.outputs.run_job == 'true'" in workflow
+    assert "start = time(17, 0)" in workflow
+    assert "end = time(18, 0)" in workflow
     assert "python scripts/refresh_ir_feeds.py" in workflow
     assert "python scripts/compute_signals.py" in workflow
     assert workflow.index("python scripts/refresh_ir_feeds.py") < workflow.index(
         "python scripts/compute_signals.py"
+    )
+    assert workflow.index("python scripts/compute_signals.py") < workflow.index(
+        "python scripts/run_alerts.py"
     )
     assert "--force" not in workflow
 

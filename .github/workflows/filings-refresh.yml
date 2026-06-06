@@ -2,8 +2,8 @@ name: SEC Filings Refresh
 
 on:
   schedule:
-    # Every 2 hours on weekdays (within requested 1–3 hour range).
-    - cron: "0 */2 * * 1-5"
+    # Every 3 hours, every day.
+    - cron: "0 */3 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -48,3 +48,6 @@ jobs:
 
       - name: Refresh SEC filings
         run: python scripts/refresh_filings.py
+
+      - name: Run alerts
+        run: python scripts/run_alerts.py

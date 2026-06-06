@@ -228,20 +228,24 @@ Argus supports both **local SQLite** (default) and **Supabase Postgres** for pro
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. In **Settings → Database**, copy the **Connection string (URI)** — it looks like:
+
    ```
    postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
    ```
 
    You can also store this as:
+
    - `DATABASE_URL=postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@...`
    - `DATABASE_PASSWORD=your-actual-password`
 3. Initialize the schema and seed data by running the standard scripts with `DATABASE_URL` set. `init_db.py` creates the current schema and records the schema version used for future hosted upgrades:
+
    ```bash
    DATABASE_URL="postgresql://..." python scripts/init_db.py
    DATABASE_URL="postgresql://..." python scripts/enable_rls.py
    DATABASE_URL="postgresql://..." python scripts/seed_companies.py
    ```
 4. Backfill prices and compute metrics:
+
    ```bash
    DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 2y
    DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 5d --interval 15m
@@ -280,33 +284,33 @@ Argus includes five workflow files for production scheduling:
 
 - `.github/workflows/intraday-prices.yml`
   - Every 30 minutes on weekdays
-  - Executes only during the ET market window (8:30 AM–5:00 PM)
+  - Executes only during the ET market window (9:30 AM–4:00 PM)
   - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → daily index refresh → alerts
 - `.github/workflows/news-refresh.yml`
-  - Twice on weekdays: once at market open and once after market close
+  - Every 2 hours, every day
   - Runs: broad RSS/GDELT news refresh with 24-hour provider cooldown after HTTP 429
 - `.github/workflows/filings-refresh.yml`
-  - Every 2 hours on weekdays (within 1–3 hour target window)
+  - Every 3 hours, every day
   - Runs: official SEC ticker-to-CIK synchronization followed by SEC filings refresh
 - `.github/workflows/ir-feeds-refresh.yml`
-  - Once daily after market close on weekdays
+  - Once daily between 5:00–6:00 PM ET, targeting 5:22 PM ET
   - Runs: selected investor-relations feed refresh for cybersecurity and optical/networking names
 - `.github/workflows/daily-refresh.yml`
-  - Once after US market close on weekdays at 5:30 PM ET
-  - Runs: daily bars, macro indicators, metrics, scores, index, filings, and alerts (`run_daily_refresh.py --period 2y --skip-news`)
+  - Once after US market close on weekdays between 4:30–5:30 PM ET, targeting 4:41 PM ET
+  - Runs: daily bars, macro indicators, metrics, scores, index, and alerts (`run_daily_refresh.py --period 2y --skip-news --skip-filings`)
 
 **Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
-| Secret                | Description                              | Required |
-| --------------------- | ---------------------------------------- | -------- |
-| `DATABASE_URL`      | Supabase Postgres connection string      | ✅       |
-| `DATABASE_PASSWORD` | Optional password if URL has placeholder | Optional |
-| `SEC_USER_AGENT`    | SEC EDGAR user-agent header              | ✅       |
-| `FRED_API_KEY`      | St. Louis Fed API key for macro calendars | Optional |
-| `EIA_API_KEY`       | U.S. EIA API key for power signal metrics | Optional |
-| `EMAIL_HOST`        | SMTP host for alert emails               | Optional |
-| `EMAIL_USERNAME`    | SMTP username                            | Optional |
-| `EMAIL_PASSWORD`    | SMTP password                            | Optional |
+| Secret                | Description                                                    | Required |
+| --------------------- | -------------------------------------------------------------- | -------- |
+| `DATABASE_URL`      | Supabase Postgres connection string                            | ✅       |
+| `DATABASE_PASSWORD` | Optional password if URL has placeholder                       | Optional |
+| `SEC_USER_AGENT`    | SEC EDGAR user-agent header                                    | ✅       |
+| `FRED_API_KEY`      | St. Louis Fed API key for macro calendars                      | Optional |
+| `EIA_API_KEY`       | U.S. EIA API key for power signal metrics                      | Optional |
+| `EMAIL_HOST`        | SMTP host for alert emails                                     | Optional |
+| `EMAIL_USERNAME`    | SMTP username                                                  | Optional |
+| `EMAIL_PASSWORD`    | SMTP password                                                  | Optional |
 | `EMAIL_TO`          | Alert recipient email address(es), comma-separated if multiple | Optional |
 
 ### 4. Alternative: VPS or PaaS with SQLite
