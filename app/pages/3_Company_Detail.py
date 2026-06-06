@@ -788,7 +788,7 @@ def render_company_detail() -> None:
             for note in existing_notes:
                 created_at_et = _to_et(note["created_at"])
                 dt_str = (
-                    created_at_et.strftime("%Y-%m-%d %I:%M %p") if created_at_et else "n/a"
+                    created_at_et.strftime("%Y-%m-%d %I:%M %p ET") if created_at_et else "n/a"
                 )
                 st.markdown(f"**{note['created_by'] or 'User'}** ({dt_str}):")
                 st.info(note["note_text"])

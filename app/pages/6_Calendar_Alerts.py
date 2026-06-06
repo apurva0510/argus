@@ -106,7 +106,7 @@ def _parse_job_time(val) -> str:
             dt = dt.tz_localize("UTC")
         else:
             dt = dt.tz_convert("UTC")
-        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
+        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
     except Exception:
         return str(val)
 
@@ -280,7 +280,7 @@ def _render_alert_history() -> None:
     triggered_dt = pd.to_datetime(display["triggered_at"])
     if triggered_dt.dt.tz is None:
         triggered_dt = triggered_dt.dt.tz_localize("UTC")
-    display["triggered_at"] = triggered_dt.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %I:%M %p")
+    display["triggered_at"] = triggered_dt.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %I:%M %p ET")
 
     def _status_badge(status):
         if status == "sent":

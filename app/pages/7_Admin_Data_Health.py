@@ -128,7 +128,7 @@ def _format_dt(val) -> str:
             dt = dt.tz_localize("UTC")
         else:
             dt = dt.tz_convert("UTC")
-        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
+        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
     except Exception:
         return str(val)
 

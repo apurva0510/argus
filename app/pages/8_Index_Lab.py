@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -23,6 +22,7 @@ from argus.services.index_service import (
 )
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
+from argus.core.timezones import format_et_datetime
 
 
 @st.cache_resource
@@ -201,10 +201,7 @@ def render_index_lab() -> None:
     col1.metric("Mode", _mode_label(str(selected["mode"])))
     col2.metric("Base Value", f"{float(selected['base_value']):.1f}")
     created_at = selected["created_at"]
-    if isinstance(created_at, datetime):
-        created_label = created_at.strftime("%Y-%m-%d")
-    else:
-        created_label = str(created_at)
+    created_label = format_et_datetime(created_at, fmt="%Y-%m-%d %I:%M %p ET") if created_at else "n/a"
     col3.metric("Created", created_label)
 
     timeframe = st.radio(
