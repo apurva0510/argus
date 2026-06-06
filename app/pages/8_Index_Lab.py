@@ -197,12 +197,101 @@ def render_index_lab() -> None:
     ].index(selected_label)
     selected = options[selected_idx]
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mode", _mode_label(str(selected["mode"])))
-    col2.metric("Base Value", f"{float(selected['base_value']):.1f}")
     created_at = selected["created_at"]
     created_label = format_et_datetime(created_at, fmt="%Y-%m-%d %I:%M %p ET") if created_at else "n/a"
-    col3.metric("Created", created_label)
+
+    def _index_card(label: str, primary: str, secondary: str = "") -> str:
+        secondary_html = (
+            f'<span class="ix-card-sub">{secondary}</span>' if secondary else ""
+        )
+        return f"""
+        <div class="ix-card">
+            <div class="ix-card-label">{label}</div>
+            <div class="ix-card-value">
+                <span class="ix-card-primary">{primary}</span>
+                {secondary_html}
+            </div>
+        </div>
+        """
+
+    st.markdown(
+        """
+        <style>
+        .ix-card-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin: 12px 0 20px 0;
+        }
+        .ix-card {
+            background: linear-gradient(135deg, rgba(22,27,34,0.4) 0%, rgba(17,22,29,0.5) 100%);
+            border: 1px solid rgba(240,246,252,0.1);
+            border-radius: 10px;
+            padding: 14px 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .ix-card:hover {
+            border-color: rgba(56,139,253,0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(56,139,253,0.1);
+        }
+        .ix-card-label {
+            font-size: 11px;
+            color: #8b949e;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 10px;
+        }
+        .ix-card-value {
+            display: flex;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .ix-card-primary {
+            font-size: 15px;
+            font-weight: 600;
+            color: #f0f6fc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+        .ix-card-sub {
+            font-size: 12px;
+            color: #8b949e;
+            font-weight: 400;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+        @media (max-width: 768px) {
+            .ix-card-grid { grid-template-columns: 1fr; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Split Created timestamp into date + time parts for the secondary sub-label
+    if created_label and created_label != "n/a":
+        created_parts = created_label.split(" ", 1)
+        created_primary = created_parts[0]
+        created_secondary = created_parts[1] if len(created_parts) > 1 else ""
+    else:
+        created_primary = "n/a"
+        created_secondary = ""
+
+    st.markdown(
+        f"""
+        <div class="ix-card-grid">
+            {_index_card("Mode", _mode_label(str(selected["mode"])))}
+            {_index_card("Base Value", f"{float(selected['base_value']):.1f}")}
+            {_index_card("Created", created_primary, created_secondary)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     timeframe = st.radio(
         "Preview Timeframe",
