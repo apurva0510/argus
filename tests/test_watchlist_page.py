@@ -1,9 +1,12 @@
 import importlib
 import pandas as pd
+import pytest
 
 
 def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
-    watchlist_module = importlib.import_module("app.pages.2_Watchlists")
+    import streamlit as st
+    import app.components.sidebar
+    import argus.services.watchlist_service
 
     captured_args = {}
 
@@ -24,12 +27,6 @@ def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
             @staticmethod
             def LinkColumn(label, **kwargs):
                 return {"type": "link", "label": label, **kwargs}
-
-        @staticmethod
-        def session_state_get(key, default=None):
-            if key == "auth_token":
-                return "test-token-123"
-            return default
 
         @staticmethod
         def columns(layout):
@@ -66,19 +63,12 @@ def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
             captured_args["column_config"] = kwargs.get("column_config")
             return df
 
-    # Mock streamlit
-    MockSt.session_state = {"auth_token": "test-token-123"}
-    monkeypatch.setattr("app.pages.2_Watchlists.st", MockSt)
-    monkeypatch.setattr("app.pages.2_Watchlists.render_sidebar_navigation", lambda: None)
-    monkeypatch.setattr("app.auth_links.st.session_state", {"auth_token": "test-token-123"})
-
-    # Mock database call to return a sample watchlist item
-    class MockEngine:
-        pass
-
-    monkeypatch.setattr("app.pages.2_Watchlists.get_watchlist_engine", lambda: MockEngine())
+    # Mock modules/functions BEFORE importing the page
+    monkeypatch.setattr(st, "session_state", {"auth_token": "test-token-123"})
+    monkeypatch.setattr(app.components.sidebar, "render_sidebar_navigation", lambda: None)
     monkeypatch.setattr(
-        "app.pages.2_Watchlists.load_watchlist_table",
+        argus.services.watchlist_service,
+        "load_watchlist_table",
         lambda *args, **kwargs: pd.DataFrame(
             [
                 {
@@ -104,24 +94,30 @@ def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
         ),
     )
 
+    # Monkeypatch streamlit functions globally so import-time execution uses mock
+    for attr in dir(MockSt):
+        if not attr.startswith("__"):
+            monkeypatch.setattr(st, attr, getattr(MockSt, attr))
+
+    # Now import the module safely
+    watchlist_module = importlib.import_module("app.pages.2_Watchlists")
+
     # Clear cached function
     watchlist_module.load_watchlist_data.clear()
 
-    # Call render
+    # Call render again under captured_args context
+    captured_args.clear()
     watchlist_module.render_watchlists()
 
     # Verify captured args
     assert "df" in captured_args
     df_out = captured_args["df"]
-    # If it is a Styler, extract the underlying DataFrame
     if hasattr(df_out, "data"):
         df_out = df_out.data
-    # Ticker should be mapped to the detail page URL with auth token
     assert df_out.iloc[0]["ticker"] == "/Company_Detail?ticker=AAPL&auth=test-token-123"
 
     assert "column_config" in captured_args
     cfg = captured_args["column_config"]
-    # Ticker column config should be a disabled LinkColumn extracting the ticker name
     assert cfg["ticker"]["type"] == "link"
     assert cfg["ticker"]["disabled"] is True
     assert cfg["ticker"]["display_text"] == r"ticker=([^&]+)"
