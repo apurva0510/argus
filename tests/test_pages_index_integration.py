@@ -300,11 +300,14 @@ def test_company_detail_short_ranges_use_market_sessions() -> None:
 
 def test_company_detail_short_ranges_return_empty_when_all_rows_are_off_hours() -> None:
     detail_module = importlib.import_module("app.pages.3_Company_Detail")
+    # Use genuinely pre-market ET times (4:00 AM and 8:00 AM ET).
+    # Company Detail pre-converts timestamps to ET-naive before calling
+    # _filter_price_timeframe, so these naive datetimes represent ET time.
     frame = pd.DataFrame(
         {
             "date": [
-                datetime(2026, 6, 8, 12, 0),
-                datetime(2026, 6, 8, 20, 15),
+                datetime(2026, 6, 8, 4, 0),   # 4:00 AM ET — pre-market
+                datetime(2026, 6, 8, 8, 0),   # 8:00 AM ET — pre-market
             ],
             "adj_close": [100.0, 101.0],
         }

@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 
 from app.components.sidebar import render_sidebar_navigation
 
-from argus.analytics.market_hours import filter_latest_market_sessions
+from argus.analytics.market_hours import filter_latest_market_sessions, MARKET_TZ
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
     build_relative_performance_frame,
@@ -225,7 +225,7 @@ def _filter_price_timeframe(df: pd.DataFrame, tf: str, interval: str) -> tuple[p
 
     df_sorted = df.sort_values("date").copy()
     if interval == "15m" and tf in {"1D", "5D"}:
-        filtered = filter_latest_market_sessions(df_sorted, 1 if tf == "1D" else 5)
+        filtered = filter_latest_market_sessions(df_sorted, 1 if tf == "1D" else 5, naive_tz=MARKET_TZ)
         if filtered.empty:
             return filtered, None
         return filtered, filtered["date"].min()
