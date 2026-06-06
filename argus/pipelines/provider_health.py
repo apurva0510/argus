@@ -1,9 +1,12 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from argus.core.models import ProviderHealth
 from argus.core.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 def provider_label(provider: str) -> str:
@@ -149,5 +152,8 @@ def execute_provider_request(
             error_msg = f"{type(exc).__name__}: {str(exc)}"
 
         record_provider_attempt(session, provider_key, outcome, now, error_message=error_msg)
+        try:
+            session.commit()
+        except Exception as commit_exc:
+            logger.warning("Failed to commit provider health update: %s", commit_exc)
         raise
-

@@ -20,10 +20,20 @@ def force_test_settings(monkeypatch) -> None:
 
 
 @pytest.fixture
-def sqlite_engine(tmp_path) -> Iterator[Engine]:
+def sqlite_engine(tmp_path, monkeypatch) -> Iterator[Engine]:
     db_path = tmp_path / "argus_test.db"
     engine = create_database_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(bind=engine)
+
+    from argus.core import db as db_module
+    factory = sessionmaker(
+        bind=engine,
+        autocommit=False,
+        autoflush=False,
+        class_=Session,
+    )
+    monkeypatch.setattr(db_module, "SessionLocal", factory)
+
     try:
         yield engine
     finally:

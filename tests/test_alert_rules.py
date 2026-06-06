@@ -46,21 +46,13 @@ from argus.services import alert_service
 
 
 @pytest.fixture
-def alert_engine(tmp_path) -> Engine:
-    db_path = tmp_path / "alert_test.db"
-    engine = create_database_engine(f"sqlite:///{db_path}")
-    Base.metadata.create_all(bind=engine)
-    return engine
+def alert_engine(sqlite_engine) -> Engine:
+    return sqlite_engine
 
 
 @pytest.fixture
-def alert_session(alert_engine) -> Session:
-    factory = sessionmaker(bind=alert_engine, autocommit=False, autoflush=False)
-    session = factory()
-    try:
-        yield session
-    finally:
-        session.close()
+def alert_session(db_session) -> Session:
+    return db_session
 
 
 @pytest.fixture
@@ -779,11 +771,6 @@ class TestDeduplication:
             )
         )
         alert_session.commit()
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
         monkeypatch.setattr(run_alerts_module, "is_smtp_configured", lambda: False)
 
         result = run_alerts_module.run_alerts()
@@ -806,14 +793,7 @@ class TestAlertPipelineWorker:
         sample_price_bar,
         monkeypatch,
     ):
-        from argus.core import db as db_module
-
         _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
         monkeypatch.setattr(run_alerts_module, "is_smtp_configured", lambda: False)
 
         first_result = run_alerts_module.run_alerts()
@@ -846,14 +826,7 @@ class TestAlertPipelineWorker:
         sample_price_bar,
         monkeypatch,
     ):
-        from argus.core import db as db_module
-
         _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
         monkeypatch.setattr(run_alerts_module, "is_smtp_configured", lambda: True)
         monkeypatch.setattr(run_alerts_module, "send_email", lambda *_args: True)
 
@@ -874,14 +847,7 @@ class TestAlertPipelineWorker:
         sample_price_bar,
         monkeypatch,
     ):
-        from argus.core import db as db_module
-
         _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
         monkeypatch.setattr(run_alerts_module, "is_smtp_configured", lambda: True)
         monkeypatch.setattr(run_alerts_module, "send_email", lambda *_args: False)
 
@@ -1104,14 +1070,6 @@ class TestAlertService:
         assert fetched.is_enabled is True
 
     def test_create_alert_service_validates_target(self, alert_engine, monkeypatch):
-        from argus.core import db as db_module
-
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
-
         with pytest.raises(ValueError, match="target"):
             alert_service.create_alert(
                 name="No target",
@@ -1120,14 +1078,6 @@ class TestAlertService:
             )
 
     def test_create_alert_service_validates_config(self, alert_engine, sample_company, monkeypatch):
-        from argus.core import db as db_module
-
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
-
         with pytest.raises(ValueError, match="threshold"):
             alert_service.create_alert(
                 name="Bad threshold",
@@ -1137,14 +1087,6 @@ class TestAlertService:
             )
 
     def test_create_alert_service_normalizes_config(self, alert_engine, alert_session, sample_company, monkeypatch):
-        from argus.core import db as db_module
-
-        monkeypatch.setattr(
-            db_module,
-            "SessionLocal",
-            sessionmaker(bind=alert_engine, autocommit=False, autoflush=False, class_=Session),
-        )
-
         alert_id = alert_service.create_alert(
             name="Valid",
             rule_type="price_below",
