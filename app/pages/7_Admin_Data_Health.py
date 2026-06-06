@@ -90,15 +90,27 @@ def _load_health_data(today: date) -> dict[str, pd.DataFrame]:
             conn,
         )
 
-        # 6. Latest Dates for Stale Checks
-        data["latest_prices"] = pd.read_sql_query(text("SELECT MAX(date) as val FROM price_bars"), conn)
+        # 6. Latest Dates/Times for Stale & Freshness Checks
+        data["latest_prices"] = pd.read_sql_query(
+            text("SELECT bar_time as val, interval FROM price_bars ORDER BY bar_time DESC LIMIT 1"), conn
+        )
         data["latest_metrics"] = pd.read_sql_query(text("SELECT MAX(date) as val FROM daily_metrics"), conn)
         data["latest_macro"] = pd.read_sql_query(text("SELECT MAX(observation_date) as val FROM macro_observations"), conn)
-        data["latest_news"] = pd.read_sql_query(text("SELECT MAX(published_at) as val FROM news_items"), conn)
-        data["latest_filings"] = pd.read_sql_query(text("SELECT MAX(filing_date) as val FROM sec_filings"), conn)
+        data["latest_news"] = pd.read_sql_query(
+            text("SELECT published_at as val FROM news_items ORDER BY published_at DESC LIMIT 1"), conn
+        )
+        data["latest_filings"] = pd.read_sql_query(
+            text("SELECT COALESCE(acceptance_datetime, filing_date) as val, (acceptance_datetime IS NOT NULL) as has_time FROM sec_filings ORDER BY COALESCE(acceptance_datetime, filing_date) DESC LIMIT 1"), conn
+        )
         data["latest_signals"] = pd.read_sql_query(text("SELECT MAX(date) as val FROM signal_daily"), conn)
 
     return data
+
+
+def _safe_get_val(df, col="val"):
+    if df is None or df.empty or len(df) == 0:
+        return None
+    return df.at[0, col]
 
 
 def _parse_date(val) -> date | None:
@@ -117,6 +129,23 @@ def _format_dt(val) -> str:
         else:
             dt = dt.tz_convert("UTC")
         return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
+    except Exception:
+        return str(val)
+
+
+def _format_freshness_val(val, is_datetime: bool = False) -> str:
+    if val is None or pd.isna(val):
+        return "N/A"
+    try:
+        dt = pd.to_datetime(val)
+        if is_datetime:
+            if dt.tz is None:
+                dt = dt.tz_localize("UTC")
+            else:
+                dt = dt.tz_convert("UTC")
+            return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
+        else:
+            return dt.strftime("%Y-%m-%d")
     except Exception:
         return str(val)
 
@@ -141,12 +170,19 @@ def render_page() -> None:
     with tab_overview:
         st.subheader("Data Freshness Audits")
 
-        price_date = _parse_date(health_data["latest_prices"].at[0, "val"])
-        metrics_date = _parse_date(health_data["latest_metrics"].at[0, "val"])
-        macro_date = _parse_date(health_data["latest_macro"].at[0, "val"])
-        news_date = _parse_date(health_data["latest_news"].at[0, "val"])
-        filings_date = _parse_date(health_data["latest_filings"].at[0, "val"])
-        signals_date = _parse_date(health_data["latest_signals"].at[0, "val"])
+        price_val = _safe_get_val(health_data["latest_prices"])
+        metrics_val = _safe_get_val(health_data["latest_metrics"])
+        macro_val = _safe_get_val(health_data["latest_macro"])
+        news_val = _safe_get_val(health_data["latest_news"])
+        filings_val = _safe_get_val(health_data["latest_filings"])
+        signals_val = _safe_get_val(health_data["latest_signals"])
+
+        price_date = _parse_date(price_val)
+        metrics_date = _parse_date(metrics_val)
+        macro_date = _parse_date(macro_val)
+        news_date = _parse_date(news_val)
+        filings_date = _parse_date(filings_val)
+        signals_date = _parse_date(signals_val)
 
         stale_threshold = today - timedelta(days=3)
 
@@ -182,14 +218,29 @@ def render_page() -> None:
         st.subheader("Freshness Summary")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Latest Prices", price_date.isoformat() if price_date else "N/A")
-            st.metric("Latest News", news_date.isoformat() if news_date else "N/A")
+            price_display = "N/A"
+            if not health_data["latest_prices"].empty:
+                row = health_data["latest_prices"].iloc[0]
+                is_dt = row.get("interval") == "15m"
+                price_display = _format_freshness_val(row["val"], is_datetime=is_dt)
+            st.metric("Latest Prices", price_display)
+
+            news_display = "N/A"
+            if not health_data["latest_news"].empty:
+                news_display = _format_freshness_val(health_data["latest_news"].at[0, "val"], is_datetime=True)
+            st.metric("Latest News", news_display)
         with col2:
-            st.metric("Latest Metrics", metrics_date.isoformat() if metrics_date else "N/A")
-            st.metric("Latest Filings", filings_date.isoformat() if filings_date else "N/A")
+            st.metric("Latest Metrics", _format_freshness_val(metrics_val, is_datetime=False))
+
+            filings_display = "N/A"
+            if not health_data["latest_filings"].empty:
+                row = health_data["latest_filings"].iloc[0]
+                is_dt = bool(row.get("has_time"))
+                filings_display = _format_freshness_val(row["val"], is_datetime=is_dt)
+            st.metric("Latest Filings", filings_display)
         with col3:
-            st.metric("Latest Signals", signals_date.isoformat() if signals_date else "N/A")
-            st.metric("Latest Macro", macro_date.isoformat() if macro_date else "N/A")
+            st.metric("Latest Signals", _format_freshness_val(signals_val, is_datetime=False))
+            st.metric("Latest Macro", _format_freshness_val(macro_val, is_datetime=False))
 
     # 2. Pipelines Tab
     with tab_pipelines:

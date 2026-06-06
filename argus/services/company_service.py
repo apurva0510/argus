@@ -202,6 +202,21 @@ def get_company_news(company_id: int, limit: int = 10) -> list[dict]:
             .limit(limit)
             .all()
         )
+        if not results:
+            return []
+
+        # Fetch other mentions for these news items to get all tickers
+        news_ids = [item.id for item in results]
+        mentions = (
+            session.query(NewsMention.news_id, NewsMention.ticker)
+            .filter(NewsMention.news_id.in_(news_ids))
+            .all()
+        )
+        tickers_by_news = {}
+        for news_id, ticker in mentions:
+            if ticker:
+                tickers_by_news.setdefault(news_id, []).append(ticker)
+
         return [
             {
                 "published_at": item.published_at,
@@ -209,6 +224,10 @@ def get_company_news(company_id: int, limit: int = 10) -> list[dict]:
                 "summary": item.summary,
                 "url": item.url,
                 "source_name": item.source_name,
+                "provider": item.provider,
+                "sentiment_score": item.sentiment_score,
+                "relevance_score": item.relevance_score,
+                "tickers": ",".join(sorted(set(tickers_by_news.get(item.id, [])))),
             }
             for item in results
         ]
@@ -229,6 +248,7 @@ def get_company_filings(company_id: int, limit: int = 10) -> list[dict]:
                 "form": f.form,
                 "primary_doc_url": f.primary_doc_url,
                 "filing_detail_url": f.filing_detail_url,
+                "acceptance_datetime": f.acceptance_datetime,
             }
             for f in results
         ]
