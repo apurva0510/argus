@@ -16,6 +16,8 @@ from argus.core.models import (
 )
 from argus.services.dashboard_service import (
     build_stale_reasons,
+    calculate_intraday_core_return,
+    calculate_intraday_core_return_from_engine,
     filter_low_rsi,
     load_dashboard_data_from_engine,
     parse_optional_date,
@@ -25,6 +27,7 @@ from argus.services.dashboard_service import (
     rank_top_losers,
     summarize_core_returns,
 )
+from argus.core.timezones import format_et_datetime, to_et
 
 
 def test_dashboard_rankings_are_sorted_and_limited() -> None:
@@ -111,6 +114,78 @@ def test_core_return_summary_returns_none_when_only_benchmarks_or_missing_values
         "return_1w": None,
         "return_1m": None,
     }
+
+
+def test_calculate_intraday_core_return_uses_latest_market_session() -> None:
+    prices = pd.DataFrame(
+        [
+            {"symbol": "ETN", "bar_time": datetime(2026, 6, 4, 13, 30), "adj_close": 90.0},
+            {"symbol": "ETN", "bar_time": datetime(2026, 6, 4, 20, 0), "adj_close": 99.0},
+            {"symbol": "ETN", "bar_time": datetime(2026, 6, 5, 13, 30), "adj_close": 100.0},
+            {"symbol": "ETN", "bar_time": datetime(2026, 6, 5, 20, 0), "adj_close": 104.0},
+            {"symbol": "VRT", "bar_time": datetime(2026, 6, 5, 13, 30), "adj_close": 50.0},
+            {"symbol": "VRT", "bar_time": datetime(2026, 6, 5, 20, 0), "adj_close": 49.0},
+            {"symbol": "VRT", "bar_time": datetime(2026, 6, 5, 22, 0), "adj_close": 80.0},
+        ]
+    )
+
+    result = calculate_intraday_core_return(prices)
+
+    assert result == pytest.approx(0.01)
+
+
+def test_calculate_intraday_core_return_from_engine(sqlite_engine, db_session) -> None:
+    etn = Company(symbol="ETN", name="Eaton", is_active=True)
+    vrt = Company(symbol="VRT", name="Vertiv", is_active=True)
+    db_session.add_all([etn, vrt])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PriceBar(
+                company_id=etn.id,
+                date=date(2026, 6, 5),
+                bar_time=datetime(2026, 6, 5, 13, 30),
+                adj_close=100.0,
+                provider="yfinance",
+                interval="15m",
+            ),
+            PriceBar(
+                company_id=etn.id,
+                date=date(2026, 6, 5),
+                bar_time=datetime(2026, 6, 5, 20, 0),
+                adj_close=110.0,
+                provider="yfinance",
+                interval="15m",
+            ),
+            PriceBar(
+                company_id=vrt.id,
+                date=date(2026, 6, 5),
+                bar_time=datetime(2026, 6, 5, 13, 30),
+                adj_close=50.0,
+                provider="yfinance",
+                interval="15m",
+            ),
+            PriceBar(
+                company_id=vrt.id,
+                date=date(2026, 6, 5),
+                bar_time=datetime(2026, 6, 5, 20, 0),
+                adj_close=50.0,
+                provider="yfinance",
+                interval="15m",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert calculate_intraday_core_return_from_engine(sqlite_engine) == pytest.approx(0.05)
+
+
+def test_et_formatting_labels_timezone() -> None:
+    parsed = to_et(datetime(2026, 6, 5, 20, 0))
+
+    assert parsed is not None
+    assert parsed.hour == 16
+    assert format_et_datetime(datetime(2026, 6, 5, 20, 0)) == "2026-06-05 04:00 PM ET"
 
 
 def test_stale_reasons_cover_missing_fresh_and_stale_dates() -> None:

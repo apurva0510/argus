@@ -287,8 +287,47 @@ def test_calculate_equal_weight_index_zero_price_handling(db_session: Session) -
         start_date=start_date,
         end_date=start_date + timedelta(days=1)
     )
-    assert len(contribs) == 1
-    assert contribs.iloc[0]["return"] == 0.0
+    assert contribs.empty
+    assert contribs.columns.tolist() == ["symbol", "name", "return", "contribution"]
+
+
+def test_calculate_top_contributors_excludes_invalid_prices(db_session: Session) -> None:
+    start_date = date(2026, 5, 1)
+    valid = Company(symbol="A", name="A", is_active=True)
+    invalid = Company(symbol="B", name="B", is_active=True)
+    db_session.add_all([valid, invalid])
+    db_session.flush()
+
+    _seed_prices(db_session, valid.id, start_date, [10.0, 11.0])
+    db_session.add(
+        PriceBar(
+            company_id=invalid.id,
+            date=start_date,
+            adj_close=None,
+            provider="yfinance",
+            interval="1d",
+        )
+    )
+    db_session.add(
+        PriceBar(
+            company_id=invalid.id,
+            date=start_date + timedelta(days=1),
+            adj_close=20.0,
+            provider="yfinance",
+            interval="1d",
+        )
+    )
+    db_session.flush()
+
+    contribs = calculate_top_contributors(
+        db_session,
+        symbols=["A", "B"],
+        start_date=start_date,
+        end_date=start_date + timedelta(days=1),
+    )
+
+    assert contribs["symbol"].tolist() == ["A"]
+    assert contribs.iloc[0]["return"] == pytest.approx(0.10)
 
 
 def test_calculate_equal_weight_index_weight_normalization_gaps(db_session: Session) -> None:

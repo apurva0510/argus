@@ -2,10 +2,8 @@ name: News Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. Every scheduled invocation runs the refresh
-    # job; there is no Actions-side time-window skip.
-    - cron: "30 12,13 * * 1-5"
-    - cron: "0 21,22 * * 1-5"
+    # Every 2 hours, every day. GitHub cron is UTC-only.
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
 
 
@@ -50,3 +48,6 @@ jobs:
 
       - name: Compute signals
         run: python scripts/compute_signals.py
+
+      - name: Run alerts
+        run: python scripts/run_alerts.py

@@ -3,9 +3,9 @@ name: Intraday Prices Metrics Alerts
 on:
   schedule:
     # GitHub cron is UTC-only. This half-hour UTC range covers the requested
-    # 8:30 AM through 5:00 PM ET window in both EST and EDT; the Python gate
-    # below is the source of truth for America/New_York market hours.
-    - cron: "*/30 12-22 * * 1-5"
+    # 9:30 AM through 4:00 PM ET weekday window in both EST and EDT; the
+    # Python gate below is the source of truth for America/New_York hours.
+    - cron: "*/30 13-21 * * 1-5"
   workflow_dispatch: {}
 
 
@@ -39,8 +39,8 @@ jobs:
 
           now_et = datetime.now(ZoneInfo("America/New_York"))
           is_weekday = now_et.weekday() < 5
-          start = time(8, 30)
-          end = time(17, 0)
+          start = time(9, 30)
+          end = time(16, 0)
           in_window = is_weekday and (start <= now_et.time() <= end)
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:

@@ -11,8 +11,10 @@ import os
 from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.settings import settings
+from argus.core.timezones import format_et_datetime, to_et_naive_series
 from argus.services.dashboard_service import (
     build_stale_reasons,
+    calculate_intraday_core_return_from_engine,
     filter_low_rsi,
     load_dashboard_data_from_engine,
     parse_optional_date,
@@ -34,6 +36,11 @@ def get_dashboard_engine():
 @st.cache_data(ttl=300)
 def load_dashboard_data() -> dict[str, object]:
     return load_dashboard_data_from_engine(get_dashboard_engine())
+
+
+@st.cache_data(ttl=60)
+def load_intraday_core_return() -> float | None:
+    return calculate_intraday_core_return_from_engine(get_dashboard_engine())
 
 
 @st.cache_data(ttl=300)
@@ -135,6 +142,7 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
 
     # dates are already in US Eastern Time (New York) naive format
     dates_ny = pd.to_datetime(df["date"])
+    tick_value_column = "date_label" if "date_label" in df.columns else "date"
 
     tickvals = []
     ticktext = []
@@ -144,14 +152,14 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
             time_str = dt.strftime("%I:%M %p")
             # Show tick at start, 11:00 AM, 01:00 PM, 03:00 PM, and end of session
             if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates_ny) - 1:
-                tickvals.append(df.iloc[i]["date"])
+                tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(time_str)
     elif tf == "5D":
         last_date = None
         for i, dt in enumerate(dates_ny):
             day_str = dt.strftime("%b %d")
             if last_date != day_str:
-                tickvals.append(df.iloc[i]["date"])
+                tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(day_str)
                 last_date = day_str
                 
@@ -168,15 +176,8 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
 def _format_dt_et(val) -> str:
     if val is None or pd.isna(val):
         return "Never"
-    try:
-        dt = pd.to_datetime(val)
-        if dt.tz is None:
-            dt = dt.tz_localize("UTC")
-        else:
-            dt = dt.tz_convert("UTC")
-        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p")
-    except Exception:
-        return str(val)
+    formatted = format_et_datetime(val)
+    return formatted if formatted != "Never" else str(val)
 
 
 def _fmt_pct(value: float | None, digits: int = 2) -> str:
@@ -275,10 +276,7 @@ def _render_recent_news(news_df: pd.DataFrame) -> None:
             "url": "Link",
         }
     ).copy()
-    pub_dt = pd.to_datetime(view["Published"])
-    if pub_dt.dt.tz is None:
-        pub_dt = pub_dt.dt.tz_localize("UTC")
-    view["Published"] = pub_dt.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %I:%M %p")
+    view["Published"] = to_et_naive_series(view["Published"]).dt.strftime("%Y-%m-%d %I:%M %p ET")
     view["Ticker"] = view["Tickers"].apply(_split_tickers)
     view = view.explode("Ticker")
     view["Ticker"] = _link_ticker_series(view["Ticker"])
@@ -474,6 +472,7 @@ def render_dashboard() -> None:
 
     if st.button("Refresh dashboard"):
         load_dashboard_data.clear()
+        load_intraday_core_return.clear()
         load_index_data.clear()
         st.rerun()
 
@@ -608,7 +607,8 @@ def render_dashboard() -> None:
         return
 
     core_returns = summarize_core_returns(metrics_df)
-    core_1d = core_returns["return_1d"]
+    intraday_core_1d = load_intraday_core_return()
+    core_1d = intraday_core_1d if intraday_core_1d is not None else core_returns["return_1d"]
     core_1w = core_returns["return_1w"]
     core_1m = core_returns["return_1m"]
 
@@ -643,20 +643,20 @@ def render_dashboard() -> None:
         st.info("No index price history available yet.")
     else:
         rel_df = index_data["rel_df"].copy()
+        x_column = "date"
         if index_data.get("interval") == "15m":
-            dates = pd.to_datetime(rel_df["date"])
-            if dates.dt.tz is None:
-                dates = dates.dt.tz_localize("UTC")
-            else:
-                dates = dates.dt.tz_convert("UTC")
-            rel_df["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+            rel_df["date"] = to_et_naive_series(rel_df["date"])
+            rel_df["date_label"] = pd.to_datetime(rel_df["date"]).dt.strftime(
+                "%b %d, %Y %I:%M %p ET"
+            )
+            x_column = "date_label"
         import plotly.graph_objects as go
 
         fig = go.Figure()
 
         fig.add_trace(
             go.Scatter(
-                x=rel_df["date"],
+                x=rel_df[x_column],
                 y=rel_df["index_level"],
                 name="AI Infra Core Index",
                 line=dict(color="#1f77b4", width=3),
@@ -666,7 +666,7 @@ def render_dashboard() -> None:
         if "qqq_level" in rel_df:
             fig.add_trace(
                 go.Scatter(
-                    x=rel_df["date"],
+                    x=rel_df[x_column],
                     y=rel_df["qqq_level"],
                     name="QQQ (Benchmark)",
                     line=dict(color="#2ca02c", width=1.5, dash="dot"),
@@ -676,7 +676,7 @@ def render_dashboard() -> None:
         if "nvda_level" in rel_df:
             fig.add_trace(
                 go.Scatter(
-                    x=rel_df["date"],
+                    x=rel_df[x_column],
                     y=rel_df["nvda_level"],
                     name="NVDA (Benchmark)",
                     line=dict(color="#9467bd", width=1.5, dash="dot"),
@@ -685,7 +685,7 @@ def render_dashboard() -> None:
 
         fig.update_layout(
             title=f"AI Infra Core Index vs Benchmarks (Rebased to 100 on {rel_df['date'].min()})",
-            xaxis_title="Market Time" if index_data.get("interval") == "15m" else "Date",
+            xaxis_title="Market Time (ET)" if index_data.get("interval") == "15m" else "Date",
             yaxis_title="Normalized Level",
             template="plotly_white",
             margin=dict(l=40, r=40, t=40, b=40),
@@ -693,6 +693,9 @@ def render_dashboard() -> None:
             hovermode="x unified",
         )
         if index_data.get("interval") == "15m":
+            fig.update_traces(
+                hovertemplate="%{y:.2f}<extra>%{fullData.name}</extra>"
+            )
             apply_intraday_xaxis(fig, rel_df, tf)
         st.plotly_chart(fig, width="stretch")
 

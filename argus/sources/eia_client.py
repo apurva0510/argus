@@ -74,6 +74,25 @@ def fetch_eia_series(
                 response = active_client.get(url, params=params)
                 response.raise_for_status()
                 break
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                if 400 <= status_code < 500 and status_code != 429:
+                    logger.error(
+                        "EIA rejected request for %s with non-retryable status %s: %s",
+                        route,
+                        status_code,
+                        exc,
+                    )
+                    raise
+                if attempt == max_retries - 1:
+                    logger.error("Failed to fetch EIA series %s after %d attempts: %s", route, max_retries, exc)
+                    raise
+                wait_time = backoff_factor ** attempt
+                logger.warning(
+                    "Error fetching EIA series %s (attempt %d/%d): %s. Retrying in %.1fs...",
+                    route, attempt + 1, max_retries, exc, wait_time
+                )
+                time.sleep(wait_time)
             except httpx.HTTPError as exc:
                 if attempt == max_retries - 1:
                     logger.error("Failed to fetch EIA series %s after %d attempts: %s", route, max_retries, exc)

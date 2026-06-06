@@ -84,3 +84,25 @@ def test_fetch_eia_series_retries_and_raises(monkeypatch) -> None:
 
     assert attempts == 3
 
+
+def test_fetch_eia_series_does_not_retry_non_retryable_400(monkeypatch) -> None:
+    import httpx
+    import pytest
+    from argus.core.settings import settings
+    from argus.sources.eia_client import fetch_eia_series
+
+    monkeypatch.setattr(settings, "eia_api_key", "test-key-123")
+
+    attempts = 0
+
+    def mock_get(self, url, *, params=None, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(400, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.Client, "get", mock_get)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        fetch_eia_series("electricity/rto/region-data", frequency="daily")
+
+    assert attempts == 1

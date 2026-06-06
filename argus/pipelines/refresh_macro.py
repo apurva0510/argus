@@ -275,7 +275,7 @@ def refresh_macro(
                             facets = {"sectorid": ["ALL"], "stateid": ["US"]}
                             data_column = "price"
                         elif code == "EIA_ELEC_DEMAND":
-                            route = "electricity/rto/region-data"
+                            route = "electricity/rto/daily-region-data"
                             frequency = "daily"
                             facets = {"respondent": ["US48"], "type": ["D"]}
                             data_column = "value"
