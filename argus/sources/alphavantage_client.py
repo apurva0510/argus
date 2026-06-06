@@ -56,7 +56,9 @@ class AlphaVantageProvider(BaseMarketDataProvider):
             response.raise_for_status()
             data = response.json()
         except Exception as e:
-            logger.exception("Error fetching daily OHLCV from Alpha Vantage for symbol %s: %s", symbol, e)
+            logger.exception(
+                "Error fetching daily OHLCV from Alpha Vantage for symbol %s: %s", symbol, e
+            )
             return pd.DataFrame()
 
         # Check for rate limit message in response JSON
@@ -70,20 +72,26 @@ class AlphaVantageProvider(BaseMarketDataProvider):
 
         time_series = data.get("Time Series (Daily)")
         if not time_series:
-            logger.warning("Alpha Vantage response missing Time Series (Daily) for symbol %s", symbol)
+            logger.warning(
+                "Alpha Vantage response missing Time Series (Daily) for symbol %s", symbol
+            )
             return pd.DataFrame()
 
         records = []
         for date_str, metrics in time_series.items():
-            records.append({
-                "date": pd.to_datetime(date_str).date(),
-                "open": float(metrics.get("1. open", 0)),
-                "high": float(metrics.get("2. high", 0)),
-                "low": float(metrics.get("3. low", 0)),
-                "close": float(metrics.get("4. close", 0)),
-                "adj_close": float(metrics.get("4. close", 0)), # Alpha Vantage TIME_SERIES_DAILY returns raw close; set adj_close to raw close
-                "volume": float(metrics.get("5. volume", 0)),
-            })
+            records.append(
+                {
+                    "date": pd.to_datetime(date_str).date(),
+                    "open": float(metrics.get("1. open", 0)),
+                    "high": float(metrics.get("2. high", 0)),
+                    "low": float(metrics.get("3. low", 0)),
+                    "close": float(metrics.get("4. close", 0)),
+                    "adj_close": float(
+                        metrics.get("4. close", 0)
+                    ),  # Alpha Vantage TIME_SERIES_DAILY returns raw close; set adj_close to raw close
+                    "volume": float(metrics.get("5. volume", 0)),
+                }
+            )
 
         df = pd.DataFrame(records)
         if df.empty:

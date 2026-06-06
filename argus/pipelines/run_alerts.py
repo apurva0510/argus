@@ -72,13 +72,13 @@ def run_alerts() -> dict[str, object]:
     try:
         smtp_ok = is_smtp_configured()
         if not smtp_ok:
-            logger.info("SMTP email delivery is not configured; triggered events will be saved as 'skipped'.")
+            logger.info(
+                "SMTP email delivery is not configured; triggered events will be saved as 'skipped'."
+            )
 
         with session_scope() as session:
             # 1. Fetch enabled alerts
-            active_alerts = session.scalars(
-                select(Alert).where(Alert.is_enabled.is_(True))
-            ).all()
+            active_alerts = session.scalars(select(Alert).where(Alert.is_enabled.is_(True))).all()
 
             for alert in active_alerts:
                 # 2. Resolve companies for this alert
@@ -117,7 +117,9 @@ def run_alerts() -> dict[str, object]:
                             dedupe_key = f"alert:{alert.id}:company:{company.id}:news:{news_id}"
                         elif alert.rule_type == "earnings_within_days":
                             event_date = payload.get("event_date", "unknown")
-                            dedupe_key = f"alert:{alert.id}:company:{company.id}:earnings:{event_date}"
+                            dedupe_key = (
+                                f"alert:{alert.id}:company:{company.id}:earnings:{event_date}"
+                            )
                         else:
                             metric_date = payload.get("date") or _utc_now().date().isoformat()
                             dedupe_key = f"alert:{alert.id}:company:{company.id}:date:{metric_date}"
@@ -162,7 +164,7 @@ def run_alerts() -> dict[str, object]:
                             triggered_at=_utc_now(),
                         )
                         session.add(event)
-                        
+
                         # Update alert trigger timestamp
                         alert.last_triggered_at = _utc_now()
                         rows_written += 1

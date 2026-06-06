@@ -76,12 +76,14 @@ def _finish_job_run(
         job.status = status
         job.rows_read = rows_read
         job.rows_written = rows_written
-        
+
         parts = []
         if provider_outcomes:
-            outcome_parts = [f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())]
+            outcome_parts = [
+                f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
+            ]
             parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
-            
+
         if error_text:
             parts.append(error_text)
         else:
@@ -92,7 +94,7 @@ def _finish_job_run(
                 sub_parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
             if sub_parts:
                 parts.append("; ".join(sub_parts))
-                
+
         job.error_text = "; ".join(parts) if parts else None
 
 
@@ -197,9 +199,7 @@ def detect_mentions_and_keywords(
         "reit",
     ]
 
-    matched_infra = [
-        kw for kw in infra_keywords if re.search(r"\b" + re.escape(kw) + r"\b", text)
-    ]
+    matched_infra = [kw for kw in infra_keywords if re.search(r"\b" + re.escape(kw) + r"\b", text)]
 
     for comp in companies:
         symbol = comp.symbol.strip().upper()
@@ -235,7 +235,9 @@ def detect_mentions_and_keywords(
             if len(symbol) <= 3:
                 ticker_in_title = bool(re.search(r"\b" + re.escape(symbol) + r"\b", title))
             else:
-                ticker_in_title = bool(re.search(r"\b" + re.escape(ticker_lower) + r"\b", title.lower()))
+                ticker_in_title = bool(
+                    re.search(r"\b" + re.escape(ticker_lower) + r"\b", title.lower())
+                )
 
             name_in_title = False
             for alias in _company_aliases(comp):
@@ -245,12 +247,14 @@ def detect_mentions_and_keywords(
 
             is_primary = ticker_in_title or name_in_title
 
-            mentions.append({
-                "company_id": comp.id,
-                "ticker": comp.symbol,
-                "is_primary_match": is_primary,
-                "matched_keywords": ", ".join(all_kws) if all_kws else None,
-            })
+            mentions.append(
+                {
+                    "company_id": comp.id,
+                    "ticker": comp.symbol,
+                    "is_primary_match": is_primary,
+                    "matched_keywords": ", ".join(all_kws) if all_kws else None,
+                }
+            )
 
     # Deduplicate mentions by company_id before returning
     seen_company_ids = set()
@@ -284,7 +288,9 @@ def stable_article_key(article: dict) -> str:
     if normalized_url:
         return normalized_url
     published = article.get("published_at")
-    published_key = published.date().isoformat() if hasattr(published, "date") else str(published or "")
+    published_key = (
+        published.date().isoformat() if hasattr(published, "date") else str(published or "")
+    )
     raw = f"{article.get('title', '').strip().lower()}|{published_key}"
     return "urn:argus-news:" + sha256(raw.encode("utf-8")).hexdigest()
 
@@ -362,9 +368,7 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
 
         # Check existing mentions
         existing_mentions = (
-            session.query(NewsMention)
-            .filter(NewsMention.news_id == existing_item.id)
-            .all()
+            session.query(NewsMention).filter(NewsMention.news_id == existing_item.id).all()
         )
         existing_company_ids = {m.company_id for m in existing_mentions}
 
@@ -379,7 +383,9 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
                     matched_keywords=m["matched_keywords"],
                 )
                 session.add(mention)
-                existing_company_ids.add(m["company_id"])  # Prevent duplicates within the same batch in case they were not fully filtered
+                existing_company_ids.add(
+                    m["company_id"]
+                )  # Prevent duplicates within the same batch in case they were not fully filtered
                 existing_mentions.append(mention)
                 written += 1
         existing_item.sentiment_score, existing_item.relevance_score = score_news_article(
@@ -439,9 +445,7 @@ def refresh_news(
                     "error_text": error_text,
                 }
 
-            companies = session.scalars(
-                select(Company).where(Company.is_active.is_(True))
-            ).all()
+            companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
 
             for provider in ("rss", "gdelt"):
                 if force:
@@ -496,7 +500,7 @@ def refresh_news(
                     message = disabled_message(provider)
                     logger.warning("%s: %s", message, exc)
                     if message not in health_messages:
-                         health_messages.append(message)
+                        health_messages.append(message)
                     failed_queries.append(query)
                     failed_providers.append(provider)
                     continue
@@ -516,9 +520,7 @@ def refresh_news(
             # Process globally unique articles
             for art in global_unique_articles.values():
                 # Check mentions across ALL active companies in DB
-                mentions = detect_mentions_and_keywords(
-                    art["title"], art["summary"], companies
-                )
+                mentions = detect_mentions_and_keywords(art["title"], art["summary"], companies)
                 if mentions:
                     rows_written += _upsert_news_item(session, art, mentions)
 

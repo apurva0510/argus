@@ -36,7 +36,9 @@ def _finish_job_run(
     with session_scope() as session:
         job = session.get(JobRun, job_id)
         if job is None:
-            job = JobRun(id=job_id, job_name="refresh_earnings", started_at=_utc_now(), status=status)
+            job = JobRun(
+                id=job_id, job_name="refresh_earnings", started_at=_utc_now(), status=status
+            )
             session.add(job)
 
         job.finished_at = _utc_now()
@@ -55,16 +57,18 @@ def _upsert_earnings_event_rows(session, company_id: int, events: list[dict]) ->
 
     values = []
     for ev in events:
-        values.append({
-            "company_id": company_id,
-            "event_date": ev["event_date"],
-            "fiscal_period": ev.get("fiscal_period"),
-            "eps_estimate": ev.get("eps_estimate"),
-            "eps_actual": ev.get("eps_actual"),
-            "revenue_estimate": ev.get("revenue_estimate"),
-            "revenue_actual": ev.get("revenue_actual"),
-            "source": ev.get("source", "yfinance"),
-        })
+        values.append(
+            {
+                "company_id": company_id,
+                "event_date": ev["event_date"],
+                "fiscal_period": ev.get("fiscal_period"),
+                "eps_estimate": ev.get("eps_estimate"),
+                "eps_actual": ev.get("eps_actual"),
+                "revenue_estimate": ev.get("revenue_estimate"),
+                "revenue_actual": ev.get("revenue_actual"),
+                "source": ev.get("source", "yfinance"),
+            }
+        )
 
     insert_fn = get_insert_statement_producer(session)
     statement = insert_fn(EarningsEvent).values(values)
@@ -100,7 +104,7 @@ def refresh_earnings() -> dict[str, object]:
                         "yfinance",
                         lambda: ticker.calendar,
                     )
-                    
+
                     if not calendar or not isinstance(calendar, dict):
                         logger.debug("No calendar data returned for %s", company.symbol)
                         continue
@@ -120,12 +124,14 @@ def refresh_earnings() -> dict[str, object]:
                         if isinstance(d, datetime):
                             d = d.date()
                         if isinstance(d, date):
-                            events.append({
-                                "event_date": d,
-                                "eps_estimate": calendar.get("Earnings Average"),
-                                "revenue_estimate": calendar.get("Revenue Average"),
-                                "source": "yfinance",
-                            })
+                            events.append(
+                                {
+                                    "event_date": d,
+                                    "eps_estimate": calendar.get("Earnings Average"),
+                                    "revenue_estimate": calendar.get("Revenue Average"),
+                                    "source": "yfinance",
+                                }
+                            )
 
                     if events:
                         rows_read += len(events)
@@ -139,7 +145,7 @@ def refresh_earnings() -> dict[str, object]:
             if failed_symbols:
                 status = "partial_success"
                 logger.warning("Earnings refresh failed for symbols: %s", ",".join(failed_symbols))
-                
+
     except Exception as exc:
         status = "failed"
         error_text = str(exc)

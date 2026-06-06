@@ -62,6 +62,7 @@ def build_macro_capex_context(
 
     elec_price = _latest_observation(macro, "EIA_ELEC_PRICE")
     elec_demand = _latest_observation(macro, "EIA_ELEC_DEMAND")
+    elec_demand_load = _compute_power_signal(macro)
 
     latest_capex = _latest_capex_total(capex)
     pressure = _capex_pressure_label(
@@ -87,6 +88,7 @@ def build_macro_capex_context(
         "electricity": {
             "price": elec_price,
             "demand": elec_demand,
+            "demand_load": elec_demand_load,
         },
         "capex": latest_capex,
         "pressure_label": pressure["label"],
@@ -123,8 +125,7 @@ def _latest_observation(frame: pd.DataFrame, series_code: str) -> dict[str, Any]
 
 def _value_on_or_before(frame: pd.DataFrame, series_code: str, target_date: date) -> float | None:
     series = frame[
-        (frame["series_code"] == series_code)
-        & (frame["observation_date"] <= target_date)
+        (frame["series_code"] == series_code) & (frame["observation_date"] <= target_date)
     ].sort_values("observation_date")
     if series.empty:
         return None
@@ -167,6 +168,7 @@ def _latest_capex_total(frame: pd.DataFrame) -> dict[str, Any]:
         unique_currencies = frame["currency"].dropna().unique()
         if len(unique_currencies) > 1:
             import logging
+
             logging.getLogger(__name__).warning(
                 "Multiple currencies found in capex observations: %s. Summing without conversion.",
                 unique_currencies,
@@ -220,22 +222,111 @@ def _capex_pressure_label(
         return {
             "label": "Severe",
             "level": 3,
-            "explanation": "Rates are rising sharply, core inflation is elevated, and reported hyperscaler capex is declining year over year.",
+            "explanation": (
+                f"Rates are rising sharply (+{dgs10_3m_bps:.1f} bps over 3M), "
+                f"core inflation is elevated ({core_cpi_yoy:.1%}), and "
+                f"reported hyperscaler capex is declining year over year ({capex_yoy:.1%})."
+            ),
         }
     if rates_rising and inflation_elevated:
         return {
             "label": "High",
             "level": 2,
-            "explanation": "Rates are rising and core inflation remains elevated, which can pressure AI infrastructure financing and input costs.",
+            "explanation": (
+                f"Rates are rising (+{dgs10_3m_bps:.1f} bps over 3M) and "
+                f"core inflation remains elevated ({core_cpi_yoy:.1%}), which "
+                "can pressure AI infrastructure financing and input costs."
+            ),
         }
     if rates_rising or inflation_elevated:
+        signals = []
+        if rates_rising:
+            signals.append(f"rising 10Y yields (+{dgs10_3m_bps:.1f} bps over 3M)")
+        if inflation_elevated:
+            signals.append(f"elevated core inflation ({core_cpi_yoy:.1%})")
+        signals_str = " and ".join(signals)
         return {
             "label": "Medium",
             "level": 1,
-            "explanation": "One macro pressure signal is elevated; monitor whether hyperscaler capex continues to grow.",
+            "explanation": f"One macro pressure signal is elevated ({signals_str}); monitor whether hyperscaler capex continues to grow.",
         }
+
+    # Low pressure level details
+    if dgs10_3m_bps is not None:
+        if dgs10_3m_bps > 0:
+            rates_str = f"+{dgs10_3m_bps:.1f} bps over 3M"
+        elif dgs10_3m_bps < 0:
+            rates_str = f"{dgs10_3m_bps:.1f} bps over 3M"
+        else:
+            rates_str = "0.0 bps over 3M"
+    else:
+        rates_str = "N/A"
+
+    inflation_str = f"{core_cpi_yoy:.1%}" if core_cpi_yoy is not None else "N/A"
     return {
         "label": "Low",
         "level": 0,
-        "explanation": "Rates and core inflation are not currently flashing major pressure signals.",
+        "explanation": f"Rates and core inflation are not currently flashing major pressure signals (10Y yield change: {rates_str}, core inflation: {inflation_str}).",
     }
+
+
+def _compute_power_signal(macro: pd.DataFrame) -> float | None:
+    if macro.empty:
+        return None
+    df = macro.copy()
+    df["observation_date"] = pd.to_datetime(df["observation_date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["observation_date", "value"])
+
+    price_df = df[df["series_code"] == "EIA_ELEC_PRICE"].sort_values("observation_date")
+    demand_df = df[df["series_code"] == "EIA_ELEC_DEMAND"].sort_values("observation_date")
+
+    if price_df.empty or demand_df.empty:
+        return None
+
+    # Compute price YoY
+    latest_price_row = price_df.iloc[-1]
+    latest_price_date = latest_price_row["observation_date"]
+    latest_price_val = latest_price_row["value"]
+
+    prior_price_df = price_df[
+        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380))
+        & (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
+    ]
+    if prior_price_df.empty:
+        return None
+
+    prior_price_df = prior_price_df.copy()
+    prior_price_df["diff"] = (
+        prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))
+    ).abs()
+    prior_price_val = prior_price_df.sort_values("diff").iloc[0]["value"]
+    if prior_price_val == 0:
+        return None
+    price_yoy = (latest_price_val / prior_price_val) - 1.0
+
+    # Compute demand YoY using 7-day average to smooth day-of-week fluctuations
+    latest_demand_row = demand_df.iloc[-1]
+    latest_demand_date = latest_demand_row["observation_date"]
+
+    latest_demand_7d = demand_df[
+        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6))
+        & (demand_df["observation_date"] <= latest_demand_date)
+    ]
+    if len(latest_demand_7d) < 5:
+        return None
+    latest_demand_val = latest_demand_7d["value"].mean()
+
+    prior_demand_date = latest_demand_date - pd.Timedelta(days=365)
+    prior_demand_7d = demand_df[
+        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6))
+        & (demand_df["observation_date"] <= prior_demand_date)
+    ]
+    if len(prior_demand_7d) < 5:
+        return None
+    prior_demand_val = prior_demand_7d["value"].mean()
+    if prior_demand_val == 0:
+        return None
+    demand_yoy = (latest_demand_val / prior_demand_val) - 1.0
+
+    return float((price_yoy + demand_yoy) / 2.0)

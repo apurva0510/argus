@@ -233,7 +233,9 @@ def test_update_watchlist_items_persists_changes(sqlite_engine, db_session, monk
     assert row.notes == "updated note"
 
 
-def test_update_watchlist_items_preserves_note_whitespace(sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_preserves_note_whitespace(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     from argus.core import db as db_module
 
     item_id = _seed_watchlist_fixture(db_session)
@@ -253,7 +255,9 @@ def test_update_watchlist_items_preserves_note_whitespace(sqlite_engine, db_sess
 
 
 @pytest.mark.parametrize("note_value", [None, pd.NA, float("nan")])
-def test_update_watchlist_items_handles_null_notes(note_value, sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_handles_null_notes(
+    note_value, sqlite_engine, db_session, monkeypatch
+) -> None:
     from argus.core import db as db_module
 
     item_id = _seed_watchlist_fixture(db_session)
@@ -272,7 +276,9 @@ def test_update_watchlist_items_handles_null_notes(note_value, sqlite_engine, db
     assert row.notes == ""
 
 
-def test_update_watchlist_items_rejects_invalid_status(sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_rejects_invalid_status(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     from argus.core import db as db_module
 
     item_id = _seed_watchlist_fixture(db_session)
@@ -288,7 +294,9 @@ def test_update_watchlist_items_rejects_invalid_status(sqlite_engine, db_session
     assert errors
 
 
-def test_update_watchlist_items_does_not_partially_save_invalid_batch(sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_does_not_partially_save_invalid_batch(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     from argus.core import db as db_module
 
     item_id = _seed_watchlist_fixture(db_session)
@@ -358,7 +366,9 @@ def test_load_watchlist_table_filters_by_ticker_case_insensitive(sqlite_engine, 
     assert df.iloc[0]["ticker"] == "NVDA"
 
 
-def test_load_watchlist_table_ticker_filter_supports_partial_match(sqlite_engine, db_session) -> None:
+def test_load_watchlist_table_ticker_filter_supports_partial_match(
+    sqlite_engine, db_session
+) -> None:
     _seed_multi_watchlist_fixture(db_session)
 
     df = load_watchlist_table(sqlite_engine, ticker_query="AM")
@@ -430,7 +440,9 @@ def test_update_watchlist_items_persists_notes_only_change(
     assert row.notes == "notes only change"
 
 
-def test_update_watchlist_items_skips_unchanged_rows(sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_skips_unchanged_rows(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     item_id = _seed_watchlist_fixture(db_session)
 
@@ -545,9 +557,11 @@ def test_normalize_note_value(value, expected) -> None:
     assert normalize_note_value(value) == expected
 
 
-def test_update_watchlist_items_syncs_status_globally(sqlite_engine, db_session, monkeypatch) -> None:
+def test_update_watchlist_items_syncs_status_globally(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     _patch_session(sqlite_engine, monkeypatch)
-    
+
     # Create a company and two watchlists
     company = Company(symbol="NVDA", name="NVIDIA", is_active=True)
     wl1 = Watchlist(name="System Watchlist", is_system=True)
@@ -555,8 +569,12 @@ def test_update_watchlist_items_syncs_status_globally(sqlite_engine, db_session,
     db_session.add_all([company, wl1, wl2])
     db_session.flush()
 
-    wi1 = WatchlistItem(watchlist_id=wl1.id, company_id=company.id, watch_status="watch", notes="system note")
-    wi2 = WatchlistItem(watchlist_id=wl2.id, company_id=company.id, watch_status="watch", notes="custom note")
+    wi1 = WatchlistItem(
+        watchlist_id=wl1.id, company_id=company.id, watch_status="watch", notes="system note"
+    )
+    wi2 = WatchlistItem(
+        watchlist_id=wl2.id, company_id=company.id, watch_status="watch", notes="custom note"
+    )
     db_session.add_all([wi1, wi2])
     db_session.commit()
 

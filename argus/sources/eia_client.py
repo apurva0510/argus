@@ -62,11 +62,13 @@ def fetch_eia_series(
             params[f"facets[{key}][]"] = list(values)
 
     import os
+
     verify_ssl = os.getenv("ARGUS_SKIP_SSL_VERIFY", "").lower() not in ("true", "1", "yes")
     owns_client = client is None
     active_client = client or httpx.Client(timeout=30.0, verify=verify_ssl)
     try:
         import time
+
         max_retries = 3
         backoff_factor = 2.0
         for attempt in range(max_retries):
@@ -85,22 +87,40 @@ def fetch_eia_series(
                     )
                     raise
                 if attempt == max_retries - 1:
-                    logger.error("Failed to fetch EIA series %s after %d attempts: %s", route, max_retries, exc)
+                    logger.error(
+                        "Failed to fetch EIA series %s after %d attempts: %s",
+                        route,
+                        max_retries,
+                        exc,
+                    )
                     raise
-                wait_time = backoff_factor ** attempt
+                wait_time = backoff_factor**attempt
                 logger.warning(
                     "Error fetching EIA series %s (attempt %d/%d): %s. Retrying in %.1fs...",
-                    route, attempt + 1, max_retries, exc, wait_time
+                    route,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                    wait_time,
                 )
                 time.sleep(wait_time)
             except httpx.HTTPError as exc:
                 if attempt == max_retries - 1:
-                    logger.error("Failed to fetch EIA series %s after %d attempts: %s", route, max_retries, exc)
+                    logger.error(
+                        "Failed to fetch EIA series %s after %d attempts: %s",
+                        route,
+                        max_retries,
+                        exc,
+                    )
                     raise
-                wait_time = backoff_factor ** attempt
+                wait_time = backoff_factor**attempt
                 logger.warning(
                     "Error fetching EIA series %s (attempt %d/%d): %s. Retrying in %.1fs...",
-                    route, attempt + 1, max_retries, exc, wait_time
+                    route,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                    wait_time,
                 )
                 time.sleep(wait_time)
 
@@ -114,9 +134,13 @@ def fetch_eia_series(
             logger.warning("EIA response missing expected columns for %s", route)
             return pd.DataFrame(columns=["observation_date", "value"])
 
-        result = frame[["period", data_column]].rename(columns={"period": "observation_date", data_column: "value"})
+        result = frame[["period", data_column]].rename(
+            columns={"period": "observation_date", data_column: "value"}
+        )
         result["value"] = pd.to_numeric(result["value"], errors="coerce")
-        result["observation_date"] = pd.to_datetime(result["observation_date"], errors="coerce").dt.date
+        result["observation_date"] = pd.to_datetime(
+            result["observation_date"], errors="coerce"
+        ).dt.date
         return result.dropna(subset=["observation_date", "value"])
     finally:
         if owns_client:

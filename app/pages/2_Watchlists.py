@@ -9,7 +9,11 @@ from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
-from argus.services.watchlist_service import load_watchlist_table, normalize_note_value, update_watchlist_items
+from argus.services.watchlist_service import (
+    load_watchlist_table,
+    normalize_note_value,
+    update_watchlist_items,
+)
 from app.components.tables import style_positive_green_negative_red
 
 
@@ -59,10 +63,16 @@ def render_watchlists() -> None:
     selected_ticker_state = st.session_state.get("watchlist_ticker_filter", [])
     theme_options_df = all_options_df.copy()
     if selected_statuses:
-        theme_options_df = theme_options_df[theme_options_df["watch_status"].isin(selected_statuses)]
+        theme_options_df = theme_options_df[
+            theme_options_df["watch_status"].isin(selected_statuses)
+        ]
     if selected_ticker_state:
         theme_options_df = theme_options_df[theme_options_df["ticker"].isin(selected_ticker_state)]
-    theme_options = sorted(theme_options_df["theme"].dropna().unique().tolist()) if not theme_options_df.empty else []
+    theme_options = (
+        sorted(theme_options_df["theme"].dropna().unique().tolist())
+        if not theme_options_df.empty
+        else []
+    )
     if st.session_state.get("watchlist_theme_filter") not in [None, "All", *theme_options]:
         st.session_state.watchlist_theme_filter = "All"
 
@@ -77,8 +87,14 @@ def render_watchlists() -> None:
     if selected_theme != "All":
         ticker_options_df = ticker_options_df[ticker_options_df["theme"] == selected_theme]
     if selected_statuses:
-        ticker_options_df = ticker_options_df[ticker_options_df["watch_status"].isin(selected_statuses)]
-    ticker_options = sorted(ticker_options_df["ticker"].dropna().unique().tolist()) if not ticker_options_df.empty else []
+        ticker_options_df = ticker_options_df[
+            ticker_options_df["watch_status"].isin(selected_statuses)
+        ]
+    ticker_options = (
+        sorted(ticker_options_df["ticker"].dropna().unique().tolist())
+        if not ticker_options_df.empty
+        else []
+    )
     if selected_ticker_state:
         st.session_state.watchlist_ticker_filter = [
             ticker for ticker in selected_ticker_state if ticker in ticker_options
@@ -142,7 +158,7 @@ def render_watchlists() -> None:
 
     styled_editor_df = editor_df.style.map(
         style_positive_green_negative_red,
-        subset=["1D %", "1W %", "1M %", "3M %", "YTD %", "drawdown from 52W high"]
+        subset=["1D %", "1W %", "1M %", "3M %", "YTD %", "drawdown from 52W high"],
     )
 
     editable = st.data_editor(
@@ -157,7 +173,9 @@ def render_watchlists() -> None:
                 required=True,
             ),
             "notes": st.column_config.TextColumn("notes"),
-            "ticker": st.column_config.LinkColumn("ticker", disabled=True, display_text=r"ticker=([^&]+)"),
+            "ticker": st.column_config.LinkColumn(
+                "ticker", disabled=True, display_text=r"ticker=([^&]+)"
+            ),
             "company": st.column_config.TextColumn("company", disabled=True),
             "theme": st.column_config.TextColumn("theme", disabled=True),
             "price": st.column_config.NumberColumn("price", disabled=True, format="$%.2f"),
@@ -167,7 +185,9 @@ def render_watchlists() -> None:
             "3M %": st.column_config.TextColumn("3M %", disabled=True),
             "YTD %": st.column_config.TextColumn("YTD %", disabled=True),
             "52W high": st.column_config.NumberColumn("52W high", disabled=True, format="$%.2f"),
-            "drawdown from 52W high": st.column_config.TextColumn("drawdown from 52W high", disabled=True),
+            "drawdown from 52W high": st.column_config.TextColumn(
+                "drawdown from 52W high", disabled=True
+            ),
             "50DMA": st.column_config.NumberColumn("50DMA", disabled=True, format="$%.2f"),
             "200DMA": st.column_config.NumberColumn("200DMA", disabled=True, format="$%.2f"),
             "RSI 14": st.column_config.NumberColumn("RSI 14", disabled=True, format="%.1f"),

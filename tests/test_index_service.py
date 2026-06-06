@@ -44,7 +44,7 @@ def test_get_index_options(db_session: Session) -> None:
     assert len(options) >= 1
     names = [opt["name"] for opt in options]
     assert "Index A" in names
-    
+
     # Check options details for our created index
     opt = next(o for o in options if o["name"] == "Index A")
     assert opt["mode"] == INDEX_MODE_EQUAL
@@ -85,16 +85,14 @@ def test_save_index_definition_from_editor(db_session: Session) -> None:
         ]
     )
 
-    save_index_definition_from_editor(
-        db_session, "My Manual Index", INDEX_MODE_MANUAL, editor_df
-    )
+    save_index_definition_from_editor(db_session, "My Manual Index", INDEX_MODE_MANUAL, editor_df)
     db_session.flush()
 
     # Query db to verify it was created
     defn = db_session.query(IndexDefinition).filter_by(name="My Manual Index").first()
     assert defn is not None
     assert defn.mode == INDEX_MODE_MANUAL
-    
+
     constituents = db_session.query(IndexConstituent).filter_by(index_definition_id=defn.id).all()
     assert len(constituents) == 2
 

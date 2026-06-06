@@ -36,7 +36,9 @@ def _finish_job_run(
     with session_scope() as session:
         job = session.get(JobRun, job_id)
         if job is None:
-            job = JobRun(id=job_id, job_name="refresh_fundamentals", started_at=_utc_now(), status=status)
+            job = JobRun(
+                id=job_id, job_name="refresh_fundamentals", started_at=_utc_now(), status=status
+            )
             session.add(job)
 
         job.finished_at = _utc_now()
@@ -125,8 +127,10 @@ def refresh_fundamentals() -> dict[str, object]:
 
             if failed_symbols:
                 status = "partial_success"
-                logger.warning("Fundamentals refresh failed for symbols: %s", ",".join(failed_symbols))
-                
+                logger.warning(
+                    "Fundamentals refresh failed for symbols: %s", ",".join(failed_symbols)
+                )
+
     except Exception as exc:
         status = "failed"
         error_text = str(exc)

@@ -8,6 +8,7 @@ from argus.sources.base import BaseMarketDataProvider, period_to_timestamps
 
 logger = logging.getLogger(__name__)
 
+
 class FinnhubProvider(BaseMarketDataProvider):
     @property
     def name(self) -> str:
@@ -45,17 +46,25 @@ class FinnhubProvider(BaseMarketDataProvider):
             return pd.DataFrame()
 
         if not data or data.get("s") != "ok":
-            logger.warning("Finnhub returned no or unsuccessful data for symbol %s: %s", symbol, data.get("s", "no status"))
+            logger.warning(
+                "Finnhub returned no or unsuccessful data for symbol %s: %s",
+                symbol,
+                data.get("s", "no status"),
+            )
             return pd.DataFrame()
 
         # Build dataframe
-        df = pd.DataFrame({
-            "date": pd.to_datetime(data["t"], unit="s").date,
-            "open": [float(x) for x in data["o"]],
-            "high": [float(x) for x in data["h"]],
-            "low": [float(x) for x in data["l"]],
-            "close": [float(x) for x in data["c"]],
-            "adj_close": [float(x) for x in data["c"]], # Finnhub free doesn't have split-adjusted in candles
-            "volume": [float(x) for x in data["v"]],
-        })
+        df = pd.DataFrame(
+            {
+                "date": pd.to_datetime(data["t"], unit="s").date,
+                "open": [float(x) for x in data["o"]],
+                "high": [float(x) for x in data["h"]],
+                "low": [float(x) for x in data["l"]],
+                "close": [float(x) for x in data["c"]],
+                "adj_close": [
+                    float(x) for x in data["c"]
+                ],  # Finnhub free doesn't have split-adjusted in candles
+                "volume": [float(x) for x in data["v"]],
+            }
+        )
         return df

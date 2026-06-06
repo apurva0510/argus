@@ -25,9 +25,7 @@ def disabled_message(provider: str) -> str:
 def get_provider_health(session: Session, provider: str) -> ProviderHealth:
     provider_key = provider.strip().lower()
     health = (
-        session.query(ProviderHealth)
-        .filter(ProviderHealth.provider == provider_key)
-        .one_or_none()
+        session.query(ProviderHealth).filter(ProviderHealth.provider == provider_key).one_or_none()
     )
     if health is None:
         health = ProviderHealth(provider=provider_key, status="healthy", failure_count=0)

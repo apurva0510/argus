@@ -40,12 +40,12 @@ class Settings(BaseSettings):
     eia_api_key: str = Field(default="", alias="EIA_API_KEY")
 
 
-
 settings = Settings()
 
 # Try reading from Streamlit secrets if running inside Streamlit context
 try:
     import streamlit as st
+
     if hasattr(st, "secrets"):
         for secret_key, setting_name in (
             ("APP_PASSWORD", "app_password"),
@@ -75,6 +75,10 @@ if settings.database_password and settings.database_url:
 # Normalize database URL (map postgres:// or postgresql:// to postgresql+psycopg:// for psycopg v3)
 if settings.database_url:
     if settings.database_url.startswith("postgres://"):
-        settings.database_url = settings.database_url.replace("postgres://", "postgresql+psycopg://", 1)
+        settings.database_url = settings.database_url.replace(
+            "postgres://", "postgresql+psycopg://", 1
+        )
     elif settings.database_url.startswith("postgresql://"):
-        settings.database_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        settings.database_url = settings.database_url.replace(
+            "postgresql://", "postgresql+psycopg://", 1
+        )

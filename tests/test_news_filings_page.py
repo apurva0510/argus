@@ -92,4 +92,3 @@ def test_news_and_sec_filters_active(monkeypatch) -> None:
     # Case 2.3: Form filter active -> True
     monkeypatch.setattr(st, "session_state", {"news_form_filter": "10-K"})
     assert news_filings_page._sec_only_filters_active("All")
-

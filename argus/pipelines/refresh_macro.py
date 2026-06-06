@@ -29,13 +29,47 @@ class MacroSeriesDefinition:
 
 
 MACRO_SERIES: tuple[MacroSeriesDefinition, ...] = (
-    MacroSeriesDefinition("DGS10", "10-Year Treasury Yield", "daily", "percent", "10-year Treasury constant maturity rate"),
-    MacroSeriesDefinition("DGS30", "30-Year Treasury Yield", "daily", "percent", "30-year Treasury constant maturity rate"),
-    MacroSeriesDefinition("DGS2", "2-Year Treasury Yield", "daily", "percent", "2-year Treasury constant maturity rate"),
-    MacroSeriesDefinition("FEDFUNDS", "Effective Federal Funds Rate", "monthly", "percent", "Effective federal funds rate"),
-    MacroSeriesDefinition("CPIAUCSL", "CPI", "monthly", "index", "Consumer Price Index for All Urban Consumers"),
-    MacroSeriesDefinition("CPILFESL", "Core CPI", "monthly", "index", "Consumer Price Index less food and energy"),
-    MacroSeriesDefinition("PPIACO", "Producer Price Index", "monthly", "index", "Producer Price Index by commodity, all commodities"),
+    MacroSeriesDefinition(
+        "DGS10",
+        "10-Year Treasury Yield",
+        "daily",
+        "percent",
+        "10-year Treasury constant maturity rate",
+    ),
+    MacroSeriesDefinition(
+        "DGS30",
+        "30-Year Treasury Yield",
+        "daily",
+        "percent",
+        "30-year Treasury constant maturity rate",
+    ),
+    MacroSeriesDefinition(
+        "DGS2",
+        "2-Year Treasury Yield",
+        "daily",
+        "percent",
+        "2-year Treasury constant maturity rate",
+    ),
+    MacroSeriesDefinition(
+        "FEDFUNDS",
+        "Effective Federal Funds Rate",
+        "monthly",
+        "percent",
+        "Effective federal funds rate",
+    ),
+    MacroSeriesDefinition(
+        "CPIAUCSL", "CPI", "monthly", "index", "Consumer Price Index for All Urban Consumers"
+    ),
+    MacroSeriesDefinition(
+        "CPILFESL", "Core CPI", "monthly", "index", "Consumer Price Index less food and energy"
+    ),
+    MacroSeriesDefinition(
+        "PPIACO",
+        "Producer Price Index",
+        "monthly",
+        "index",
+        "Producer Price Index by commodity, all commodities",
+    ),
     MacroSeriesDefinition(
         "EIA_ELEC_PRICE",
         "US Average Retail Electricity Price",
@@ -115,9 +149,11 @@ def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
         },
     )
     session.execute(statement)
- 
- 
-def _upsert_observations(session, series_code: str, observations: pd.DataFrame, provider: str = "fred") -> int:
+
+
+def _upsert_observations(
+    session, series_code: str, observations: pd.DataFrame, provider: str = "fred"
+) -> int:
     if observations.empty:
         return 0
 
@@ -129,7 +165,7 @@ def _upsert_observations(session, series_code: str, observations: pd.DataFrame, 
     )
     if observations.empty:
         return 0
- 
+
     values = [
         {
             "series_code": series_code,
@@ -176,6 +212,7 @@ def parse_fred_csv(series_code: str, csv_text: str) -> pd.DataFrame:
 def fetch_fred_series(series_code: str, *, client: httpx.Client | None = None) -> pd.DataFrame:
     import os
     from argus.core.settings import settings
+
     owns_client = client is None
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -185,6 +222,7 @@ def fetch_fred_series(series_code: str, *, client: httpx.Client | None = None) -
     try:
         from datetime import date, timedelta
         import time
+
         start_date = (date.today() - timedelta(days=3 * 365)).isoformat()
 
         kwargs = {}
@@ -234,13 +272,19 @@ def fetch_fred_series(series_code: str, *, client: httpx.Client | None = None) -
                 if attempt == max_retries - 1:
                     logger.error(
                         "Failed to fetch FRED series %s after %d attempts: %s",
-                        series_code, max_retries, exc
+                        series_code,
+                        max_retries,
+                        exc,
                     )
                     raise
-                wait_time = backoff_factor ** attempt
+                wait_time = backoff_factor**attempt
                 logger.warning(
                     "Error fetching FRED series %s (attempt %d/%d): %s. Retrying in %.1fs...",
-                    series_code, attempt + 1, max_retries, exc, wait_time
+                    series_code,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                    wait_time,
                 )
                 time.sleep(wait_time)
         raise httpx.HTTPError("Max retries exceeded")
@@ -302,7 +346,9 @@ def refresh_macro(
                             data_column=data_column,
                         )
                         rows_read += len(observations)
-                        rows_written += _upsert_observations(session, code, observations, provider="eia")
+                        rows_written += _upsert_observations(
+                            session, code, observations, provider="eia"
+                        )
                     else:
                         observations = execute_provider_request(
                             session,
@@ -312,7 +358,9 @@ def refresh_macro(
                             client=client,
                         )
                         rows_read += len(observations)
-                        rows_written += _upsert_observations(session, code, observations, provider="fred")
+                        rows_written += _upsert_observations(
+                            session, code, observations, provider="fred"
+                        )
                 except Exception as exc:
                     logger.warning("Failed to refresh macro series %s: %s", code, exc)
                     failed_series.append(code)

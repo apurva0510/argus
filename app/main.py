@@ -7,7 +7,12 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import streamlit as st  # noqa: E402
-from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_token, validate_auth_token  # noqa: E402
+from argus.core.auth import (  # noqa: E402
+    AUTH_COOKIE_NAME,
+    AUTH_QUERY_PARAM,
+    create_auth_token,
+    validate_auth_token,
+)
 from argus.core.settings import settings  # noqa: E402
 
 st.set_page_config(page_title="Argus", page_icon="📊", layout="wide")
@@ -41,6 +46,7 @@ def _query_token_is_authenticated() -> bool:
 def _issue_auth_token() -> None:
     token = create_auth_token(_auth_secret())
     st.session_state["auth_token"] = token
+
 
 def render_login_screen():
     # Custom styling for premium dark glassmorphism card
@@ -92,16 +98,16 @@ def render_login_screen():
     col1, col2, col3 = st.columns([1, 4, 1])
     with col2:
         st.markdown('<div class="login-title">Argus Platform</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Enter password to access the research dashboard</div>', unsafe_allow_html=True)
-        
+        st.markdown(
+            '<div class="login-subtitle">Enter password to access the research dashboard</div>',
+            unsafe_allow_html=True,
+        )
+
         with st.form("login_form", border=False, clear_on_submit=False):
             password_input = st.text_input(
-                "Password", 
-                type="password", 
-                placeholder="••••••••",
-                label_visibility="collapsed"
+                "Password", type="password", placeholder="••••••••", label_visibility="collapsed"
             )
-            
+
             if st.form_submit_button("Unlock Dashboard", use_container_width=True):
                 if password_input == settings.app_password:
                     st.session_state["password_correct"] = True
@@ -109,6 +115,7 @@ def render_login_screen():
                     st.rerun()
                 else:
                     st.error("❌ Incorrect password.")
+
 
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False

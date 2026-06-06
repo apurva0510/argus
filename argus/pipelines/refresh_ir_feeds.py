@@ -71,21 +71,25 @@ def _finish_job_run(
     with session_scope() as session:
         job = session.get(JobRun, job_id)
         if job is None:
-            job = JobRun(id=job_id, job_name="refresh_ir_feeds", started_at=_utc_now(), status=status)
+            job = JobRun(
+                id=job_id, job_name="refresh_ir_feeds", started_at=_utc_now(), status=status
+            )
             session.add(job)
         job.finished_at = _utc_now()
         job.status = status
         job.rows_read = rows_read
         job.rows_written = rows_written
-        
+
         parts = []
         if provider_outcomes:
-            outcome_parts = [f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())]
+            outcome_parts = [
+                f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
+            ]
             parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
-            
+
         if error_text:
             parts.append(error_text)
-            
+
         job.error_text = "; ".join(parts) if parts else None
 
 
@@ -151,7 +155,9 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                 )
             ).all()
             companies_by_symbol = {company.symbol.upper(): company for company in companies}
-            all_companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
+            all_companies = session.scalars(
+                select(Company).where(Company.is_active.is_(True))
+            ).all()
 
             if force:
                 health = get_provider_health(session, "ir_feed")
@@ -214,8 +220,14 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                     rows_written += _upsert_news_item(session, article, mentions)
 
             if errors:
-                has_provider_cooldown = any("disabled until tomorrow due to rate limit" in error for error in errors)
-                status = "partial_success" if has_provider_cooldown or rows_read or rows_written else "failed"
+                has_provider_cooldown = any(
+                    "disabled until tomorrow due to rate limit" in error for error in errors
+                )
+                status = (
+                    "partial_success"
+                    if has_provider_cooldown or rows_read or rows_written
+                    else "failed"
+                )
     except Exception as exc:
         status = "failed"
         errors.append(str(exc))

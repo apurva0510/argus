@@ -336,8 +336,8 @@ def test_company_detail_short_ranges_return_empty_when_all_rows_are_off_hours() 
     frame = pd.DataFrame(
         {
             "date": [
-                datetime(2026, 6, 8, 4, 0),   # 4:00 AM ET — pre-market
-                datetime(2026, 6, 8, 8, 0),   # 8:00 AM ET — pre-market
+                datetime(2026, 6, 8, 4, 0),  # 4:00 AM ET — pre-market
+                datetime(2026, 6, 8, 8, 0),  # 8:00 AM ET — pre-market
             ],
             "adj_close": [100.0, 101.0],
         }
@@ -459,12 +459,8 @@ def test_company_detail_52w_range_avoids_markdown_math_parsing() -> None:
 def test_company_detail_latest_price_ignores_stale_intraday_data() -> None:
     detail_module = importlib.import_module("app.pages.3_Company_Detail")
 
-    daily = pd.DataFrame(
-        [{"date": date(2026, 6, 4), "adj_close": 155.0}]
-    )
-    intraday = pd.DataFrame(
-        [{"date": datetime(2026, 6, 3, 20, 0), "adj_close": 150.0}]
-    )
+    daily = pd.DataFrame([{"date": date(2026, 6, 4), "adj_close": 155.0}])
+    intraday = pd.DataFrame([{"date": datetime(2026, 6, 3, 20, 0), "adj_close": 150.0}])
 
     assert detail_module._latest_price_from_history(daily, intraday) == 155.0
 
@@ -479,12 +475,8 @@ def test_company_detail_as_of_date_formats_timestamp_in_et() -> None:
 def test_company_detail_latest_price_uses_current_intraday_data() -> None:
     detail_module = importlib.import_module("app.pages.3_Company_Detail")
 
-    daily = pd.DataFrame(
-        [{"date": date(2026, 6, 4), "adj_close": 155.0}]
-    )
-    intraday = pd.DataFrame(
-        [{"date": datetime(2026, 6, 4, 18, 0), "adj_close": 158.0}]
-    )
+    daily = pd.DataFrame([{"date": date(2026, 6, 4), "adj_close": 155.0}])
+    intraday = pd.DataFrame([{"date": datetime(2026, 6, 4, 18, 0), "adj_close": 158.0}])
 
     assert detail_module._latest_price_from_history(daily, intraday) == 158.0
 
@@ -554,7 +546,10 @@ def test_dashboard_uses_separate_active_and_index_constituent_counts() -> None:
 
     assert "data['active_company_count']" in dashboard_source
     assert 'data.get("index_constituent_count")' in dashboard_source
-    assert 'render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count"))' not in dashboard_source
+    assert (
+        'render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count"))'
+        not in dashboard_source
+    )
 
 
 def test_company_detail_formatters() -> None:
@@ -652,6 +647,7 @@ def test_company_detail_load_index_relative_returns_intraday(
     db_session: Session,
 ) -> None:
     import importlib
+
     c1 = Company(symbol="A", name="A", is_active=True, is_benchmark=False)
     c2 = Company(symbol="B", name="B", is_active=True, is_benchmark=False)
     c_qqq = Company(symbol="QQQ", name="QQQ", is_active=True, is_benchmark=True)

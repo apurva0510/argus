@@ -25,7 +25,9 @@ def get_db_engine():
 
 
 @st.cache_data(ttl=60)
-def load_news(ticker, source, keyword, start_date, end_date, min_relevance, sentiment_band) -> pd.DataFrame:
+def load_news(
+    ticker, source, keyword, start_date, end_date, min_relevance, sentiment_band
+) -> pd.DataFrame:
     return get_filtered_news(
         get_db_engine(),
         ticker=ticker,
@@ -114,12 +116,16 @@ def load_feed_filter_options(
             else []
         )
         form_options = (
-            pd.read_sql_query(text(forms_sql + " ORDER BY sf.form"), conn, params=params)["form"].dropna().tolist()
+            pd.read_sql_query(text(forms_sql + " ORDER BY sf.form"), conn, params=params)["form"]
+            .dropna()
+            .tolist()
             if item_type != "News Only"
             else []
         )
         source_options = (
-            pd.read_sql_query(text(sources_sql + " ORDER BY ni.source_name"), conn, params=params)["source_name"]
+            pd.read_sql_query(text(sources_sql + " ORDER BY ni.source_name"), conn, params=params)[
+                "source_name"
+            ]
             .dropna()
             .tolist()
             if item_type != "Filing Only"
@@ -136,7 +142,7 @@ def load_feed_filter_options(
 def _sentiment_badge(score: float | None) -> str:
     if score is None:
         return '<span style="background: rgba(139, 148, 158, 0.15); color: #8b949e; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Sentiment: N/A</span>'
-    
+
     if score > 0.05:
         return f'<span style="background: rgba(63, 185, 80, 0.15); color: #3fb950; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Positive ({score:+.2f})</span>'
     elif score < -0.05:
@@ -185,11 +191,14 @@ def _should_load_filings(
     min_relevance: float | None,
     sentiment_band: str,
 ) -> bool:
-    news_only_filters_active = (
-        item_type != "Filing Only"
-        and ((min_relevance is not None and min_relevance > 0) or sentiment_band != "All")
+    news_only_filters_active = item_type != "Filing Only" and (
+        (min_relevance is not None and min_relevance > 0) or sentiment_band != "All"
     )
-    return item_type in ("All", "Filing Only") and selected_source == "All" and not news_only_filters_active
+    return (
+        item_type in ("All", "Filing Only")
+        and selected_source == "All"
+        and not news_only_filters_active
+    )
 
 
 def _news_only_filters_active(item_type: str) -> bool:
@@ -211,7 +220,9 @@ def _sec_only_filters_active(item_type: str) -> bool:
 def render_page() -> None:
     render_sidebar_navigation()
     st.title("📰 News & SEC Filings")
-    st.markdown("Stay informed with a combined real-time feed of company announcements, headlines, and official SEC filings.")
+    st.markdown(
+        "Stay informed with a combined real-time feed of company announcements, headlines, and official SEC filings."
+    )
 
     # Custom styling for unified card feed
     st.markdown(
@@ -302,7 +313,9 @@ def render_page() -> None:
         with col1:
             selected_ticker = st.selectbox("Company / Ticker Filter", options=tickers)
 
-        filter_options = load_feed_filter_options(item_type, selected_start, selected_end, selected_ticker)
+        filter_options = load_feed_filter_options(
+            item_type, selected_start, selected_end, selected_ticker
+        )
         hide_sec_filters = _news_only_filters_active(item_type)
         with col3:
             if item_type == "News Only" or hide_sec_filters:
@@ -368,13 +381,11 @@ def render_page() -> None:
             sentiment_band,
         )
     # SEC filings do not have news source/relevance/sentiment fields.
-    if (
-        _should_load_filings(
-            item_type=item_type,
-            selected_source=selected_source,
-            min_relevance=min_relevance,
-            sentiment_band=sentiment_band,
-        )
+    if _should_load_filings(
+        item_type=item_type,
+        selected_source=selected_source,
+        min_relevance=min_relevance,
+        sentiment_band=sentiment_band,
     ):
         filings_df = load_filings(
             selected_ticker,
@@ -388,19 +399,21 @@ def render_page() -> None:
 
     if not news_df.empty:
         for _, row in news_df.iterrows():
-            combined_items.append({
-                "type": "news",
-                "timestamp": _to_et(row["published_at"]),
-                "title": row["title"],
-                "summary": row["summary"],
-                "url": row["url"],
-                "source_name": row["source_name"],
-                "provider": row["provider"],
-                "tickers": row["tickers"],
-                "keywords": row["keywords"],
-                "sentiment_score": row["sentiment_score"],
-                "relevance_score": row["relevance_score"],
-            })
+            combined_items.append(
+                {
+                    "type": "news",
+                    "timestamp": _to_et(row["published_at"]),
+                    "title": row["title"],
+                    "summary": row["summary"],
+                    "url": row["url"],
+                    "source_name": row["source_name"],
+                    "provider": row["provider"],
+                    "tickers": row["tickers"],
+                    "keywords": row["keywords"],
+                    "sentiment_score": row["sentiment_score"],
+                    "relevance_score": row["relevance_score"],
+                }
+            )
 
     if not filings_df.empty:
         for _, row in filings_df.iterrows():
@@ -422,16 +435,18 @@ def render_page() -> None:
             now_ny = datetime.now(ET)
             is_new = (now_ny - ts) <= timedelta(hours=24) if ts is not None else False
 
-            combined_items.append({
-                "type": "filing",
-                "timestamp": ts,
-                "ticker": row["symbol"],
-                "company_name": row["company_name"],
-                "form": row["form"],
-                "filing_detail_url": row["filing_detail_url"],
-                "primary_doc_url": row["primary_doc_url"],
-                "is_new": is_new,
-            })
+            combined_items.append(
+                {
+                    "type": "filing",
+                    "timestamp": ts,
+                    "ticker": row["symbol"],
+                    "company_name": row["company_name"],
+                    "form": row["form"],
+                    "filing_detail_url": row["filing_detail_url"],
+                    "primary_doc_url": row["primary_doc_url"],
+                    "is_new": is_new,
+                }
+            )
 
     # Sort descending
     combined_items.sort(
@@ -450,7 +465,7 @@ def render_page() -> None:
             if item["timestamp"]
             else "Unknown time"
         )
-        
+
         if item["type"] == "news":
             sentiment_html = _sentiment_badge(item["sentiment_score"])
             relevance_html = _relevance_badge(item["relevance_score"])
@@ -460,7 +475,7 @@ def render_page() -> None:
             source_name = _html(item["source_name"])
             provider = _html(item["provider"]).upper()
             url = _html(item["url"])
-            
+
             st.markdown(
                 _html_block(
                     f"""
@@ -485,9 +500,13 @@ def render_page() -> None:
                 ),
                 unsafe_allow_html=True,
             )
-            
+
         else:
-            new_star = "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>" if item["is_new"] else ""
+            new_star = (
+                "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>"
+                if item["is_new"]
+                else ""
+            )
             ticker = _html(item["ticker"])
             company_name = _html(item["company_name"])
             form = _html(item["form"])
@@ -500,7 +519,7 @@ def render_page() -> None:
                 if primary_doc_url
                 else ""
             )
-            
+
             st.markdown(
                 _html_block(
                     f"""

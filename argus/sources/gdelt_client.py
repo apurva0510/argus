@@ -68,9 +68,7 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
     for attempt in range(max_retries + 1):
         try:
             _rate_limit()
-            headers = {
-                "User-Agent": "NetNewsWire (RSS Reader)"
-            }
+            headers = {"User-Agent": "NetNewsWire (RSS Reader)"}
             response = httpx.get(url, params=params, headers=headers, timeout=8.0)
             if response.status_code == 404:
                 logger.warning("GDELT API returned 404 for %s. Returning empty list.", query_clean)
@@ -80,14 +78,27 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
             response.raise_for_status()
             break
         except httpx.TimeoutException as exc:
-            logger.warning("GDELT query timed out for %s: %s. Disabling GDELT for the remainder of this run to avoid hang.", query_clean, exc)
+            logger.warning(
+                "GDELT query timed out for %s: %s. Disabling GDELT for the remainder of this run to avoid hang.",
+                query_clean,
+                exc,
+            )
             raise NewsProviderRateLimitError("gdelt", query_clean) from exc
         except httpx.HTTPError as exc:
             if attempt == max_retries:
-                logger.error("All GDELT retry attempts failed for %s: %s. Disabling GDELT for the remainder of this run.", query_clean, exc)
+                logger.error(
+                    "All GDELT retry attempts failed for %s: %s. Disabling GDELT for the remainder of this run.",
+                    query_clean,
+                    exc,
+                )
                 raise NewsProviderRateLimitError("gdelt", query_clean) from exc
             wait = 2.0**attempt
-            logger.warning("GDELT query failed on attempt %d: %s. Retrying in %.1f seconds...", attempt + 1, exc, wait)
+            logger.warning(
+                "GDELT query failed on attempt %d: %s. Retrying in %.1f seconds...",
+                attempt + 1,
+                exc,
+                wait,
+            )
             time.sleep(wait)
         finally:
             global _last_gdelt_request_at
@@ -123,13 +134,15 @@ def fetch_gdelt_news_query(query: str, timespan: str = "1d") -> list[dict]:
         seendate = art.get("seendate")
         published_at = parse_gdelt_date(seendate)
 
-        news_items.append({
-            "title": title,
-            "summary": None,  # GDELT ArtList mode does not return full article summary text
-            "url": link,
-            "source_name": source_name,
-            "published_at": published_at,
-        })
+        news_items.append(
+            {
+                "title": title,
+                "summary": None,  # GDELT ArtList mode does not return full article summary text
+                "url": link,
+                "source_name": source_name,
+                "published_at": published_at,
+            }
+        )
 
     logger.info("Found %d news items in GDELT for %s", len(news_items), query_clean)
     return news_items

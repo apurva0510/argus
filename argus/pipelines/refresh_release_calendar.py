@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # FRED Release IDs mapped to the macro series they cover
 FRED_RELEASE_SERIES_MAP: dict[int, list[str]] = {
     18: ["DGS10", "DGS30", "DGS2", "FEDFUNDS"],  # H.15 Selected Interest Rates
-    10: ["CPIAUCSL", "CPILFESL"],                  # Consumer Price Index
-    51: ["PPIACO"],                                  # Producer Price Index
+    10: ["CPIAUCSL", "CPILFESL"],  # Consumer Price Index
+    51: ["PPIACO"],  # Producer Price Index
 }
 
 FRED_RELEASE_NAMES: dict[int, str] = {
@@ -48,7 +48,9 @@ def _finish_job_run(
     with session_scope() as session:
         job = session.get(JobRun, job_id)
         if job is None:
-            job = JobRun(id=job_id, job_name="refresh_release_calendar", started_at=_utc_now(), status=status)
+            job = JobRun(
+                id=job_id, job_name="refresh_release_calendar", started_at=_utc_now(), status=status
+            )
             session.add(job)
         job.finished_at = _utc_now()
         job.status = status
@@ -112,10 +114,7 @@ def refresh_release_calendar(
     try:
         with session_scope() as session:
             # Ensure macro_series exist for all tracked codes
-            existing_codes = {
-                row.code
-                for row in session.query(MacroSeries.code).all()
-            }
+            existing_codes = {row.code for row in session.query(MacroSeries.code).all()}
 
             for release_id, series_codes in FRED_RELEASE_SERIES_MAP.items():
                 try:
@@ -156,7 +155,9 @@ def refresh_release_calendar(
                             rows_written += 1
 
                 except Exception as exc:
-                    logger.warning("Failed to refresh release dates for release %d: %s", release_id, exc)
+                    logger.warning(
+                        "Failed to refresh release dates for release %d: %s", release_id, exc
+                    )
                     failed_releases.append(release_id)
 
         if failed_releases:

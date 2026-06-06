@@ -126,6 +126,9 @@ def refresh_all_indexes() -> dict[str, object]:
         "definitions": len(results),
         "rows_read": sum(int(result["rows_read"] or 0) for result in results),
         "rows_written": sum(int(result["rows_written"] or 0) for result in results),
-        "error_text": "; ".join(str(result["error_text"]) for result in failed if result["error_text"]) or None,
+        "error_text": "; ".join(
+            str(result["error_text"]) for result in failed if result["error_text"]
+        )
+        or None,
         "results": results,
     }

@@ -29,9 +29,7 @@ def _rate_limit() -> None:
 
 
 def _get_with_retries(url: str, *, query: str, timeout: float = 10.0) -> httpx.Response | None:
-    headers = {
-        "User-Agent": "NetNewsWire (RSS Reader)"
-    }
+    headers = {"User-Agent": "NetNewsWire (RSS Reader)"}
     max_retries = 2
     for attempt in range(max_retries + 1):
         _rate_limit()
@@ -130,13 +128,15 @@ def fetch_rss_news_query(query: str) -> list[dict]:
         else:
             published_at = datetime.now(UTC).replace(tzinfo=None)
 
-        news_items.append({
-            "title": title,
-            "summary": summary,
-            "url": link,
-            "source_name": source_name,
-            "published_at": published_at,
-        })
+        news_items.append(
+            {
+                "title": title,
+                "summary": summary,
+                "url": link,
+                "source_name": source_name,
+                "published_at": published_at,
+            }
+        )
 
     logger.info("Found %d news items in RSS feed for %s", len(news_items), query_clean)
     return news_items

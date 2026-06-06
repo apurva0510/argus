@@ -44,7 +44,10 @@ class TwelveDataProvider(BaseMarketDataProvider):
 
         # Restrict to latest 5 chunks (years) to avoid excessive API requests
         if len(chunks) > 5:
-            logger.warning("Twelve Data request spans %d years; truncating to latest 5 years to avoid hitting free-tier constraints.", len(chunks))
+            logger.warning(
+                "Twelve Data request spans %d years; truncating to latest 5 years to avoid hitting free-tier constraints.",
+                len(chunks),
+            )
             chunks = chunks[-5:]
 
         all_values = []
@@ -78,11 +81,17 @@ class TwelveDataProvider(BaseMarketDataProvider):
                 response.raise_for_status()
                 data = response.json()
             except Exception as e:
-                logger.exception("Error fetching daily OHLCV from Twelve Data for symbol %s: %s", symbol, e)
+                logger.exception(
+                    "Error fetching daily OHLCV from Twelve Data for symbol %s: %s", symbol, e
+                )
                 break
 
             if not data or data.get("status") != "ok" or "values" not in data:
-                logger.warning("Twelve Data returned no or unsuccessful data for symbol %s: %s", symbol, data.get("message", "no status"))
+                logger.warning(
+                    "Twelve Data returned no or unsuccessful data for symbol %s: %s",
+                    symbol,
+                    data.get("message", "no status"),
+                )
                 break
 
             all_values.extend(data["values"])
@@ -91,7 +100,7 @@ class TwelveDataProvider(BaseMarketDataProvider):
             return pd.DataFrame()
 
         df = pd.DataFrame(all_values)
-        
+
         # Twelve Data returns strings; cast and rename
         df = df.rename(columns={"datetime": "date"})
         df["date"] = pd.to_datetime(df["date"]).dt.date
@@ -99,7 +108,9 @@ class TwelveDataProvider(BaseMarketDataProvider):
         df["high"] = df["high"].astype(float)
         df["low"] = df["low"].astype(float)
         df["close"] = df["close"].astype(float)
-        df["adj_close"] = df["close"]  # Twelve Data free tier doesn't have split-adjusted close in base candles
+        df["adj_close"] = df[
+            "close"
+        ]  # Twelve Data free tier doesn't have split-adjusted close in base candles
         df["volume"] = df["volume"].astype(float)
 
         # Drop duplicates from chunk boundary alignments

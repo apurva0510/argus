@@ -11,9 +11,11 @@ from argus.sources.factory import get_market_data_provider
 from argus.sources.yfinance_client import YFinanceProvider
 from argus.pipelines.provider_health import execute_provider_request
 
+
 def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     provider = get_market_data_provider()
     return provider.fetch_daily_ohlcv(symbol, period)
+
 
 logger = logging.getLogger(__name__)
 

@@ -169,6 +169,7 @@ def test_fetch_fred_series_retries_on_timeout(monkeypatch) -> None:
         class MockResponse:
             def __init__(self, text: str):
                 self.text = text
+
             def raise_for_status(self):
                 pass
 
@@ -182,6 +183,7 @@ def test_fetch_fred_series_retries_on_timeout(monkeypatch) -> None:
         monkeypatch.setattr(httpx.Client, "get", mock_get)
         # Monkeypatch time.sleep to avoid waiting in tests
         import time
+
         monkeypatch.setattr(time, "sleep", lambda x: None)
 
         df = fetch_fred_series("DGS10")
@@ -202,11 +204,14 @@ def test_fetch_fred_series_official_api_json(monkeypatch) -> None:
     settings.fred_api_key = "test_fred_api_key_123"
 
     try:
+
         class MockResponse:
             def __init__(self, json_data: dict):
                 self._json_data = json_data
+
             def raise_for_status(self):
                 pass
+
             def json(self) -> dict:
                 return self._json_data
 
@@ -217,13 +222,15 @@ def test_fetch_fred_series_official_api_json(monkeypatch) -> None:
             nonlocal fetched_url, fetched_params
             fetched_url = url
             fetched_params = params
-            return MockResponse({
-                "observations": [
-                    {"date": "2026-06-01", "value": "4.15"},
-                    {"date": "2026-06-02", "value": "."},
-                    {"date": "2026-06-03", "value": "4.25"},
-                ]
-            })
+            return MockResponse(
+                {
+                    "observations": [
+                        {"date": "2026-06-01", "value": "4.15"},
+                        {"date": "2026-06-02", "value": "."},
+                        {"date": "2026-06-03", "value": "4.25"},
+                    ]
+                }
+            )
 
         monkeypatch.setattr(httpx.Client, "get", mock_get)
 
@@ -243,4 +250,3 @@ def test_fetch_fred_series_official_api_json(monkeypatch) -> None:
 
     finally:
         settings.fred_api_key = original_key
-

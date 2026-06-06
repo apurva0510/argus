@@ -42,7 +42,13 @@ def _normalize_ohlcv_frame(history: pd.DataFrame, symbol: str, *, interval: str)
         history["adj_close"] = history.get("close")
 
     frame = history.reset_index()
-    time_column = "Datetime" if "Datetime" in frame.columns else "Date" if "Date" in frame.columns else frame.columns[0]
+    time_column = (
+        "Datetime"
+        if "Datetime" in frame.columns
+        else "Date"
+        if "Date" in frame.columns
+        else frame.columns[0]
+    )
     missing_columns = REQUIRED_COLUMNS - set(frame.columns)
     if missing_columns:
         missing = ", ".join(sorted(missing_columns))
@@ -50,7 +56,9 @@ def _normalize_ohlcv_frame(history: pd.DataFrame, symbol: str, *, interval: str)
 
     if interval == "1d":
         frame["date"] = frame[time_column].apply(_normalize_daily_date)
-        frame["bar_time"] = frame["date"].apply(lambda value: datetime.combine(value, datetime.min.time()))
+        frame["bar_time"] = frame["date"].apply(
+            lambda value: datetime.combine(value, datetime.min.time())
+        )
     else:
         frame["bar_time"] = frame[time_column].apply(_normalize_bar_time)
         frame["date"] = frame["bar_time"].apply(lambda value: value.date())
@@ -134,6 +142,7 @@ def _extract_symbol_history(
 
 
 from argus.sources.base import BaseMarketDataProvider  # noqa: E402
+
 
 class YFinanceProvider(BaseMarketDataProvider):
     @property

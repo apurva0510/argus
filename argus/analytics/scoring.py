@@ -34,7 +34,6 @@ def _is_missing(value: Any) -> bool:
     return value is None or pd.isna(value)
 
 
-
 def score_theme_exposure(theme_exposure_score: float | None) -> tuple[float, list[str]]:
     if _is_missing(theme_exposure_score):
         return 0.0, ["Theme exposure score unavailable"]
@@ -51,7 +50,9 @@ def score_pullback(drawdown_52w: float | None) -> tuple[float, list[str]]:
     drawdown = float(drawdown_52w)
     magnitude = abs(min(0.0, drawdown))
     if magnitude < 0.10:
-        return 0.0, [f"Only {magnitude * 100:.1f}% below 52W high (need at least 10% for pullback score)"]
+        return 0.0, [
+            f"Only {magnitude * 100:.1f}% below 52W high (need at least 10% for pullback score)"
+        ]
 
     if magnitude >= 0.30:
         return PULLBACK_MAX, [f"Down {magnitude * 100:.1f}% from 52-week high"]

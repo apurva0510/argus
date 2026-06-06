@@ -14,9 +14,7 @@ def company_detail_url(symbol: str) -> str:
     return f"{base_url}/Company_Detail?ticker={ticker}"
 
 
-def format_alert_email(
-    alert: Alert, company: Company, payload: dict
-) -> tuple[str, str, str]:
+def format_alert_email(alert: Alert, company: Company, payload: dict) -> tuple[str, str, str]:
     """Format an alert event into plain text and HTML bodies.
 
     Returns:
@@ -34,13 +32,17 @@ def format_alert_email(
     if rule_type == "price_below":
         price = payload.get("price", 0.0)
         threshold = payload.get("threshold", 0.0)
-        text_details = f"Price of {symbol} (${price:.2f}) dropped below the threshold of ${threshold:.2f}."
+        text_details = (
+            f"Price of {symbol} (${price:.2f}) dropped below the threshold of ${threshold:.2f}."
+        )
         html_details = f"Price of <strong>{symbol}</strong> (<strong>${price:.2f}</strong>) dropped below the threshold of <strong>${threshold:.2f}</strong>."
 
     elif rule_type == "price_above":
         price = payload.get("price", 0.0)
         threshold = payload.get("threshold", 0.0)
-        text_details = f"Price of {symbol} (${price:.2f}) rose above the threshold of ${threshold:.2f}."
+        text_details = (
+            f"Price of {symbol} (${price:.2f}) rose above the threshold of ${threshold:.2f}."
+        )
         html_details = f"Price of <strong>{symbol}</strong> (<strong>${price:.2f}</strong>) rose above the threshold of <strong>${threshold:.2f}</strong>."
 
     elif rule_type == "daily_move_gt":
@@ -60,7 +62,9 @@ def format_alert_email(
     elif rule_type == "rsi_below":
         rsi = payload.get("rsi_14") or 0.0
         threshold = payload.get("threshold", 0.0)
-        text_details = f"RSI 14 of {symbol} ({rsi:.1f}) fell below the threshold of {threshold:.1f}."
+        text_details = (
+            f"RSI 14 of {symbol} ({rsi:.1f}) fell below the threshold of {threshold:.1f}."
+        )
         html_details = f"RSI 14 of <strong>{symbol}</strong> (<strong>{rsi:.1f}</strong>) fell below the threshold of <strong>{threshold:.1f}</strong>."
 
     elif rule_type in ("crossed_50dma", "crossed_200dma"):
@@ -89,7 +93,9 @@ def format_alert_email(
         title = payload.get("title", "")
         url = payload.get("url", "")
         published = payload.get("published_at") or "Unknown"
-        text_details = f"News keyword match for {symbol}:\nTitle: {title}\nPublished: {published}\nURL: {url}"
+        text_details = (
+            f"News keyword match for {symbol}:\nTitle: {title}\nPublished: {published}\nURL: {url}"
+        )
         html_details = (
             f"News match for <strong>{symbol}</strong>:<br/>"
             f"<strong>Title:</strong> <a href='{url}'>{title}</a><br/>"
@@ -100,7 +106,9 @@ def format_alert_email(
         fp = payload.get("fiscal_period") or "Unknown"
         days_until = payload.get("days_until", 0)
         event_date = payload.get("event_date") or "Unknown"
-        text_details = f"Upcoming earnings for {symbol} ({fp}) in {days_until} days on {event_date}."
+        text_details = (
+            f"Upcoming earnings for {symbol} ({fp}) in {days_until} days on {event_date}."
+        )
         html_details = f"Upcoming earnings for <strong>{symbol}</strong> (<strong>{fp}</strong>) in <strong>{days_until}</strong> days on <strong>{event_date}</strong>."
 
     elif rule_type == "entered_pullback_zone":

@@ -103,7 +103,9 @@ def _load_price_frame(session, company_id: int) -> pd.DataFrame:
     return frame
 
 
-def _compute_company_metrics(frame: pd.DataFrame, qqq: pd.Series | None, nvda: pd.Series | None) -> pd.DataFrame:
+def _compute_company_metrics(
+    frame: pd.DataFrame, qqq: pd.Series | None, nvda: pd.Series | None
+) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
 
@@ -290,7 +292,9 @@ def compute_daily_metrics() -> dict[str, object]:
                     rows_read += len(frame)
                     metrics_frame = _compute_company_metrics(frame, qqq_series, nvda_series)
                     if use_bulk_upsert:
-                        rows_written += _bulk_upsert_daily_metrics(session, company.id, metrics_frame)
+                        rows_written += _bulk_upsert_daily_metrics(
+                            session, company.id, metrics_frame
+                        )
                     else:
                         rows_written += _upsert_daily_metrics(session, company.id, metrics_frame)
                 except Exception:
@@ -299,7 +303,9 @@ def compute_daily_metrics() -> dict[str, object]:
 
             if failed_symbols:
                 status = "partial_success"
-                logger.warning("Metric computation failed for symbols: %s", ",".join(failed_symbols))
+                logger.warning(
+                    "Metric computation failed for symbols: %s", ",".join(failed_symbols)
+                )
     except Exception as exc:
         status = "failed"
         error_text = str(exc)

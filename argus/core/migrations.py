@@ -28,9 +28,7 @@ def run_migrations(database_engine: Engine) -> None:
     _ensure_default_index_definition(database_engine)
     with Session(database_engine) as session:
         schema_version = (
-            session.query(AppSetting)
-            .filter(AppSetting.key == SCHEMA_VERSION_KEY)
-            .one_or_none()
+            session.query(AppSetting).filter(AppSetting.key == SCHEMA_VERSION_KEY).one_or_none()
         )
         if schema_version is None:
             schema_version = AppSetting(key=SCHEMA_VERSION_KEY, value=CURRENT_SCHEMA_VERSION)
@@ -49,9 +47,7 @@ def _migrate_macro_tables_for_foreign_key(database_engine: Engine) -> None:
     version = None
     with Session(database_engine) as session:
         schema_version = (
-            session.query(AppSetting)
-            .filter(AppSetting.key == SCHEMA_VERSION_KEY)
-            .one_or_none()
+            session.query(AppSetting).filter(AppSetting.key == SCHEMA_VERSION_KEY).one_or_none()
         )
         if schema_version:
             version = schema_version.value
@@ -88,8 +84,7 @@ def _migrate_price_bars_bar_time(database_engine: Engine) -> None:
 def _migrate_sqlite_price_bars(database_engine: Engine) -> None:
     with database_engine.begin() as conn:
         old_columns = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(price_bars)")).fetchall()
+            row[1] for row in conn.execute(text("PRAGMA table_info(price_bars)")).fetchall()
         }
         optional_expression = {
             "open": "open" if "open" in old_columns else "NULL",
@@ -126,7 +121,9 @@ def _migrate_sqlite_price_bars(database_engine: Engine) -> None:
 def _migrate_postgres_price_bars(database_engine: Engine) -> None:
     with database_engine.begin() as conn:
         conn.execute(text("ALTER TABLE price_bars ADD COLUMN IF NOT EXISTS bar_time TIMESTAMP"))
-        conn.execute(text("UPDATE price_bars SET bar_time = date::timestamp WHERE bar_time IS NULL"))
+        conn.execute(
+            text("UPDATE price_bars SET bar_time = date::timestamp WHERE bar_time IS NULL")
+        )
         conn.execute(text("ALTER TABLE price_bars ALTER COLUMN bar_time SET NOT NULL"))
         conn.execute(text("ALTER TABLE price_bars DROP CONSTRAINT IF EXISTS uq_price_bars"))
         conn.execute(
@@ -177,9 +174,17 @@ def _migrate_sqlite_index_values(database_engine: Engine) -> None:
 
 def _migrate_postgres_index_values(database_engine: Engine) -> None:
     with database_engine.begin() as conn:
-        conn.execute(text("ALTER TABLE index_values ADD COLUMN IF NOT EXISTS index_definition_id INTEGER"))
-        conn.execute(text("ALTER TABLE index_values ADD CONSTRAINT fk_index_values_definition_id FOREIGN KEY (index_definition_id) REFERENCES index_definitions (id) ON DELETE CASCADE"))
-        conn.execute(text("ALTER TABLE index_values DROP CONSTRAINT IF EXISTS uq_index_values_date"))
+        conn.execute(
+            text("ALTER TABLE index_values ADD COLUMN IF NOT EXISTS index_definition_id INTEGER")
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE index_values ADD CONSTRAINT fk_index_values_definition_id FOREIGN KEY (index_definition_id) REFERENCES index_definitions (id) ON DELETE CASCADE"
+            )
+        )
+        conn.execute(
+            text("ALTER TABLE index_values DROP CONSTRAINT IF EXISTS uq_index_values_date")
+        )
         conn.execute(text("ALTER TABLE index_values DROP CONSTRAINT IF EXISTS uq_index_values"))
         conn.execute(
             text(
@@ -240,5 +245,7 @@ def _migrate_capex_observations_source_column(database_engine: Engine) -> None:
 
     with database_engine.begin() as conn:
         conn.execute(
-            text("ALTER TABLE capex_observations ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'manual'")
+            text(
+                "ALTER TABLE capex_observations ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'manual'"
+            )
         )

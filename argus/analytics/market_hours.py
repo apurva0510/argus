@@ -165,4 +165,8 @@ def append_market_close_markers(
         return intraday_frame
 
     append_frame = pd.DataFrame(rows_to_append)
-    return pd.concat([frame, append_frame], ignore_index=True).sort_values(date_column).reset_index(drop=True)
+    return (
+        pd.concat([frame, append_frame], ignore_index=True)
+        .sort_values(date_column)
+        .reset_index(drop=True)
+    )

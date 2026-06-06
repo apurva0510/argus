@@ -119,11 +119,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert (data_dir / "exports").is_dir()
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
-        schema_version = (
-            session.query(AppSetting)
-            .filter(AppSetting.key == "schema_version")
-            .one()
-        )
+        schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
         assert schema_version.value == "8"
     test_engine.dispose()
 
@@ -135,10 +131,26 @@ def test_migration_adds_bar_time_to_existing_sqlite_price_bars(tmp_path) -> None
     db_path = tmp_path / "old_schema.db"
     test_engine = create_database_engine(f"sqlite:///{db_path}")
     with test_engine.begin() as conn:
-        conn.execute(text("CREATE TABLE companies (id INTEGER PRIMARY KEY, symbol VARCHAR(16) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT 1, is_benchmark BOOLEAN NOT NULL DEFAULT 0, is_hyperscaler BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"))
-        conn.execute(text("CREATE TABLE price_bars (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, date DATE NOT NULL, close FLOAT, adj_close FLOAT, provider VARCHAR(32) NOT NULL, interval VARCHAR(16) NOT NULL, created_at DATETIME NOT NULL, CONSTRAINT uq_price_bars UNIQUE (company_id, date, provider, interval), FOREIGN KEY(company_id) REFERENCES companies (id))"))
-        conn.execute(text("INSERT INTO companies (id, symbol, name, is_active, is_benchmark, is_hyperscaler, created_at, updated_at) VALUES (1, 'NVDA', 'NVIDIA', 1, 0, 0, '2026-01-01', '2026-01-01')"))
-        conn.execute(text("INSERT INTO price_bars (id, company_id, date, close, adj_close, provider, interval, created_at) VALUES (1, 1, '2026-01-02', 100.0, 100.0, 'yfinance', '1d', '2026-01-02')"))
+        conn.execute(
+            text(
+                "CREATE TABLE companies (id INTEGER PRIMARY KEY, symbol VARCHAR(16) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT 1, is_benchmark BOOLEAN NOT NULL DEFAULT 0, is_hyperscaler BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE price_bars (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, date DATE NOT NULL, close FLOAT, adj_close FLOAT, provider VARCHAR(32) NOT NULL, interval VARCHAR(16) NOT NULL, created_at DATETIME NOT NULL, CONSTRAINT uq_price_bars UNIQUE (company_id, date, provider, interval), FOREIGN KEY(company_id) REFERENCES companies (id))"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO companies (id, symbol, name, is_active, is_benchmark, is_hyperscaler, created_at, updated_at) VALUES (1, 'NVDA', 'NVIDIA', 1, 0, 0, '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO price_bars (id, company_id, date, close, adj_close, provider, interval, created_at) VALUES (1, 1, '2026-01-02', 100.0, 100.0, 'yfinance', '1d', '2026-01-02')"
+            )
+        )
 
     run_migrations(test_engine)
 
@@ -157,8 +169,16 @@ def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_
     db_path = tmp_path / "old_schema_index.db"
     test_engine = create_database_engine(f"sqlite:///{db_path}")
     with test_engine.begin() as conn:
-        conn.execute(text("CREATE TABLE index_values (id INTEGER PRIMARY KEY, date DATE NOT NULL UNIQUE, index_value FLOAT NOT NULL, created_at DATETIME NOT NULL)"))
-        conn.execute(text("INSERT INTO index_values (id, date, index_value, created_at) VALUES (1, '2026-01-02', 100.0, '2026-01-02 00:00:00')"))
+        conn.execute(
+            text(
+                "CREATE TABLE index_values (id INTEGER PRIMARY KEY, date DATE NOT NULL UNIQUE, index_value FLOAT NOT NULL, created_at DATETIME NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO index_values (id, date, index_value, created_at) VALUES (1, '2026-01-02', 100.0, '2026-01-02 00:00:00')"
+            )
+        )
 
     run_migrations(test_engine)
 
@@ -166,14 +186,15 @@ def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_
     columns = {column["name"] for column in inspector.get_columns("index_values")}
     assert "index_definition_id" in columns
     with test_engine.connect() as conn:
-        val = conn.execute(text("SELECT index_definition_id FROM index_values WHERE id = 1")).scalar_one()
+        val = conn.execute(
+            text("SELECT index_definition_id FROM index_values WHERE id = 1")
+        ).scalar_one()
         definition_name = conn.execute(
             text("SELECT name FROM index_definitions WHERE id = :definition_id"),
             {"definition_id": val},
         ).scalar_one()
         assert definition_name == "AI Infra Core"
     test_engine.dispose()
-
 
 
 def test_scripts_init_db_creates_test_sqlite_database(tmp_path) -> None:
@@ -202,9 +223,7 @@ def test_scripts_init_db_creates_test_sqlite_database(tmp_path) -> None:
     assert "Database initialized." in result.stdout
     assert db_path.exists()
     with sqlite3.connect(db_path) as connection:
-        rows = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        ).fetchall()
+        rows = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     assert REQUIRED_TABLES.issubset({name for (name,) in rows})
 
 
@@ -294,7 +313,14 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
         "alert_events": {"alert_id", "event_type", "dedupe_key"},
         "user_notes": {"company_id", "note_text"},
         "job_runs": {"job_name", "status"},
-        "provider_daily_usage": {"provider", "date", "request_count", "success_count", "failure_count", "rate_limit_count"},
+        "provider_daily_usage": {
+            "provider",
+            "date",
+            "request_count",
+            "success_count",
+            "failure_count",
+            "rate_limit_count",
+        },
         "signal_daily": {"company_id", "date"},
         "macro_release_events": {"series_code", "release_date"},
         "index_definitions": {"name", "mode", "base_value", "is_active"},
@@ -303,13 +329,9 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
     }
 
     for table_name, expected_columns in expected_non_nullable_columns.items():
-        columns = {
-            column["name"]: column for column in inspector.get_columns(table_name)
-        }
+        columns = {column["name"]: column for column in inspector.get_columns(table_name)}
         nullable_columns = {
-            column_name
-            for column_name in expected_columns
-            if columns[column_name]["nullable"]
+            column_name for column_name in expected_columns if columns[column_name]["nullable"]
         }
         assert nullable_columns == set()
 
@@ -411,9 +433,7 @@ def test_phase1_schema_keeps_required_column_contract(sqlite_engine) -> None:
     }
 
     for table_name, required_columns in expected_columns.items():
-        actual_columns = {
-            column["name"] for column in inspector.get_columns(table_name)
-        }
+        actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
         assert required_columns.issubset(actual_columns)
 
 
@@ -506,8 +526,12 @@ def test_capex_observations_are_unique_per_company_and_period() -> None:
         period_end = date(2026, 3, 31)
         session.add_all(
             [
-                CapexObservation(company_id=company.id, fiscal_period_end=period_end, capex_amount=1.0),
-                CapexObservation(company_id=company.id, fiscal_period_end=period_end, capex_amount=2.0),
+                CapexObservation(
+                    company_id=company.id, fiscal_period_end=period_end, capex_amount=1.0
+                ),
+                CapexObservation(
+                    company_id=company.id, fiscal_period_end=period_end, capex_amount=2.0
+                ),
             ]
         )
 

@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def style_positive_green_negative_red(val):
     """Pandas Styler function to color positive values green and negative values red.
     Handles both numbers and formatted percentage string types.

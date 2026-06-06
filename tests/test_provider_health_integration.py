@@ -18,8 +18,10 @@ def test_refresh_prices_provider_health_failure(sqlite_engine, monkeypatch) -> N
         @property
         def name(self) -> str:
             return "yfinance"
+
         def is_available(self) -> bool:
             return True
+
         def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
             raise ValueError("yfinance connection timed out")
 

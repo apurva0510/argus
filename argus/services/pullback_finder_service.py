@@ -120,6 +120,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
         return df
 
     from argus.services.macro_capex_service import load_macro_capex_context_from_engine
+
     try:
         macro_ctx = load_macro_capex_context_from_engine(engine)
         pressure_level = int(macro_ctx.get("pressure_level", 0))
@@ -134,7 +135,9 @@ def _dedupe_companies(df: pd.DataFrame) -> pd.DataFrame:
     working = df.copy()
     working["_watch_priority"] = working["watch_status"].map(priority).fillna(0)
     working = working.sort_values(["ticker", "_watch_priority"], ascending=[True, False])
-    deduped = working.drop_duplicates(subset=["ticker"], keep="first").drop(columns=["_watch_priority"])
+    deduped = working.drop_duplicates(subset=["ticker"], keep="first").drop(
+        columns=["_watch_priority"]
+    )
     sorted_df = deduped.sort_values(["opportunity_score", "ticker"], ascending=[False, True])
     return sorted_df.reset_index(drop=True)
 
@@ -233,9 +236,13 @@ def apply_pullback_filters(
 
     dma_position = (dma_position or "any").lower()
     if dma_position == "above":
-        filtered = filtered[filtered["distance_from_200dma"].notna() & (filtered["distance_from_200dma"] >= 0)]
+        filtered = filtered[
+            filtered["distance_from_200dma"].notna() & (filtered["distance_from_200dma"] >= 0)
+        ]
     elif dma_position == "below":
-        filtered = filtered[filtered["distance_from_200dma"].notna() & (filtered["distance_from_200dma"] < 0)]
+        filtered = filtered[
+            filtered["distance_from_200dma"].notna() & (filtered["distance_from_200dma"] < 0)
+        ]
 
     return filtered.reset_index(drop=True)
 

@@ -106,7 +106,9 @@ def test_fetch_ohlcv_batch_calls_yfinance_once_for_15m_multi_ticker(monkeypatch)
 
 
 def test_fetch_ohlcv_batch_returns_empty_frames_for_empty_response(monkeypatch) -> None:
-    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame()
+    )
 
     frames = fetch_ohlcv_batch(["BAD", "EMPTY"], period="5d", interval="15m")
 
@@ -199,7 +201,9 @@ def test_fetch_daily_ohlcv_keeps_provider_daily_date_for_timezone_aware_index(mo
 
 
 def test_fetch_daily_ohlcv_returns_empty_frame_for_empty_response(monkeypatch) -> None:
-    monkeypatch.setattr("argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.yf.download", lambda **_kwargs: pd.DataFrame()
+    )
 
     frame = fetch_daily_ohlcv("BAD")
 

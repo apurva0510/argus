@@ -38,7 +38,14 @@ EXPECTED_SECTOR_GROUPS = {
     "Power and Grid": ["ETN", "GEV", "PWR", "ABBNY", "SBGSY", "SIEGY", "HUBB"],
     "Cooling and Data Center Infrastructure": ["VRT", "TT", "CARR", "JCI"],
     "Optical, Fiber, and Networking": ["CIEN", "GLW", "COHR", "LITE", "NOK", "CSCO", "ANET"],
-    "Semiconductor Equipment and Advanced Packaging": ["AMAT", "KLAC", "LRCX", "ASML", "ONTO", "TER"],
+    "Semiconductor Equipment and Advanced Packaging": [
+        "AMAT",
+        "KLAC",
+        "LRCX",
+        "ASML",
+        "ONTO",
+        "TER",
+    ],
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
     "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
@@ -66,7 +73,9 @@ EXPECTED_THEME_CODES = {
 
 
 def _expected_company_count() -> int:
-    return len({normalize_symbol(ticker) for tickers in SECTOR_GROUPS.values() for ticker in tickers})
+    return len(
+        {normalize_symbol(ticker) for tickers in SECTOR_GROUPS.values() for ticker in tickers}
+    )
 
 
 def _expected_exposure_count() -> int:
@@ -114,7 +123,9 @@ def test_theme_codes_match_canonical_set() -> None:
     assert set(THEME_PARENT_CODES) == theme_codes
     assert set(SECTOR_THEME_CODES) == set(SECTOR_GROUPS)
     assert {
-        code for theme_codes_for_sector in SECTOR_THEME_CODES.values() for code in theme_codes_for_sector
+        code
+        for theme_codes_for_sector in SECTOR_THEME_CODES.values()
+        for code in theme_codes_for_sector
     }.issubset(theme_codes)
 
 
@@ -154,7 +165,10 @@ def test_benchmark_names_marked_correctly() -> None:
     with _session() as session:
         _run_seed(session)
         benchmark_symbols = {
-            symbol for (symbol,) in session.query(Company.symbol).filter(Company.is_benchmark.is_(True)).all()
+            symbol
+            for (symbol,) in session.query(Company.symbol)
+            .filter(Company.is_benchmark.is_(True))
+            .all()
         }
         assert benchmark_symbols == BENCHMARKS
 
@@ -412,14 +426,19 @@ def test_ai_infra_core_index_excludes_benchmarks_optional_aggressive_and_emergin
     assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint(BENCHMARKS)
     assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint({"ALAB", "CRDO"})
     assert AI_INFRA_CORE_INDEX_SYMBOLS.isdisjoint(EMERGING_COMPUTE_SYMBOLS)
-    assert AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS == BENCHMARKS | {"ALAB", "CRDO"} | EMERGING_COMPUTE_SYMBOLS
+    assert (
+        AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS
+        == BENCHMARKS | {"ALAB", "CRDO"} | EMERGING_COMPUTE_SYMBOLS
+    )
     assert AI_INFRA_CORE_INDEX_SYMBOLS | AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS == all_seeded_symbols
 
 
 def test_watch_status_values_are_supported() -> None:
     with _session() as session:
         _run_seed(session)
-        statuses = {status for (status,) in session.query(WatchlistItem.watch_status).distinct().all()}
+        statuses = {
+            status for (status,) in session.query(WatchlistItem.watch_status).distinct().all()
+        }
         assert statuses.issubset(WATCH_STATUSES)
         assert WATCH_STATUSES.issuperset({"ignore", "watch", "high_priority", "owned"})
         assert set(WATCH_STATUS_BY_SYMBOL.values()).issubset(WATCH_STATUSES)

@@ -13,7 +13,9 @@ AUTH_QUERY_PARAM = "auth"
 DEFAULT_AUTH_TTL_SECONDS = 6 * 60 * 60
 
 
-def create_auth_token(secret: str, *, now: int | None = None, ttl_seconds: int = DEFAULT_AUTH_TTL_SECONDS) -> str:
+def create_auth_token(
+    secret: str, *, now: int | None = None, ttl_seconds: int = DEFAULT_AUTH_TTL_SECONDS
+) -> str:
     if not secret:
         raise ValueError("Auth token secret must not be blank")
 
@@ -39,7 +41,9 @@ def validate_auth_token(token: str | None, secret: str, *, now: int | None = Non
 
     expected_signature = _sign(payload, secret)
     current_time = int(now if now is not None else time.time())
-    return hmac.compare_digest(supplied_signature, expected_signature) and current_time <= expires_at
+    return (
+        hmac.compare_digest(supplied_signature, expected_signature) and current_time <= expires_at
+    )
 
 
 def append_auth_token_to_url(url: str, token: str | None) -> str:

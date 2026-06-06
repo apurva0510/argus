@@ -34,12 +34,48 @@ from argus.core.timezones import format_et_datetime, to_et
 def test_dashboard_rankings_are_sorted_and_limited() -> None:
     metrics = pd.DataFrame(
         [
-            {"symbol": "ETN", "name": "Eaton", "return_1d": 0.03, "drawdown_52w": -0.10, "rsi_14": 39.0},
-            {"symbol": "VRT", "name": "Vertiv", "return_1d": 0.08, "drawdown_52w": -0.30, "rsi_14": 22.0},
-            {"symbol": "CIEN", "name": "Ciena", "return_1d": -0.06, "drawdown_52w": -0.05, "rsi_14": 40.0},
-            {"symbol": "PWR", "name": "Quanta", "return_1d": -0.02, "drawdown_52w": -0.45, "rsi_14": 41.0},
-            {"symbol": "QQQ", "name": "QQQ", "return_1d": 0.10, "drawdown_52w": -0.01, "rsi_14": None},
-            {"symbol": "ALAB", "name": "Astera", "return_1d": None, "drawdown_52w": None, "rsi_14": 18.0},
+            {
+                "symbol": "ETN",
+                "name": "Eaton",
+                "return_1d": 0.03,
+                "drawdown_52w": -0.10,
+                "rsi_14": 39.0,
+            },
+            {
+                "symbol": "VRT",
+                "name": "Vertiv",
+                "return_1d": 0.08,
+                "drawdown_52w": -0.30,
+                "rsi_14": 22.0,
+            },
+            {
+                "symbol": "CIEN",
+                "name": "Ciena",
+                "return_1d": -0.06,
+                "drawdown_52w": -0.05,
+                "rsi_14": 40.0,
+            },
+            {
+                "symbol": "PWR",
+                "name": "Quanta",
+                "return_1d": -0.02,
+                "drawdown_52w": -0.45,
+                "rsi_14": 41.0,
+            },
+            {
+                "symbol": "QQQ",
+                "name": "QQQ",
+                "return_1d": 0.10,
+                "drawdown_52w": -0.01,
+                "rsi_14": None,
+            },
+            {
+                "symbol": "ALAB",
+                "name": "Astera",
+                "return_1d": None,
+                "drawdown_52w": None,
+                "rsi_14": 18.0,
+            },
         ]
     )
 
@@ -211,12 +247,15 @@ def test_stale_reasons_cover_missing_fresh_and_stale_dates() -> None:
 def test_stale_reasons_treat_threshold_day_as_fresh() -> None:
     today = date(2026, 5, 30)
 
-    assert build_stale_reasons(
-        today - timedelta(days=3),
-        today - timedelta(days=3),
-        today=today,
-        stale_days_threshold=3,
-    ) == []
+    assert (
+        build_stale_reasons(
+            today - timedelta(days=3),
+            today - timedelta(days=3),
+            today=today,
+            stale_days_threshold=3,
+        )
+        == []
+    )
 
 
 def test_parse_optional_date_and_datetime_handle_missing_values() -> None:
@@ -322,7 +361,13 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
                 rsi_14=41.0,
                 drawdown_52w=-0.45,
             ),
-            PriceBar(company_id=etn.id, date=latest_date, adj_close=100.0, provider="yfinance", interval="1d"),
+            PriceBar(
+                company_id=etn.id,
+                date=latest_date,
+                adj_close=100.0,
+                provider="yfinance",
+                interval="1d",
+            ),
             PriceBar(
                 company_id=vrt.id,
                 date=date.today(),
@@ -383,7 +428,9 @@ def test_load_dashboard_data_uses_latest_metrics_date_counts_and_sorts(
     assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
     assert data["intraday_stale_tickers_count"] == 4
     assert data["macro_capex_context"]["pressure_label"] == "Low"
-    theme_counts = data["theme_counts"].set_index(["theme_family", "theme"])["company_count"].to_dict()
+    theme_counts = (
+        data["theme_counts"].set_index(["theme_family", "theme"])["company_count"].to_dict()
+    )
     assert theme_counts[("AI Infrastructure", "Power and Grid")] == 1
     assert theme_counts[("Emerging Compute", "Quantum Computing")] == 1
 
@@ -438,19 +485,19 @@ def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:
     from sqlalchemy.orm import Session, sessionmaker
     from argus.core import db as db_module
     from argus.services.dashboard_service import get_dashboard_overview
-    
+
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
         sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
     )
-    
+
     # 1. Create seeded rows in database
     c1 = Company(symbol="XYZ", name="XYZ Corp", is_active=True)
     c2 = Company(symbol="ABC", name="ABC Corp", is_active=False)
     db_session.add_all([c1, c2])
     db_session.flush()
-    
+
     db_session.add(
         PriceBar(
             company_id=c1.id,
@@ -458,11 +505,11 @@ def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:
             close=100.0,
             adj_close=100.0,
             provider="yfinance",
-            interval="1d"
+            interval="1d",
         )
     )
     db_session.commit()
-    
+
     # 2. Run overview function and verify counts
     overview = get_dashboard_overview()
     assert overview["tracked_companies"] == 1
@@ -476,7 +523,7 @@ def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:
 
 def test_dashboard_latest_failed_job_persistence(db_session, sqlite_engine) -> None:
     from argus.core.models import JobRun
-    
+
     # 1. Add a failed job run
     db_session.add(
         JobRun(
@@ -488,13 +535,13 @@ def test_dashboard_latest_failed_job_persistence(db_session, sqlite_engine) -> N
         )
     )
     db_session.commit()
-    
+
     # Verify the dashboard loads it as failed_job
     data = load_dashboard_data_from_engine(sqlite_engine)
     assert data["failed_job"] is not None
     assert data["failed_job"]["job_name"] == "refresh_prices"
     assert data["failed_job"]["error_text"] == "Timeout connection"
-    
+
     # 2. Add a subsequent successful run for the same job
     db_session.add(
         JobRun(
@@ -505,13 +552,15 @@ def test_dashboard_latest_failed_job_persistence(db_session, sqlite_engine) -> N
         )
     )
     db_session.commit()
-    
+
     # Verify the failed_job resolves to None now that the latest run is successful
     data = load_dashboard_data_from_engine(sqlite_engine)
     assert data["failed_job"] is None
 
 
-def test_dashboard_distinguishes_latest_attempt_from_latest_success(db_session, sqlite_engine) -> None:
+def test_dashboard_distinguishes_latest_attempt_from_latest_success(
+    db_session, sqlite_engine
+) -> None:
     db_session.add_all(
         [
             JobRun(
@@ -583,4 +632,3 @@ def test_load_dashboard_data_includes_latest_signals(db_session, sqlite_engine) 
     assert row["earnings_sensitivity"] == 0.02
     assert row["power_signal"] == 0.04
     assert row["capex_signal"] == 0.06
-

@@ -181,7 +181,9 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
                     if not benchmark_daily.empty:
                         for symbol in benchmark_bases:
                             level_column = f"{symbol.lower()}_level"
-                            symbol_daily = benchmark_daily[benchmark_daily["symbol"] == symbol].copy()
+                            symbol_daily = benchmark_daily[
+                                benchmark_daily["symbol"] == symbol
+                            ].copy()
                             if symbol_daily.empty:
                                 continue
                             symbol_close_levels = _daily_close_levels_from_session_returns(
@@ -259,7 +261,7 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
 
     tickvals = []
     ticktext = []
-    
+
     if tf == "1D":
         _1d_ticks = {"09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"}
         for i, dt in enumerate(dates_ny):
@@ -274,7 +276,7 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
                 tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(day_str)
                 last_date = day_str
-                
+
     if tickvals:
         fig.update_xaxes(
             type="category",
@@ -349,7 +351,9 @@ def _daily_close_levels_from_session_returns(
     if close_levels.empty:
         return pd.DataFrame(columns=["date", output_column])
 
-    close_levels[output_column] = close_levels[output_column] * (1.0 + close_levels["session_return"])
+    close_levels[output_column] = close_levels[output_column] * (
+        1.0 + close_levels["session_return"]
+    )
     return pd.DataFrame(
         {
             "date": close_levels["session_date"],
@@ -622,6 +626,7 @@ def _render_macro_capex_context(context: object) -> None:
         electricity = context.get("electricity") or {}
         elec_price_obs = electricity.get("price")
         elec_demand_obs = electricity.get("demand")
+        elec_demand_load = electricity.get("demand_load")
         if elec_price_obs is not None and elec_price_obs.get("value") is not None:
             st.markdown(
                 f"- **Retail Elec Price:** {elec_price_obs['value']:.2f}¢ / kWh",
@@ -636,6 +641,10 @@ def _render_macro_capex_context(context: object) -> None:
             )
         else:
             st.markdown("- **Hourly Elec Demand:** n/a")
+        st.markdown(
+            f"- **Power Demand Load:** {_fmt_pct_colored(elec_demand_load)}",
+            unsafe_allow_html=True,
+        )
 
 
 def render_dashboard() -> None:
@@ -687,7 +696,7 @@ def render_dashboard() -> None:
 
     # 1. Controls Bar (Top controls)
     ctrl_col1, _, ctrl_col2 = st.columns([6, 3, 0.75])
-    
+
     with ctrl_col1:
         index_options = load_index_options()
         selected_index_id = None
@@ -722,10 +731,10 @@ def render_dashboard() -> None:
 
     # 3. Main Split (70/30 Split Columns)
     left_col, right_col = st.columns([7, 3])
-    
+
     with left_col:
         st.subheader(f"📈 {selected_index_name} Performance")
-        
+
         # 1. Chart Timeframe selector placed right above the chart
         tf = st.radio(
             "Chart Timeframe",
@@ -734,12 +743,14 @@ def render_dashboard() -> None:
             horizontal=True,
             key="index_tf_radio",
         )
-        
+
         # KPI 1: Selected Index Return (compounded or 1D)
         index_data = load_index_data(tf, selected_index_id)
         if index_data and index_data.get("rel_df") is not None and not index_data["rel_df"].empty:
             rel_df = index_data["rel_df"]
-            index_ret_val = rel_df["index_ret"].iloc[-1] / 100.0 if "index_ret" in rel_df.columns else None
+            index_ret_val = (
+                rel_df["index_ret"].iloc[-1] / 100.0 if "index_ret" in rel_df.columns else None
+            )
         else:
             index_ret_val = None
 
@@ -754,8 +765,16 @@ def render_dashboard() -> None:
 
         # KPI 3: Power Load Signal
         power_val = None
-        if latest_signals is not None and not latest_signals.empty and "power_signal" in latest_signals.columns:
-            power_val = latest_signals["power_signal"].dropna().iloc[0] if len(latest_signals["power_signal"].dropna()) > 0 else None
+        if (
+            latest_signals is not None
+            and not latest_signals.empty
+            and "power_signal" in latest_signals.columns
+        ):
+            power_val = (
+                latest_signals["power_signal"].dropna().iloc[0]
+                if len(latest_signals["power_signal"].dropna()) > 0
+                else None
+            )
 
         # KPI 4: Top Opportunity
         top_opp_ticker = "n/a"
@@ -767,7 +786,13 @@ def render_dashboard() -> None:
                 top_opp_row = valid_opps.sort_values("opportunity_score", ascending=False).iloc[0]
                 top_opp_ticker = str(top_opp_row["symbol"])
                 top_opp_score = top_opp_row["opportunity_score"]
-                top_opp_color = "#3fb950" if top_opp_score >= 70 else "#f0b429" if top_opp_score >= 40 else "#f85149"
+                top_opp_color = (
+                    "#3fb950"
+                    if top_opp_score >= 70
+                    else "#f0b429"
+                    if top_opp_score >= 40
+                    else "#f85149"
+                )
                 top_opp_score_display = f"{top_opp_score:.0f}"
 
         # KPI 5: Next Earnings
@@ -865,9 +890,7 @@ def render_dashboard() -> None:
                 hovermode="x unified",
             )
             if index_data.get("interval") == "15m":
-                fig.update_traces(
-                    hovertemplate="%{y:.2f}<extra>%{fullData.name}</extra>"
-                )
+                fig.update_traces(hovertemplate="%{y:.2f}<extra>%{fullData.name}</extra>")
                 apply_intraday_xaxis(fig, rel_df, tf)
             st.plotly_chart(fig, width="stretch")
 
@@ -876,15 +899,15 @@ def render_dashboard() -> None:
         right_tab1, right_tab2, right_tab3 = st.tabs(
             ["SEC Filings", "Market News", "Upcoming Earnings"]
         )
-        
+
         with right_tab1:
             st.write("**Recent SEC Filings**")
             _render_recent_filings(data["recent_filings"])
-            
+
         with right_tab2:
             st.write("**Latest Relevant News**")
             _render_recent_news(data["recent_news"])
-            
+
         with right_tab3:
             st.write("**Upcoming Earnings Events**")
             _render_upcoming_earnings(data["upcoming_earnings"])
@@ -918,12 +941,16 @@ def render_dashboard() -> None:
         if metrics_df.empty or "opportunity_score" not in metrics_df.columns:
             st.info("No opportunity scoring data available.")
         else:
-            opps = metrics_df.dropna(subset=["opportunity_score"]).sort_values("opportunity_score", ascending=False).copy()
+            opps = (
+                metrics_df.dropna(subset=["opportunity_score"])
+                .sort_values("opportunity_score", ascending=False)
+                .copy()
+            )
             if opps.empty:
                 st.info("No active opportunities scored.")
             else:
                 opps_view = opps.head(5).copy()
-                
+
                 # Generate dynamic signal explanations
                 exp_list = []
                 for idx, row in opps_view.iterrows():
@@ -933,17 +960,26 @@ def render_dashboard() -> None:
                         sig_rows = latest_signals[latest_signals["symbol"] == ticker]
                         if not sig_rows.empty:
                             sig = sig_rows.iloc[0]
-                            if sig.get("corr_nvda_60d") is not None and sig["corr_nvda_60d"] >= 0.70:
+                            if (
+                                sig.get("corr_nvda_60d") is not None
+                                and sig["corr_nvda_60d"] >= 0.70
+                            ):
                                 explanations.append("High NVDA correlation")
-                            if sig.get("earnings_sensitivity") is not None and abs(sig["earnings_sensitivity"]) >= 0.05:
+                            if (
+                                sig.get("earnings_sensitivity") is not None
+                                and abs(sig["earnings_sensitivity"]) >= 0.05
+                            ):
                                 explanations.append("Earnings-sensitive supplier")
-                            if sig.get("sentiment_proxy_7d") is not None and sig["sentiment_proxy_7d"] <= -0.10:
+                            if (
+                                sig.get("sentiment_proxy_7d") is not None
+                                and sig["sentiment_proxy_7d"] <= -0.10
+                            ):
                                 explanations.append("Negative recent catalyst proxy")
                             if sig.get("capex_signal") is not None and sig["capex_signal"] >= 0.05:
                                 explanations.append("Capex growth accelerating")
                             if sig.get("power_signal") is not None and sig["power_signal"] >= 0.05:
                                 explanations.append("Power-demand signal elevated")
-                                
+
                     if not explanations:
                         rsi = row.get("rsi_14")
                         if rsi is not None and not pd.isna(rsi) and rsi <= 40:
@@ -951,7 +987,7 @@ def render_dashboard() -> None:
                         else:
                             explanations.append("Neutral technicals")
                     exp_list.append(", ".join(explanations))
-                    
+
                 opps_view["Signal Explanation"] = exp_list
                 opps_view = opps_view.rename(
                     columns={
@@ -966,11 +1002,13 @@ def render_dashboard() -> None:
                 opps_view["Drawdown %"] = opps_view["Drawdown %"].apply(_fmt_pct)
                 opps_view["RSI 14"] = opps_view["RSI 14"].round(1)
                 opps_view["Score"] = opps_view["Score"].round(1)
-                
-                styled_opps = opps_view[["Ticker", "Company", "Drawdown %", "RSI 14", "Score", "Signal Explanation"]].style.map(
-                    style_positive_green_negative_red, subset=["Drawdown %"]
-                ).map(
-                    style_score_traffic_light, subset=["Score"]
+
+                styled_opps = (
+                    opps_view[
+                        ["Ticker", "Company", "Drawdown %", "RSI 14", "Score", "Signal Explanation"]
+                    ]
+                    .style.map(style_positive_green_negative_red, subset=["Drawdown %"])
+                    .map(style_score_traffic_light, subset=["Score"])
                 )
                 st.dataframe(
                     styled_opps,
@@ -985,7 +1023,7 @@ def render_dashboard() -> None:
         losers = rank_top_losers(metrics_df)
         drawdowns = rank_biggest_drawdowns(metrics_df)
         rsi_below_40 = filter_low_rsi(metrics_df)
-        
+
         movers_col1, movers_col2 = st.columns(2)
         with movers_col1:
             st.write("**Top 5 Gainers (1D)**")
@@ -1067,7 +1105,7 @@ def render_dashboard() -> None:
             st.info("No contribution data.")
         else:
             contrib_tab1, contrib_tab2, contrib_tab3 = st.tabs(["1M", "3M", "YTD"])
-            
+
             def _render_contributors_df(df: pd.DataFrame) -> None:
                 if df.empty:
                     st.info("No contribution data available for this period.")
@@ -1079,7 +1117,9 @@ def render_dashboard() -> None:
                 )
                 df_view = df_view.rename(columns={"symbol": "Ticker", "name": "Company"})
                 df_view["Ticker"] = _link_ticker_series(df_view["Ticker"])
-                styled_df = df_view[["Ticker", "Company", "Return", "Index Contribution"]].style.map(
+                styled_df = df_view[
+                    ["Ticker", "Company", "Return", "Index Contribution"]
+                ].style.map(
                     style_positive_green_negative_red, subset=["Return", "Index Contribution"]
                 )
                 st.dataframe(
@@ -1088,7 +1128,7 @@ def render_dashboard() -> None:
                     width="stretch",
                     column_config=_ticker_link_column_config(),
                 )
-                
+
             with contrib_tab1:
                 left_c, right_c = st.columns(2)
                 contrib_1m = index_data["contrib_1m"]
@@ -1104,7 +1144,7 @@ def render_dashboard() -> None:
                         _render_contributors_df(contrib_1m.tail(5).iloc[::-1])
                     else:
                         st.info("No data")
-                        
+
             with contrib_tab2:
                 left_c, right_c = st.columns(2)
                 contrib_3m = index_data["contrib_3m"]
@@ -1120,7 +1160,7 @@ def render_dashboard() -> None:
                         _render_contributors_df(contrib_3m.tail(5).iloc[::-1])
                     else:
                         st.info("No data")
-                        
+
             with contrib_tab3:
                 left_c, right_c = st.columns(2)
                 contrib_ytd = index_data["contrib_ytd"]
@@ -1159,14 +1199,12 @@ def render_dashboard() -> None:
     # 4. Bottom Tab Drawer (Deep Dives)
     st.write("---")
     st.subheader("🔍 Deep Research & Operational Health")
-    bottom_tab1, bottom_tab2 = st.tabs(
-        ["Macro & Capex Insights", "Rich Signals Matrix"]
-    )
-    
+    bottom_tab1, bottom_tab2 = st.tabs(["Macro & Capex Insights", "Rich Signals Matrix"])
+
     with bottom_tab1:
         # Render macro capex context
         _render_macro_capex_context(data.get("macro_capex_context"))
-        
+
     with bottom_tab2:
         st.write("**Latest Signals Matrix**")
         if latest_signals is not None and not latest_signals.empty:
@@ -1184,15 +1222,29 @@ def render_dashboard() -> None:
                 }
             )
             sig_view["Ticker"] = _link_ticker_series(sig_view["Ticker"])
-            
-            sig_view["Sentiment Proxy (7D)"] = sig_view["Sentiment Proxy (7D)"].apply(lambda x: f"{x:+.2f}" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["News Relevance (7D)"] = sig_view["News Relevance (7D)"].apply(lambda x: f"{x * 100:.1f}%" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["NVDA Corr (60D)"] = sig_view["NVDA Corr (60D)"].apply(lambda x: f"{x:.2f}" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["Hyperscaler Corr (60D)"] = sig_view["Hyperscaler Corr (60D)"].apply(lambda x: f"{x:.2f}" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["Earnings Sensitivity"] = sig_view["Earnings Sensitivity"].apply(lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["Power Signal"] = sig_view["Power Signal"].apply(lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a")
-            sig_view["Capex Signal"] = sig_view["Capex Signal"].apply(lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a")
-            
+
+            sig_view["Sentiment Proxy (7D)"] = sig_view["Sentiment Proxy (7D)"].apply(
+                lambda x: f"{x:+.2f}" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["News Relevance (7D)"] = sig_view["News Relevance (7D)"].apply(
+                lambda x: f"{x * 100:.1f}%" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["NVDA Corr (60D)"] = sig_view["NVDA Corr (60D)"].apply(
+                lambda x: f"{x:.2f}" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["Hyperscaler Corr (60D)"] = sig_view["Hyperscaler Corr (60D)"].apply(
+                lambda x: f"{x:.2f}" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["Earnings Sensitivity"] = sig_view["Earnings Sensitivity"].apply(
+                lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["Power Signal"] = sig_view["Power Signal"].apply(
+                lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a"
+            )
+            sig_view["Capex Signal"] = sig_view["Capex Signal"].apply(
+                lambda x: f"{x * 100:+.2f}%" if x is not None and not pd.isna(x) else "n/a"
+            )
+
             styled_sig = sig_view.style.map(
                 style_positive_green_negative_red,
                 subset=[
@@ -1200,7 +1252,7 @@ def render_dashboard() -> None:
                     "Earnings Sensitivity",
                     "Power Signal",
                     "Capex Signal",
-                ]
+                ],
             )
             st.dataframe(
                 styled_sig,
@@ -1210,12 +1262,10 @@ def render_dashboard() -> None:
             )
         else:
             st.info("No signal data populated yet. Run `python scripts/compute_signals.py`.")
-            
+
     # Compliance comments for integration test expectations:
     # **Missing/Stale 30m Tickers**
     # data['active_company_count']
-
-
 
 
 if os.environ.get("PYTEST_CURRENT_TEST") is None:

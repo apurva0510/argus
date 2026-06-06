@@ -81,7 +81,12 @@ def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
 
             prices = _load_daily_prices(session)
             if prices.empty:
-                return {"status": status, "rows_read": rows_read, "rows_written": 0, "error_text": None}
+                return {
+                    "status": status,
+                    "rows_read": rows_read,
+                    "rows_written": 0,
+                    "error_text": None,
+                }
 
             signal_date = as_of_date or prices["date"].max().date()
             returns = _build_return_frame(prices, signal_date)
@@ -164,8 +169,7 @@ def _build_return_frame(prices: pd.DataFrame, signal_date: date) -> pd.DataFrame
 
 def _price_series_for_symbol(prices: pd.DataFrame, symbol: str, signal_date: date) -> pd.Series:
     frame = prices[
-        (prices["symbol"] == symbol)
-        & (prices["date"] <= pd.Timestamp(signal_date))
+        (prices["symbol"] == symbol) & (prices["date"] <= pd.Timestamp(signal_date))
     ].sort_values("date")
     if frame.empty:
         return pd.Series(dtype=float)
@@ -293,7 +297,9 @@ def _nth_price_on_or_after(price_series: pd.Series, event_date: date, offset: in
 
 def _latest_capex_signal(session) -> float | None:
     rows = (
-        session.query(Company.symbol, CapexObservation.fiscal_period_end, CapexObservation.capex_amount)
+        session.query(
+            Company.symbol, CapexObservation.fiscal_period_end, CapexObservation.capex_amount
+        )
         .join(Company, Company.id == CapexObservation.company_id)
         .filter(Company.symbol.in_(HYPERSCALER_SYMBOLS))
         .order_by(CapexObservation.fiscal_period_end.asc())
@@ -334,7 +340,9 @@ def _compute_power_signal(session) -> float | None:
     Returns None if sufficient EIA data is unavailable.
     """
     rows = (
-        session.query(MacroObservation.series_code, MacroObservation.observation_date, MacroObservation.value)
+        session.query(
+            MacroObservation.series_code, MacroObservation.observation_date, MacroObservation.value
+        )
         .filter(MacroObservation.series_code.in_(["EIA_ELEC_PRICE", "EIA_ELEC_DEMAND"]))
         .order_by(MacroObservation.observation_date.asc())
         .all()
@@ -359,14 +367,16 @@ def _compute_power_signal(session) -> float | None:
     latest_price_val = latest_price_row["value"]
 
     prior_price_df = price_df[
-        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380)) &
-        (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
+        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380))
+        & (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
     ]
     if prior_price_df.empty:
         return None
 
     prior_price_df = prior_price_df.copy()
-    prior_price_df["diff"] = (prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))).abs()
+    prior_price_df["diff"] = (
+        prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))
+    ).abs()
     prior_price_val = prior_price_df.sort_values("diff").iloc[0]["value"]
     if prior_price_val == 0:
         return None
@@ -377,8 +387,8 @@ def _compute_power_signal(session) -> float | None:
     latest_demand_date = latest_demand_row["observation_date"]
 
     latest_demand_7d = demand_df[
-        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6)) &
-        (demand_df["observation_date"] <= latest_demand_date)
+        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6))
+        & (demand_df["observation_date"] <= latest_demand_date)
     ]
     if len(latest_demand_7d) < 5:
         return None
@@ -386,8 +396,8 @@ def _compute_power_signal(session) -> float | None:
 
     prior_demand_date = latest_demand_date - pd.Timedelta(days=365)
     prior_demand_7d = demand_df[
-        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6)) &
-        (demand_df["observation_date"] <= prior_demand_date)
+        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6))
+        & (demand_df["observation_date"] <= prior_demand_date)
     ]
     if len(prior_demand_7d) < 5:
         return None

@@ -272,7 +272,9 @@ def test_refresh_prices_stores_benchmark_tickers(sqlite_engine, monkeypatch) -> 
     )
 
     with db_module.session_scope() as session:
-        session.add(Company(symbol="QQQ", name="Invesco QQQ Trust", is_active=True, is_benchmark=True))
+        session.add(
+            Company(symbol="QQQ", name="Invesco QQQ Trust", is_active=True, is_benchmark=True)
+        )
 
     result = refresh_prices(period="2y")
 
@@ -357,7 +359,9 @@ def test_refresh_prices_uses_one_batched_yfinance_call_for_15m(sqlite_engine, mo
             for symbol in symbols
         }
 
-    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch
+    )
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -403,7 +407,9 @@ def test_refresh_prices_15m_upsert_is_idempotent(sqlite_engine, monkeypatch) -> 
             )
         }
 
-    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch
+    )
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -448,7 +454,9 @@ def test_refresh_prices_15m_handles_empty_ticker_data(sqlite_engine, monkeypatch
             "EMPTY": pd.DataFrame(),
         }
 
-    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch
+    )
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -520,7 +528,9 @@ def test_refresh_prices_15m_fallback_for_unsupported_provider(sqlite_engine, mon
             for symbol in symbols
         }
 
-    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch)
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch
+    )
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -541,4 +551,3 @@ def test_refresh_prices_15m_fallback_for_unsupported_provider(sqlite_engine, mon
         assert len(bars) == 1
         assert bars[0].provider == "yfinance"
         assert bars[0].interval == "15m"
-

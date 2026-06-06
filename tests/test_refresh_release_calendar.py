@@ -60,9 +60,7 @@ def test_refresh_release_calendar_upserts_events(sqlite_engine, monkeypatch) -> 
     with db_module.session_scope() as session:
         events = session.query(MacroReleaseEvent).all()
         assert len(events) > 0
-        dgs10_events = [
-            e for e in events if e.series_code == "DGS10"
-        ]
+        dgs10_events = [e for e in events if e.series_code == "DGS10"]
         assert len(dgs10_events) == 2
 
 
@@ -126,4 +124,3 @@ def test_refresh_release_calendar_handles_fetch_errors(sqlite_engine, monkeypatc
     result = refresh_release_calendar()
     # It should set status to failed since no rows were written
     assert result["status"] == "failed"
-

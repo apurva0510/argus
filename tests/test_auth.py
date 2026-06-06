@@ -60,6 +60,7 @@ def test_append_auth_token_to_url_preserves_existing_query_values() -> None:
 
 def test_default_auth_token_ttl_is_six_hours() -> None:
     from argus.core.auth import DEFAULT_AUTH_TTL_SECONDS
+
     assert DEFAULT_AUTH_TTL_SECONDS == 21600
 
     token = create_auth_token("secret", now=1_000)

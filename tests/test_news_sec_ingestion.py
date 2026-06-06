@@ -2,7 +2,15 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, JobRun, NewsItem, NewsMention, ProviderHealth, SecFiling, UserNote
+from argus.core.models import (
+    Company,
+    JobRun,
+    NewsItem,
+    NewsMention,
+    ProviderHealth,
+    SecFiling,
+    UserNote,
+)
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
 from argus.sources.gdelt_client import parse_gdelt_date
@@ -278,7 +286,9 @@ def test_fetch_gdelt_news_invalid_json_raises_429(monkeypatch) -> None:
 
     def mock_get(url, *args, **kwargs):
         # Return 200 but HTML error page instead of JSON
-        return httpx.Response(status_code=200, content=b"An error occurred", request=httpx.Request("GET", url))
+        return httpx.Response(
+            status_code=200, content=b"An error occurred", request=httpx.Request("GET", url)
+        )
 
     monkeypatch.setattr(httpx, "get", mock_get)
 
@@ -310,7 +320,6 @@ def test_fetch_gdelt_news_persistent_http_error_raises_429(monkeypatch) -> None:
     assert call_count == 3
 
 
-
 # SEC User-Agent requirement test
 def test_sec_client_user_agent_required(monkeypatch) -> None:
     from argus.sources.sec_client import fetch_filings
@@ -318,7 +327,7 @@ def test_sec_client_user_agent_required(monkeypatch) -> None:
 
     # Ensure SEC_USER_AGENT is empty
     monkeypatch.setattr(settings, "sec_user_agent", "")
-    
+
     with pytest.raises(ValueError) as excinfo:
         fetch_filings("0001045810")
     assert "SEC_USER_AGENT is not configured" in str(excinfo.value)
@@ -336,9 +345,9 @@ def sec_submission_payload() -> dict:
                 "form": ["10-K", "13F-HR"],  # 13F-HR is untracked
                 "filingDate": ["2024-03-20", "2024-03-21"],
                 "acceptanceDateTime": ["2024-03-20T16:15:00.000Z", "2024-03-21T17:15:00.000Z"],
-                "primaryDocument": ["nvda-10k.htm", "nvda-13f.htm"]
+                "primaryDocument": ["nvda-10k.htm", "nvda-13f.htm"],
             }
-        }
+        },
     }
 
 
@@ -375,7 +384,7 @@ def test_refresh_filings_deduplication(sqlite_engine, monkeypatch, sec_submissio
     import httpx
 
     monkeypatch.setattr(settings, "sec_user_agent", "TestAgent/1.0")
-    
+
     def mock_get(url, *args, **kwargs):
         return httpx.Response(200, json=sec_submission_payload, request=httpx.Request("GET", url))
 
@@ -466,9 +475,7 @@ def test_refresh_filings_remaps_stale_cik_after_404(sqlite_engine, monkeypatch) 
     monkeypatch.setattr(
         filings_module,
         "fetch_ticker_identities",
-        lambda: {
-            "NVDA": SecTickerIdentity("NVDA", "0001045810", "NVIDIA CORP", "Nasdaq")
-        },
+        lambda: {"NVDA": SecTickerIdentity("NVDA", "0001045810", "NVIDIA CORP", "Nasdaq")},
     )
 
     with db_module.session_scope() as session:
@@ -507,9 +514,7 @@ def test_refresh_filings_reports_unresolved_404(sqlite_engine, monkeypatch) -> N
     monkeypatch.setattr(
         filings_module,
         "fetch_ticker_identities",
-        lambda: {
-            "NVDA": SecTickerIdentity("NVDA", "0000000001", "NVIDIA CORP", "Nasdaq")
-        },
+        lambda: {"NVDA": SecTickerIdentity("NVDA", "0000000001", "NVIDIA CORP", "Nasdaq")},
     )
 
     with db_module.session_scope() as session:
@@ -651,9 +656,7 @@ def test_refresh_filings_refuses_conflicting_issuer_remap(sqlite_engine, monkeyp
     monkeypatch.setattr(
         filings_module,
         "fetch_ticker_identities",
-        lambda: {
-            "NVDA": SecTickerIdentity("NVDA", "0001045810", "UNRELATED ENERGY CORP", "NYSE")
-        },
+        lambda: {"NVDA": SecTickerIdentity("NVDA", "0001045810", "UNRELATED ENERGY CORP", "NYSE")},
     )
 
     with db_module.session_scope() as session:
@@ -752,7 +755,7 @@ def gdelt_json_payload() -> dict:
                 "title": "NVIDIA GPU Advanced Cooling",
                 "url": "https://gdelt.org/nvda-cooling",
                 "domain": "coolingnews.com",
-                "seendate": "20260530T153000Z"
+                "seendate": "20260530T153000Z",
             }
         ]
     }
@@ -765,7 +768,11 @@ def test_fetch_gdelt_news_parsing(monkeypatch, gdelt_json_payload) -> None:
     import json
 
     def mock_get(url, *args, **kwargs):
-        return httpx.Response(200, content=json.dumps(gdelt_json_payload).encode("utf-8"), request=httpx.Request("GET", url))
+        return httpx.Response(
+            200,
+            content=json.dumps(gdelt_json_payload).encode("utf-8"),
+            request=httpx.Request("GET", url),
+        )
 
     monkeypatch.setattr(httpx, "get", mock_get)
 
@@ -842,7 +849,7 @@ def test_detect_mentions_no_copyright_storage_and_precision() -> None:
     text_kws = "NVIDIA Corp targets GPU packaging in a data center for IT."
     mentions2 = detect_mentions_and_keywords("Title", text_kws, companies)
     assert len(mentions2) == 2
-    
+
     nvda_mention = next(m for m in mentions2 if m["ticker"] == "NVDA")
     it_mention = next(m for m in mentions2 if m["ticker"] == "IT")
 
@@ -861,25 +868,35 @@ def test_detect_mentions_no_copyright_storage_and_precision() -> None:
         "provider": "rss",
         "published_at": datetime.now(),
     }
-    
+
     from argus.pipelines.refresh_news import _upsert_news_item
+
     class DummySession:
         def __init__(self):
             self.added = []
+
         def query(self, *args):
             class Query:
                 def filter(self, *args):
                     return self
+
                 def one_or_none(self):
                     return None
+
             return Query()
+
         def add(self, obj):
             self.added.append(obj)
+
         def flush(self):
             pass
-            
+
     sess = DummySession()
-    _upsert_news_item(sess, mock_art, [{"company_id": 1, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"}])
+    _upsert_news_item(
+        sess,
+        mock_art,
+        [{"company_id": 1, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"}],
+    )
     assert len(sess.added) > 0
     saved_news_item = next(x for x in sess.added if isinstance(x, NewsItem))
     assert len(saved_news_item.summary) <= 2000
@@ -1325,7 +1342,9 @@ def test_refresh_news_bypass_recent_success_respects_provider_cooldown(
         assert health.disabled_until == disabled_until
 
 
-def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engine, monkeypatch) -> None:
+def test_refresh_news_deduplicates_duplicate_company_ids_defensively(
+    sqlite_engine, monkeypatch
+) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_news as news_module
 
@@ -1357,17 +1376,29 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engi
         companies = session.query(Company).all()
         # Create duplicate list
         duplicate_companies = companies + companies
-        
+
         # Verify detect_mentions_and_keywords filters duplicate results
-        mentions = detect_mentions_and_keywords("NVIDIA leads the way", "AI servers liquid cooling demand.", duplicate_companies)
+        mentions = detect_mentions_and_keywords(
+            "NVIDIA leads the way", "AI servers liquid cooling demand.", duplicate_companies
+        )
         assert len(mentions) == 1
-        
+
         # Verify _upsert_news_item does not fail with UNIQUE constraint even if passed duplicates
         dup_mention_payload = [
-            {"company_id": companies[0].id, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"},
-            {"company_id": companies[0].id, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"},
+            {
+                "company_id": companies[0].id,
+                "ticker": "NVDA",
+                "is_primary_match": True,
+                "matched_keywords": "ai",
+            },
+            {
+                "company_id": companies[0].id,
+                "ticker": "NVDA",
+                "is_primary_match": True,
+                "matched_keywords": "ai",
+            },
         ]
-        
+
         # Run upsert
         res_first = news_module._upsert_news_item(
             session,
@@ -1379,11 +1410,11 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(sqlite_engi
                 "provider": "rss",
                 "published_at": datetime(2026, 5, 30, 10, 0, 0),
             },
-            dup_mention_payload
+            dup_mention_payload,
         )
         assert res_first == 1
         session.flush()
-        
+
         # Verify NewsMention count is exactly 1 (not 2)
         assert session.query(NewsMention).count() == 1
 
@@ -1542,7 +1573,12 @@ def test_refresh_ir_feeds_records_provider_outcomes_success(sqlite_engine, monke
     assert result["status"] == "success"
 
     with db_module.session_scope() as session:
-        job = session.query(JobRun).filter(JobRun.job_name == "refresh_ir_feeds").order_by(JobRun.id.desc()).first()
+        job = (
+            session.query(JobRun)
+            .filter(JobRun.job_name == "refresh_ir_feeds")
+            .order_by(JobRun.id.desc())
+            .first()
+        )
         assert job.status == "success"
         assert "provider_outcomes: ir_feed=success" in job.error_text
 

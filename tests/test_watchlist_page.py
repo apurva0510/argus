@@ -32,8 +32,10 @@ def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
             class MockCol:
                 def __enter__(self):
                     return self
+
                 def __exit__(self, exc_type, exc_val, exc_tb):
                     pass
+
             return [MockCol(), MockCol(), MockCol()]
 
         @staticmethod

@@ -64,6 +64,8 @@ def distance_from_ma(series: pd.Series, ma_series: pd.Series) -> pd.Series:
     return (series / ma_series) - 1.0
 
 
-def annualized_volatility(series: pd.Series, window: int = 20, periods_per_year: int = 252) -> pd.Series:
+def annualized_volatility(
+    series: pd.Series, window: int = 20, periods_per_year: int = 252
+) -> pd.Series:
     returns = series.pct_change()
     return returns.rolling(window=window, min_periods=window).std() * np.sqrt(periods_per_year)

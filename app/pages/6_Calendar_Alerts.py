@@ -124,7 +124,9 @@ def _format_alert_config(config_val) -> str:
     return " · ".join(f"{key}: {value}" for key, value in cfg.items())
 
 
-def _render_alert_rule_card(row: pd.Series, target_html: str, config_text: str, last_trigger: str) -> str:
+def _render_alert_rule_card(
+    row: pd.Series, target_html: str, config_text: str, last_trigger: str
+) -> str:
     enabled = bool(row["is_enabled"])
     status_class = "enabled" if enabled else "disabled"
     status_label = "Enabled" if enabled else "Disabled"
@@ -222,6 +224,7 @@ def _render_create_alert_form() -> None:
             st.error("Select a target company before creating an alert.")
             return
         from argus.services.company_service import get_company_by_symbol
+
         company_info = get_company_by_symbol(selected_ticker)
         if not company_info:
             st.error("Selected company was not found.")
@@ -283,6 +286,7 @@ def _render_active_alerts() -> None:
         enabled = bool(row["is_enabled"])
         last_trigger = _parse_job_time(row.get("last_triggered_at"))
         from app.auth_links import company_detail_url
+
         ticker = row.get("ticker")
         if ticker:
             safe_ticker = escape(str(ticker), quote=True)
@@ -321,14 +325,18 @@ def _render_alert_history() -> None:
     st.markdown("### 📜 Alert Trigger History")
     history_df = load_alert_history(limit=50)
     if history_df.empty:
-        st.info("No alert events recorded yet. Run the alert pipeline via CLI: `python scripts/run_alerts.py`")
+        st.info(
+            "No alert events recorded yet. Run the alert pipeline via CLI: `python scripts/run_alerts.py`"
+        )
         return
 
     display = history_df.copy()
     triggered_dt = pd.to_datetime(display["triggered_at"])
     if triggered_dt.dt.tz is None:
         triggered_dt = triggered_dt.dt.tz_localize("UTC")
-    display["triggered_at"] = triggered_dt.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %I:%M %p ET")
+    display["triggered_at"] = triggered_dt.dt.tz_convert("America/New_York").dt.strftime(
+        "%Y-%m-%d %I:%M %p ET"
+    )
 
     def _status_badge(status):
         if status == "sent":
@@ -340,6 +348,7 @@ def _render_alert_history() -> None:
     display["delivery"] = display["delivery_status"].apply(_status_badge)
 
     from app.auth_links import company_detail_url
+
     display["ticker"] = display["ticker"].apply(lambda t: company_detail_url(t) if t else "")
 
     st.dataframe(
@@ -365,12 +374,14 @@ def render_page() -> None:
     earnings_df = load_earnings_calendar(today)
     macro_df = load_macro_calendar(today)
 
-    tab_earnings, tab_macro, tab_alert_rules, tab_alert_logs = st.tabs([
-        "📅 Earnings Calendar",
-        "🌍 Macro Release Calendar",
-        "🔔 Alerts Manager",
-        "📜 Delivery Logs",
-    ])
+    tab_earnings, tab_macro, tab_alert_rules, tab_alert_logs = st.tabs(
+        [
+            "📅 Earnings Calendar",
+            "🌍 Macro Release Calendar",
+            "🔔 Alerts Manager",
+            "📜 Delivery Logs",
+        ]
+    )
 
     # 1. Earnings Tab
     with tab_earnings:
@@ -382,8 +393,9 @@ def render_page() -> None:
             df_view["event_date"] = pd.to_datetime(df_view["event_date"]).dt.strftime("%Y-%m-%d")
             df_view["fiscal_period"] = df_view["fiscal_period"].fillna("n/a")
             from app.auth_links import company_detail_url
+
             df_view["symbol"] = df_view["symbol"].apply(company_detail_url)
-            
+
             st.dataframe(
                 df_view[["event_date", "symbol", "company_name", "fiscal_period", "source"]],
                 hide_index=True,
@@ -394,17 +406,21 @@ def render_page() -> None:
                     "company_name": "Company Name",
                     "fiscal_period": "Fiscal Period",
                     "source": "Source",
-                }
+                },
             )
 
     # 2. Macro Release Tab
     with tab_macro:
         st.subheader("Scheduled Macroeconomic Release Events")
         if macro_df.empty:
-            st.info("No scheduled macroeconomic release schedules found. Register a FRED API key to populate.")
+            st.info(
+                "No scheduled macroeconomic release schedules found. Register a FRED API key to populate."
+            )
         else:
             df_view = macro_df.copy()
-            df_view["release_date"] = pd.to_datetime(df_view["release_date"]).dt.strftime("%Y-%m-%d")
+            df_view["release_date"] = pd.to_datetime(df_view["release_date"]).dt.strftime(
+                "%Y-%m-%d"
+            )
             st.dataframe(
                 df_view[["release_date", "event_name", "series_code", "status"]],
                 hide_index=True,
@@ -414,7 +430,7 @@ def render_page() -> None:
                     "event_name": "Release Event",
                     "series_code": "FRED Series Code",
                     "status": "Status",
-                }
+                },
             )
 
     # 3. Alerts Manager Tab

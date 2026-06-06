@@ -5,9 +5,11 @@ from argus.services.company_service import get_company_options
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 
+
 @st.cache_data(ttl=60)
 def get_system_health_status() -> tuple[str, str]:
     from sqlalchemy import text
+
     engine = create_migrated_database_engine(settings.database_url)
     with engine.connect() as conn:
         latest_dates = pd.read_sql_query(
@@ -21,7 +23,7 @@ def get_system_health_status() -> tuple[str, str]:
             conn,
             params={"provider": settings.market_data_provider},
         )
-        
+
         failed_job_df = pd.read_sql_query(
             text(
                 """
@@ -38,30 +40,30 @@ def get_system_health_status() -> tuple[str, str]:
             ),
             conn,
         )
-        
+
     def _parse_date(val):
         if val is None or pd.isna(val):
             return None
         return pd.to_datetime(val).date()
-        
+
     latest_price_date = _parse_date(latest_dates.at[0, "latest_price_date"])
     latest_metrics_date = _parse_date(latest_dates.at[0, "latest_metrics_date"])
     failed_job = not failed_job_df.empty
-    
+
     today = datetime.now(UTC).date()
     stale_days_threshold = 3
-    
+
     stale_reasons = []
     if latest_price_date is None:
         stale_reasons.append("No price data found.")
     elif (today - latest_price_date).days > stale_days_threshold:
         stale_reasons.append("Prices are stale.")
-        
+
     if latest_metrics_date is None:
         stale_reasons.append("No metrics data found.")
     elif (today - latest_metrics_date).days > stale_days_threshold:
         stale_reasons.append("Metrics are stale.")
-        
+
     if failed_job:
         return "🔴 Pipeline Failed", "#f85149"
     elif stale_reasons:
@@ -69,19 +71,17 @@ def get_system_health_status() -> tuple[str, str]:
     else:
         return "🟢 Systems Fresh", "#3fb950"
 
+
 def render_sidebar_navigation() -> None:
     symbols = get_company_options()
     if not symbols:
         return
-    
+
     with st.sidebar:
         st.subheader("🔍 Quick Ticker Detail")
         options = ["Select..."] + symbols
         selected_ticker = st.selectbox(
-            "Go to Company Detail:",
-            options,
-            index=0,
-            key="sidebar_ticker_selectbox"
+            "Go to Company Detail:", options, index=0, key="sidebar_ticker_selectbox"
         )
         if selected_ticker != "Select...":
             st.session_state.selected_ticker = selected_ticker
@@ -97,5 +97,5 @@ def render_sidebar_navigation() -> None:
                 </span>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )

@@ -92,17 +92,28 @@ def _load_health_data(today: date) -> dict[str, pd.DataFrame]:
 
         # 6. Latest Dates/Times for Stale & Freshness Checks
         data["latest_prices"] = pd.read_sql_query(
-            text("SELECT bar_time as val, interval FROM price_bars ORDER BY bar_time DESC LIMIT 1"), conn
+            text("SELECT bar_time as val, interval FROM price_bars ORDER BY bar_time DESC LIMIT 1"),
+            conn,
         )
-        data["latest_metrics"] = pd.read_sql_query(text("SELECT MAX(date) as val FROM daily_metrics"), conn)
-        data["latest_macro"] = pd.read_sql_query(text("SELECT MAX(observation_date) as val FROM macro_observations"), conn)
+        data["latest_metrics"] = pd.read_sql_query(
+            text("SELECT MAX(date) as val FROM daily_metrics"), conn
+        )
+        data["latest_macro"] = pd.read_sql_query(
+            text("SELECT MAX(observation_date) as val FROM macro_observations"), conn
+        )
         data["latest_news"] = pd.read_sql_query(
-            text("SELECT published_at as val FROM news_items ORDER BY published_at DESC LIMIT 1"), conn
+            text("SELECT published_at as val FROM news_items ORDER BY published_at DESC LIMIT 1"),
+            conn,
         )
         data["latest_filings"] = pd.read_sql_query(
-            text("SELECT COALESCE(acceptance_datetime, filing_date) as val, (acceptance_datetime IS NOT NULL) as has_time FROM sec_filings ORDER BY COALESCE(acceptance_datetime, filing_date) DESC LIMIT 1"), conn
+            text(
+                "SELECT COALESCE(acceptance_datetime, filing_date) as val, (acceptance_datetime IS NOT NULL) as has_time FROM sec_filings ORDER BY COALESCE(acceptance_datetime, filing_date) DESC LIMIT 1"
+            ),
+            conn,
         )
-        data["latest_signals"] = pd.read_sql_query(text("SELECT MAX(date) as val FROM signal_daily"), conn)
+        data["latest_signals"] = pd.read_sql_query(
+            text("SELECT MAX(date) as val FROM signal_daily"), conn
+        )
 
     return data
 
@@ -153,18 +164,22 @@ def _format_freshness_val(val, is_datetime: bool = False) -> str:
 def render_page() -> None:
     render_sidebar_navigation()
     st.title("🛡️ Admin & Data Health Dashboard")
-    st.markdown("Monitor pipeline executions, rate-limits, provider configurations, and database freshness warnings.")
+    st.markdown(
+        "Monitor pipeline executions, rate-limits, provider configurations, and database freshness warnings."
+    )
 
     # Fetch stats
     today = datetime.now(UTC).date()
     health_data = _load_health_data(today)
 
-    tab_overview, tab_pipelines, tab_providers, tab_integrity = st.tabs([
-        "🔍 System Overview & Freshness",
-        "⚙️ Pipeline Executions",
-        "🌐 Provider Health & Usage",
-        "⚠️ Data Integrity & Audits",
-    ])
+    tab_overview, tab_pipelines, tab_providers, tab_integrity = st.tabs(
+        [
+            "🔍 System Overview & Freshness",
+            "⚙️ Pipeline Executions",
+            "🌐 Provider Health & Usage",
+            "⚠️ Data Integrity & Audits",
+        ]
+    )
 
     # 1. Overview Tab
     with tab_overview:
@@ -202,7 +217,9 @@ def render_page() -> None:
             if l_date is None:
                 stale_items.append((name, "No data present", cmd))
             elif l_date < stale_threshold:
-                stale_items.append((name, f"Stale since {l_date.isoformat()} (Older than 3 days)", cmd))
+                stale_items.append(
+                    (name, f"Stale since {l_date.isoformat()} (Older than 3 days)", cmd)
+                )
             else:
                 fresh_items.append((name, f"Fresh (latest: {l_date.isoformat()})"))
 
@@ -223,7 +240,9 @@ def render_page() -> None:
 
         news_display = "N/A"
         if not health_data["latest_news"].empty:
-            news_display = _format_freshness_val(health_data["latest_news"].at[0, "val"], is_datetime=True)
+            news_display = _format_freshness_val(
+                health_data["latest_news"].at[0, "val"], is_datetime=True
+            )
 
         metrics_display = _format_freshness_val(metrics_val, is_datetime=False)
 
@@ -238,10 +257,16 @@ def render_page() -> None:
 
         # Compute individual statuses based on the 3-day freshness threshold
         price_status = "stale" if price_date is None or price_date < stale_threshold else "fresh"
-        metrics_status = "stale" if metrics_date is None or metrics_date < stale_threshold else "fresh"
-        signals_status = "stale" if signals_date is None or signals_date < stale_threshold else "fresh"
+        metrics_status = (
+            "stale" if metrics_date is None or metrics_date < stale_threshold else "fresh"
+        )
+        signals_status = (
+            "stale" if signals_date is None or signals_date < stale_threshold else "fresh"
+        )
         news_status = "stale" if news_date is None or news_date < stale_threshold else "fresh"
-        filings_status = "stale" if filings_date is None or filings_date < stale_threshold else "fresh"
+        filings_status = (
+            "stale" if filings_date is None or filings_date < stale_threshold else "fresh"
+        )
         macro_status = "stale" if macro_date is None or macro_date < stale_threshold else "fresh"
 
         def _render_card_html(title: str, display_val: str, status: str) -> str:
@@ -402,7 +427,9 @@ def render_page() -> None:
             p_display["started_at"] = p_display["started_at"].apply(_format_dt)
             p_display["finished_at"] = p_display["finished_at"].apply(_format_dt)
             st.dataframe(
-                p_display[["job_name", "status", "started_at", "finished_at", "rows_read", "rows_written"]],
+                p_display[
+                    ["job_name", "status", "started_at", "finished_at", "rows_read", "rows_written"]
+                ],
                 hide_index=True,
                 width="stretch",
                 column_config={
@@ -412,7 +439,7 @@ def render_page() -> None:
                     "finished_at": "Finished At",
                     "rows_read": "Rows Read",
                     "rows_written": "Rows Written",
-                }
+                },
             )
 
         st.divider()
@@ -431,7 +458,7 @@ def render_page() -> None:
                     "job_name": "Job Name",
                     "started_at": "Failed At",
                     "error_text": "Error Description",
-                }
+                },
             )
 
     # 3. Providers Tab
@@ -447,7 +474,16 @@ def render_page() -> None:
             )
             h_display["last_success_at"] = h_display["last_success_at"].apply(_format_dt)
             st.dataframe(
-                h_display[["provider", "status", "failure_count", "disabled_until", "last_success_at", "last_error"]],
+                h_display[
+                    [
+                        "provider",
+                        "status",
+                        "failure_count",
+                        "disabled_until",
+                        "last_success_at",
+                        "last_error",
+                    ]
+                ],
                 hide_index=True,
                 width="stretch",
                 column_config={
@@ -457,7 +493,7 @@ def render_page() -> None:
                     "disabled_until": "Cooldown Active Until",
                     "last_success_at": "Last Success Time",
                     "last_error": "Last Provider Error",
-                }
+                },
             )
 
         st.divider()
@@ -469,7 +505,16 @@ def render_page() -> None:
             u_display = u_df.copy()
             u_display["last_request_time"] = u_display["last_request_time"].apply(_format_dt)
             st.dataframe(
-                u_display[["provider", "request_count", "success_count", "failure_count", "rate_limit_count", "last_request_time"]],
+                u_display[
+                    [
+                        "provider",
+                        "request_count",
+                        "success_count",
+                        "failure_count",
+                        "rate_limit_count",
+                        "last_request_time",
+                    ]
+                ],
                 hide_index=True,
                 width="stretch",
                 column_config={
@@ -479,13 +524,15 @@ def render_page() -> None:
                     "failure_count": "Failures",
                     "rate_limit_count": "429 Rate Limits",
                     "last_request_time": "Last Request Time",
-                }
+                },
             )
 
     # 4. Integrity Tab
     with tab_integrity:
         st.subheader("CIK Configurations Validation Audit")
-        st.markdown("Active companies must be configured with a 10-digit CIK code for filings and capex ingestion pipelines.")
+        st.markdown(
+            "Active companies must be configured with a 10-digit CIK code for filings and capex ingestion pipelines."
+        )
         cik_df = health_data["cik_integrity"]
         if cik_df.empty:
             st.success("All active symbols are configured with valid 10-digit CIK identifiers.")
@@ -499,7 +546,7 @@ def render_page() -> None:
                     "symbol": "Company Symbol",
                     "name": "Company Name",
                     "cik": "Configured CIK (Invalid or Missing)",
-                }
+                },
             )
 
 

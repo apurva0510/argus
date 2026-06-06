@@ -391,7 +391,9 @@ def check_news_keyword_match(session: Session, alert: Alert, company: Company) -
     return triggers if triggers else None
 
 
-def check_earnings_within_days(session: Session, alert: Alert, company: Company) -> list[dict] | None:
+def check_earnings_within_days(
+    session: Session, alert: Alert, company: Company
+) -> list[dict] | None:
     config = alert.config_json or {}
     days = config.get("days", 7)
     if days is None:
@@ -425,7 +427,9 @@ def check_earnings_within_days(session: Session, alert: Alert, company: Company)
     return triggers if triggers else None
 
 
-def check_entered_pullback_zone(session: Session, alert: Alert, company: Company) -> list[dict] | None:
+def check_entered_pullback_zone(
+    session: Session, alert: Alert, company: Company
+) -> list[dict] | None:
     config = alert.config_json or {}
     min_drawdown_pct = float(config.get("min_drawdown_pct", 10.0))
     max_rsi = float(config.get("max_rsi", 55.0))
@@ -473,7 +477,9 @@ RULE_CHECKERS = {
 }
 
 
-def evaluate_alert_for_company(session: Session, alert: Alert, company: Company) -> list[dict] | None:
+def evaluate_alert_for_company(
+    session: Session, alert: Alert, company: Company
+) -> list[dict] | None:
     checker = RULE_CHECKERS.get(alert.rule_type)
     if not checker:
         logger.error("Unknown alert rule type: %s", alert.rule_type)
@@ -481,7 +487,5 @@ def evaluate_alert_for_company(session: Session, alert: Alert, company: Company)
     try:
         return checker(session, alert, company)
     except Exception:
-        logger.exception(
-            "Error evaluating alert %s for company %s", alert.id, company.symbol
-        )
+        logger.exception("Error evaluating alert %s for company %s", alert.id, company.symbol)
         return None

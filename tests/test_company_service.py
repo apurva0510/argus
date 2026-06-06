@@ -106,8 +106,12 @@ def test_get_company_price_history(sqlite_engine, db_session, monkeypatch) -> No
     db_session.add(c)
     db_session.flush()
 
-    p1 = PriceBar(company_id=c.id, date=date(2026, 1, 1), adj_close=150.0, provider="yfinance", interval="1d")
-    p2 = PriceBar(company_id=c.id, date=date(2026, 1, 2), adj_close=152.0, provider="yfinance", interval="1d")
+    p1 = PriceBar(
+        company_id=c.id, date=date(2026, 1, 1), adj_close=150.0, provider="yfinance", interval="1d"
+    )
+    p2 = PriceBar(
+        company_id=c.id, date=date(2026, 1, 2), adj_close=152.0, provider="yfinance", interval="1d"
+    )
     db_session.add_all([p1, p2])
     db_session.commit()
 
@@ -116,7 +120,9 @@ def test_get_company_price_history(sqlite_engine, db_session, monkeypatch) -> No
     assert list(df["adj_close"]) == [150.0, 152.0]
 
 
-def test_get_company_price_history_supports_intraday_interval(sqlite_engine, db_session, monkeypatch) -> None:
+def test_get_company_price_history_supports_intraday_interval(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     c = Company(symbol="AAPL", name="Apple", is_active=True)
     db_session.add(c)
@@ -186,8 +192,12 @@ def test_get_company_fundamentals(sqlite_engine, db_session, monkeypatch) -> Non
     db_session.add(c)
     db_session.flush()
 
-    f1 = FundamentalsSnapshot(company_id=c.id, as_of_date=date(2025, 12, 31), market_cap=1e12, provider="yfinance")
-    f2 = FundamentalsSnapshot(company_id=c.id, as_of_date=date(2026, 3, 31), market_cap=1.2e12, provider="yfinance")
+    f1 = FundamentalsSnapshot(
+        company_id=c.id, as_of_date=date(2025, 12, 31), market_cap=1e12, provider="yfinance"
+    )
+    f2 = FundamentalsSnapshot(
+        company_id=c.id, as_of_date=date(2026, 3, 31), market_cap=1.2e12, provider="yfinance"
+    )
     db_session.add_all([f1, f2])
     db_session.commit()
 
@@ -206,12 +216,18 @@ def test_get_company_news_and_filings(sqlite_engine, db_session, monkeypatch) ->
     db_session.add(c)
     db_session.flush()
 
-    news_item = NewsItem(title="Apple Big Launch", url="https://apple.com/launch", published_at=datetime(2026, 1, 1, 10, 0))
+    news_item = NewsItem(
+        title="Apple Big Launch",
+        url="https://apple.com/launch",
+        published_at=datetime(2026, 1, 1, 10, 0),
+    )
     db_session.add(news_item)
     db_session.flush()
 
     mention = NewsMention(news_id=news_item.id, company_id=c.id, ticker="AAPL")
-    filing = SecFiling(company_id=c.id, accession_no="123-456", form="10-K", filing_date=date(2026, 1, 1))
+    filing = SecFiling(
+        company_id=c.id, accession_no="123-456", form="10-K", filing_date=date(2026, 1, 1)
+    )
     db_session.add_all([mention, filing])
     db_session.commit()
 
@@ -300,9 +316,13 @@ def test_get_watchlist_notes(sqlite_engine, db_session, monkeypatch) -> None:
     db_session.add_all([c, wl1, wl2, wl3])
     db_session.flush()
 
-    wi1 = WatchlistItem(watchlist_id=wl1.id, company_id=c.id, watch_status="watch", notes="system note")
+    wi1 = WatchlistItem(
+        watchlist_id=wl1.id, company_id=c.id, watch_status="watch", notes="system note"
+    )
     wi2 = WatchlistItem(watchlist_id=wl2.id, company_id=c.id, watch_status="watch", notes="  ")
-    wi3 = WatchlistItem(watchlist_id=wl3.id, company_id=c.id, watch_status="watch", notes="custom note")
+    wi3 = WatchlistItem(
+        watchlist_id=wl3.id, company_id=c.id, watch_status="watch", notes="custom note"
+    )
     db_session.add_all([wi1, wi2, wi3])
     db_session.commit()
 
@@ -318,18 +338,24 @@ def test_get_relative_perf_df() -> None:
     detail_page = importlib.import_module("app.pages.3_Company_Detail")
     get_relative_perf_df = detail_page.get_relative_perf_df
 
-    df_comp = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
-        "adj_close": [100.0, 105.0, 110.0]
-    })
-    df_qqq = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
-        "adj_close": [200.0, 202.0, 198.0]
-    })
-    df_nvda = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
-        "adj_close": [50.0, 55.0, 60.0]
-    })
+    df_comp = pd.DataFrame(
+        {
+            "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+            "adj_close": [100.0, 105.0, 110.0],
+        }
+    )
+    df_qqq = pd.DataFrame(
+        {
+            "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+            "adj_close": [200.0, 202.0, 198.0],
+        }
+    )
+    df_nvda = pd.DataFrame(
+        {
+            "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+            "adj_close": [50.0, 55.0, 60.0],
+        }
+    )
 
     res = get_relative_perf_df(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
 
@@ -340,12 +366,13 @@ def test_get_relative_perf_df() -> None:
 
 
 def test_get_relative_perf_df_missing_benchmark() -> None:
-    df_comp = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 2)],
-        "adj_close": [100.0, 105.0]
-    })
+    df_comp = pd.DataFrame(
+        {"date": [date(2026, 1, 1), date(2026, 1, 2)], "adj_close": [100.0, 105.0]}
+    )
 
-    res = build_relative_performance_frame(df_comp, pd.DataFrame(), pd.DataFrame(), date(2026, 1, 1))
+    res = build_relative_performance_frame(
+        df_comp, pd.DataFrame(), pd.DataFrame(), date(2026, 1, 1)
+    )
 
     assert len(res) == 2
     assert list(res["comp_ret"]) == pytest.approx([0.0, 5.0])
@@ -357,20 +384,20 @@ def test_get_relative_perf_df_missing_dates() -> None:
     detail_page = importlib.import_module("app.pages.3_Company_Detail")
     get_relative_perf_df = detail_page.get_relative_perf_df
 
-    df_comp = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
-        "adj_close": [100.0, 105.0, 110.0]
-    })
+    df_comp = pd.DataFrame(
+        {
+            "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+            "adj_close": [100.0, 105.0, 110.0],
+        }
+    )
     # QQQ has missing date on 1-2
-    df_qqq = pd.DataFrame({
-        "date": [date(2026, 1, 1), date(2026, 1, 3)],
-        "adj_close": [200.0, 204.0]
-    })
+    df_qqq = pd.DataFrame(
+        {"date": [date(2026, 1, 1), date(2026, 1, 3)], "adj_close": [200.0, 204.0]}
+    )
     # NVDA starts late (no price on 1-1, starts 1-2)
-    df_nvda = pd.DataFrame({
-        "date": [date(2026, 1, 2), date(2026, 1, 3)],
-        "adj_close": [50.0, 55.0]
-    })
+    df_nvda = pd.DataFrame(
+        {"date": [date(2026, 1, 2), date(2026, 1, 3)], "adj_close": [50.0, 55.0]}
+    )
 
     res = get_relative_perf_df(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
 

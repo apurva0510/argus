@@ -186,20 +186,24 @@ def test_provider_field_persistence(sqlite_engine, monkeypatch) -> None:
         @property
         def name(self) -> str:
             return "mocked_custom"
+
         def is_available(self) -> bool:
             return True
+
         def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
-            return pd.DataFrame([
-                {
-                    "date": date(2026, 5, 29),
-                    "open": 100.0,
-                    "high": 105.0,
-                    "low": 99.0,
-                    "close": 102.5,
-                    "adj_close": 102.5,
-                    "volume": 1000.0,
-                }
-            ])
+            return pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "open": 100.0,
+                        "high": 105.0,
+                        "low": 99.0,
+                        "close": 102.5,
+                        "adj_close": 102.5,
+                        "volume": 1000.0,
+                    }
+                ]
+            )
 
     # 1. Mock DB SessionLocal
     monkeypatch.setattr(
@@ -250,16 +254,18 @@ def test_provider_status_reporting(sqlite_engine, monkeypatch) -> None:
     # Insert a failed job run into job_runs
     with db_module.session_scope() as session:
         session.add(Company(symbol="CO_A", name="Co A", is_active=True))
-        session.add(JobRun(
-            job_name="refresh_prices",
-            started_at=datetime.now(UTC).replace(tzinfo=None),
-            finished_at=datetime.now(UTC).replace(tzinfo=None),
-            status="failed",
-            error_text="Finnhub connection timed out",
-        ))
+        session.add(
+            JobRun(
+                job_name="refresh_prices",
+                started_at=datetime.now(UTC).replace(tzinfo=None),
+                finished_at=datetime.now(UTC).replace(tzinfo=None),
+                status="failed",
+                error_text="Finnhub connection timed out",
+            )
+        )
 
     data = load_dashboard_data_from_engine(sqlite_engine)
-    
+
     assert "provider_status" in data
     p_status = data["provider_status"]
     assert p_status["active_provider"] == "finnhub"
@@ -279,8 +285,9 @@ def test_twelvedata_provider_chunking(monkeypatch) -> None:
     # 2 years span should yield 2 yearly chunks (since 2 * 365 = 730 days)
     # We will verify that fetch_daily_ohlcv makes exactly 2 HTTP requests and merges them
     provider = TwelveDataProvider(api_key="key")
-    
+
     calls = []
+
     def mock_get(url, params, timeout=None):
         calls.append(params.copy())
         # Return mock JSON response matching chunk dates
@@ -308,12 +315,12 @@ def test_twelvedata_provider_chunking(monkeypatch) -> None:
     monkeypatch.setattr(time, "sleep", lambda x: None)
 
     df = provider.fetch_daily_ohlcv("AAPL", period="2y")
-    
+
     # Assert exactly 2 HTTP requests were dispatched
     assert len(calls) == 2
     # Verify period start/end range dates differ across chunks
     assert calls[0]["start_date"] != calls[1]["start_date"]
-    
+
     # Assert merged DataFrame
     assert not df.empty
     assert len(df) == 2
@@ -323,14 +330,17 @@ def test_alphavantage_provider_pacing(monkeypatch) -> None:
     # Reset pacing state to guarantee first call does not sleep
     monkeypatch.setattr("argus.sources.alphavantage_client._last_alphavantage_request_time", 0.0)
     provider = AlphaVantageProvider(api_key="key")
-    
+
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "Time Series (Daily)": {
             "2026-05-29": {
-                "1. open": "100.0", "2. high": "100.0", "3. low": "100.0",
-                "4. close": "100.0", "5. volume": "100",
+                "1. open": "100.0",
+                "2. high": "100.0",
+                "3. low": "100.0",
+                "4. close": "100.0",
+                "5. volume": "100",
             }
         }
     }
@@ -354,7 +364,7 @@ def test_twelvedata_provider_pacing(monkeypatch) -> None:
     # Reset pacing state to guarantee first call does not sleep
     monkeypatch.setattr("argus.sources.twelvedata_client._last_twelvedata_request_time", 0.0)
     provider = TwelveDataProvider(api_key="key")
-    
+
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -362,8 +372,11 @@ def test_twelvedata_provider_pacing(monkeypatch) -> None:
         "values": [
             {
                 "datetime": "2026-05-29",
-                "open": "100.00", "high": "105.00", "low": "99.00",
-                "close": "101.50", "volume": "1000",
+                "open": "100.00",
+                "high": "105.00",
+                "low": "99.00",
+                "close": "101.50",
+                "volume": "1000",
             }
         ],
     }
@@ -374,7 +387,7 @@ def test_twelvedata_provider_pacing(monkeypatch) -> None:
 
     # Trigger first call (will execute 2 chunks for 2y period)
     provider.fetch_daily_ohlcv("AAPL", period="2y")
-    
+
     # 2y period splits into 2 chunks -> sleep should be triggered between the chunks
     assert len(sleep_calls) == 1
     assert sleep_calls[0] > 0.0
@@ -439,6 +452,7 @@ def test_finnhub_provider_error_handling(monkeypatch) -> None:
     # Mock HTTP error (e.g. timeout / connection error)
     def mock_get_raise(*a, **k):
         raise httpx.RequestError("Connection failed")
+
     monkeypatch.setattr(httpx, "get", mock_get_raise)
     df_raise = provider.fetch_daily_ohlcv("AAPL")
     assert df_raise.empty
@@ -465,6 +479,7 @@ def test_twelvedata_provider_error_handling(monkeypatch) -> None:
     # Mock request exception
     def mock_get_raise(*a, **k):
         raise httpx.RequestError("Connection failed")
+
     monkeypatch.setattr(httpx, "get", mock_get_raise)
     df_raise = provider.fetch_daily_ohlcv("AAPL", period="1mo")
     assert df_raise.empty
@@ -485,7 +500,9 @@ def test_alphavantage_provider_error_handling(monkeypatch) -> None:
     # Mock json containing "Note" (Rate limit indicator)
     mock_resp_note = MagicMock()
     mock_resp_note.status_code = 200
-    mock_resp_note.json.return_value = {"Note": "Thank you for using Alpha Vantage! Our standard API rate limit..."}
+    mock_resp_note.json.return_value = {
+        "Note": "Thank you for using Alpha Vantage! Our standard API rate limit..."
+    }
     monkeypatch.setattr(httpx, "get", lambda *a, **k: mock_resp_note)
     # Reset pacing state to guarantee call does not sleep
     monkeypatch.setattr("argus.sources.alphavantage_client._last_alphavantage_request_time", 0.0)
@@ -505,6 +522,7 @@ def test_alphavantage_provider_error_handling(monkeypatch) -> None:
     # Mock request exception
     def mock_get_raise(*a, **k):
         raise httpx.RequestError("Connection failed")
+
     monkeypatch.setattr(httpx, "get", mock_get_raise)
     # Reset pacing state to guarantee call does not sleep
     monkeypatch.setattr("argus.sources.alphavantage_client._last_alphavantage_request_time", 0.0)
@@ -514,16 +532,26 @@ def test_alphavantage_provider_error_handling(monkeypatch) -> None:
 
 def test_twelvedata_provider_chunk_truncation(monkeypatch) -> None:
     provider = TwelveDataProvider(api_key="key")
-    
+
     # 6 years period should yield 6 chunks, but TwelveDataProvider truncates to latest 5 chunks (years)
     calls = []
+
     def mock_get(url, params, timeout=None):
         calls.append(params.copy())
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "status": "ok",
-            "values": [{"datetime": params.get("start_date"), "open": "100", "high": "100", "low": "100", "close": "100", "volume": "100"}],
+            "values": [
+                {
+                    "datetime": params.get("start_date"),
+                    "open": "100",
+                    "high": "100",
+                    "low": "100",
+                    "close": "100",
+                    "volume": "100",
+                }
+            ],
         }
         return mock_resp
 
@@ -534,4 +562,3 @@ def test_twelvedata_provider_chunk_truncation(monkeypatch) -> None:
     # Verify that the length of chunks sent is exactly 5
     assert len(calls) == 5
     assert len(df) == 5
-

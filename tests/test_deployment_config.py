@@ -147,7 +147,7 @@ def test_daily_refresh_cli_allows_partial_success_without_failing_workflow() -> 
 
     assert "Warning: {result['error_text']}" in script
     assert 'result.get("status") == "failed"' in script
-    assert 'sys.exit(1)' in script
+    assert "sys.exit(1)" in script
 
 
 def test_scheduled_workflows_validate_database_url_secret() -> None:

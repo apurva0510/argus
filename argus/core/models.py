@@ -233,9 +233,7 @@ class EarningsEvent(Base):
 
 class IndexValue(Base):
     __tablename__ = "index_values"
-    __table_args__ = (
-        UniqueConstraint("index_definition_id", "date", name="uq_index_values"),
-    )
+    __table_args__ = (UniqueConstraint("index_definition_id", "date", name="uq_index_values"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     index_definition_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("index_definitions.id", ondelete="CASCADE"), index=True
@@ -243,7 +241,6 @@ class IndexValue(Base):
     date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     index_value: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
-
 
 
 class MacroSeries(Base):
@@ -386,9 +383,7 @@ class ProviderDailyUsage(Base):
     rate_limit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_request_time: Mapped[datetime | None] = mapped_column(DateTime)
 
-    __table_args__ = (
-        UniqueConstraint("provider", "date", name="uq_provider_daily_usage"),
-    )
+    __table_args__ = (UniqueConstraint("provider", "date", name="uq_provider_daily_usage"),)
 
 
 class SignalDaily(Base):
@@ -408,9 +403,7 @@ class SignalDaily(Base):
     capex_signal: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("company_id", "date", name="uq_signal_daily"),
-    )
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_signal_daily"),)
 
 
 class MacroReleaseEvent(Base):

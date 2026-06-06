@@ -11,7 +11,9 @@ def ensure_project_root_on_path() -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Add or update a manual quarterly capex observation.")
+    parser = argparse.ArgumentParser(
+        description="Add or update a manual quarterly capex observation."
+    )
     parser.add_argument("--ticker", required=True, help="Company ticker, e.g. MSFT")
     parser.add_argument("--period-end", required=True, help="Fiscal period end date, YYYY-MM-DD")
     parser.add_argument("--capex", required=True, type=float, help="Capex amount in currency units")

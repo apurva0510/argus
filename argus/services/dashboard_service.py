@@ -94,10 +94,18 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             conn,
         )["symbol"].tolist()
         index_constituent_count = len(
-            [symbol for symbol in active_symbols if symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS]
+            [
+                symbol
+                for symbol in active_symbols
+                if symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS
+            ]
         )
-        news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[0, "count"]
-        filings_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM sec_filings"), conn).at[0, "count"]
+        news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[
+            0, "count"
+        ]
+        filings_count = pd.read_sql_query(
+            text("SELECT COUNT(*) AS count FROM sec_filings"), conn
+        ).at[0, "count"]
         earnings_count = pd.read_sql_query(
             text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= CURRENT_DATE"),
             conn,
@@ -441,7 +449,9 @@ def filter_low_rsi(
     return rsi[rsi["rsi_14"] < threshold].sort_values("rsi_14", ascending=True).head(limit)
 
 
-def _rank_by_metric(metrics_df: pd.DataFrame, metric: str, *, limit: int, ascending: bool) -> pd.DataFrame:
+def _rank_by_metric(
+    metrics_df: pd.DataFrame, metric: str, *, limit: int, ascending: bool
+) -> pd.DataFrame:
     columns = ["symbol", "name", metric]
     if metrics_df.empty or not set(columns).issubset(metrics_df.columns):
         return pd.DataFrame(columns=columns)
@@ -463,8 +473,12 @@ def get_dashboard_overview() -> dict[str, int]:
     with session_scope() as session:
         return {
             "tracked_companies": session.query(Company).filter(Company.is_active.is_(True)).count(),
-            "high_priority_count": session.query(WatchlistItem).filter(WatchlistItem.watch_status == "high_priority").count(),
-            "owned_count": session.query(WatchlistItem).filter(WatchlistItem.watch_status == "owned").count(),
+            "high_priority_count": session.query(WatchlistItem)
+            .filter(WatchlistItem.watch_status == "high_priority")
+            .count(),
+            "owned_count": session.query(WatchlistItem)
+            .filter(WatchlistItem.watch_status == "owned")
+            .count(),
             "theme_count": session.query(Theme).count(),
             "theme_exposure_count": session.query(CompanyThemeExposure).count(),
             "price_bar_count": session.query(PriceBar).count(),

@@ -122,7 +122,7 @@ def _load_score_inputs(session) -> list[dict]:
             "news_start_date": news_start_date,
             "filing_start_date": filing_start_date,
             "current_date": current_date,
-        }
+        },
     ).mappings()
 
     return [dict(row) for row in rows]
@@ -138,6 +138,7 @@ def compute_opportunity_scores() -> dict[str, object]:
     try:
         with session_scope() as session:
             from argus.services.macro_capex_service import load_macro_capex_context_from_engine
+
             try:
                 macro_ctx = load_macro_capex_context_from_engine(session.bind)
                 pressure_level = int(macro_ctx.get("pressure_level", 0))
@@ -173,7 +174,9 @@ def compute_opportunity_scores() -> dict[str, object]:
 
                 metric = session.get(DailyMetric, row["daily_metric_id"])
                 if metric is None:
-                    logger.warning("Daily metric %s missing during score update", row["daily_metric_id"])
+                    logger.warning(
+                        "Daily metric %s missing during score update", row["daily_metric_id"]
+                    )
                     continue
 
                 metric.opportunity_score = breakdown.opportunity_score

@@ -68,7 +68,9 @@ def test_refresh_earnings_success_and_idempotency(sqlite_engine, monkeypatch) ->
         assert jobs[1].status == "success"
 
 
-def test_refresh_earnings_handles_partial_failures_and_empty_responses(sqlite_engine, monkeypatch) -> None:
+def test_refresh_earnings_handles_partial_failures_and_empty_responses(
+    sqlite_engine, monkeypatch
+) -> None:
     from argus.core import db as db_module
 
     monkeypatch.setattr("yfinance.Ticker", FakeTicker)

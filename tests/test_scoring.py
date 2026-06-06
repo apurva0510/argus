@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
 
-from argus.analytics.scoring import ScoreInputs, compute_opportunity_score, score_pullback, score_risk_penalty
+from argus.analytics.scoring import (
+    ScoreInputs,
+    compute_opportunity_score,
+    score_pullback,
+    score_risk_penalty,
+)
 
 
 def test_theme_exposure_scales_to_25_points() -> None:
@@ -238,6 +243,7 @@ def test_pullback_finder_allows_nan_rsi_under_default_filter() -> None:
 
 def test_score_theme_exposure_bounds_and_clamping() -> None:
     from argus.analytics.scoring import score_theme_exposure
+
     # Clamping negative and > 5.0
     score, reasons = score_theme_exposure(-1.0)
     assert score == 0.0
@@ -254,6 +260,7 @@ def test_score_theme_exposure_bounds_and_clamping() -> None:
 
 def test_score_pullback_bounds() -> None:
     from argus.analytics.scoring import score_pullback
+
     # Drawdown magnitude < 10%
     score, reasons = score_pullback(-0.05)
     assert score == 0.0
@@ -277,7 +284,7 @@ def test_score_pullback_bounds() -> None:
 
 def test_score_technical_setup_all_bins() -> None:
     from argus.analytics.scoring import score_technical_setup
-    
+
     # RSI <= 30 and distance >= 5%
     score, reasons = score_technical_setup(28.0, 0.06)
     assert score == 20.0
@@ -353,7 +360,9 @@ def test_score_risk_penalty_individual_triggers_and_clamping() -> None:
     from argus.analytics.scoring import score_risk_penalty
 
     # Drawdown <= -35%
-    penalty, reasons = score_risk_penalty(drawdown_52w=-0.36, distance_from_200dma=0.0, return_1w=0.0)
+    penalty, reasons = score_risk_penalty(
+        drawdown_52w=-0.36, distance_from_200dma=0.0, return_1w=0.0
+    )
     assert penalty == -5.0
     assert any("Deep drawdown risk" in r for r in reasons)
 
@@ -428,39 +437,61 @@ def test_minimum_possible_score() -> None:
 
 
 def test_load_pullback_candidates_joins_and_calculates_correctly(sqlite_engine, db_session) -> None:
-    from argus.core.models import Company, Watchlist, WatchlistItem, PriceBar, DailyMetric, Theme, CompanyThemeExposure
+    from argus.core.models import (
+        Company,
+        Watchlist,
+        WatchlistItem,
+        PriceBar,
+        DailyMetric,
+        Theme,
+        CompanyThemeExposure,
+    )
     from argus.services.pullback_finder_service import load_pullback_candidates
     from datetime import date
-    
+
     # 1. Create themes and companies
     theme = Theme(code="cooling", name="Cooling")
     db_session.add(theme)
     db_session.flush()
-    
+
     c1 = Company(symbol="VRT", name="Vertiv", sector="Cooling", is_active=True, is_benchmark=False)
-    c2 = Company(symbol="NVDA", name="NVIDIA", sector="Benchmarks", is_active=True, is_benchmark=True)
+    c2 = Company(
+        symbol="NVDA", name="NVIDIA", sector="Benchmarks", is_active=True, is_benchmark=True
+    )
     db_session.add_all([c1, c2])
     db_session.flush()
-    
+
     # 2. Exposure
     cte = CompanyThemeExposure(company_id=c1.id, theme_id=theme.id, exposure_score=4.0)
     db_session.add(cte)
-    
+
     # 3. Watchlist
     w1 = Watchlist(name="Cooling", is_system=True)
     w2 = Watchlist(name="Benchmarks", is_system=True)
     db_session.add_all([w1, w2])
     db_session.flush()
-    
+
     wi1 = WatchlistItem(watchlist_id=w1.id, company_id=c1.id, watch_status="high_priority")
     wi2 = WatchlistItem(watchlist_id=w2.id, company_id=c2.id, watch_status="watch")
     db_session.add_all([wi1, wi2])
-    
+
     # 4. PriceBars
-    pb1 = PriceBar(company_id=c1.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d")
-    pb2 = PriceBar(company_id=c2.id, date=date(2026, 5, 29), adj_close=900.0, provider="yfinance", interval="1d")
+    pb1 = PriceBar(
+        company_id=c1.id,
+        date=date(2026, 5, 29),
+        adj_close=100.0,
+        provider="yfinance",
+        interval="1d",
+    )
+    pb2 = PriceBar(
+        company_id=c2.id,
+        date=date(2026, 5, 29),
+        adj_close=900.0,
+        provider="yfinance",
+        interval="1d",
+    )
     db_session.add_all([pb1, pb2])
-    
+
     # 5. DailyMetrics
     dm1 = DailyMetric(
         company_id=c1.id,
@@ -481,16 +512,16 @@ def test_load_pullback_candidates_joins_and_calculates_correctly(sqlite_engine, 
         return_1w=0.01,
     )
     db_session.add_all([dm1, dm2])
-    
+
     db_session.commit()
-    
+
     # Run load_pullback_candidates
     candidates = load_pullback_candidates(sqlite_engine)
-    
+
     assert len(candidates) == 2
     # Verify the values
     vrt = candidates[candidates["ticker"] == "VRT"].iloc[0]
-    
+
     assert vrt["price"] == 100.0
     assert vrt["drawdown_52w"] == -0.15
     assert vrt["theme_exposure_score"] == 4.0
@@ -503,7 +534,15 @@ def test_load_pullback_candidates_keeps_advanced_packaging_in_ai_infrastructure(
     db_session,
 ) -> None:
     from datetime import date
-    from argus.core.models import Company, CompanyThemeExposure, DailyMetric, PriceBar, Theme, Watchlist, WatchlistItem
+    from argus.core.models import (
+        Company,
+        CompanyThemeExposure,
+        DailyMetric,
+        PriceBar,
+        Theme,
+        Watchlist,
+        WatchlistItem,
+    )
     from argus.services.pullback_finder_service import load_pullback_candidates
 
     ai_infra = Theme(code="ai_infrastructure", name="AI Infrastructure")
@@ -512,16 +551,34 @@ def test_load_pullback_candidates_keeps_advanced_packaging_in_ai_infrastructure(
     db_session.flush()
     advanced_packaging.parent_theme_id = ai_infra.id
 
-    company = Company(symbol="AMAT", name="Applied Materials", sector="Semiconductor Equipment and Advanced Packaging", is_active=True)
+    company = Company(
+        symbol="AMAT",
+        name="Applied Materials",
+        sector="Semiconductor Equipment and Advanced Packaging",
+        is_active=True,
+    )
     watchlist = Watchlist(name="Semiconductor Equipment and Advanced Packaging", is_system=True)
     db_session.add_all([company, watchlist])
     db_session.flush()
     db_session.add_all(
         [
-            CompanyThemeExposure(company_id=company.id, theme_id=advanced_packaging.id, exposure_score=4.0, source="manual_seed"),
+            CompanyThemeExposure(
+                company_id=company.id,
+                theme_id=advanced_packaging.id,
+                exposure_score=4.0,
+                source="manual_seed",
+            ),
             WatchlistItem(watchlist_id=watchlist.id, company_id=company.id, watch_status="watch"),
-            PriceBar(company_id=company.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d"),
-            DailyMetric(company_id=company.id, date=date(2026, 5, 29), drawdown_52w=-0.15, rsi_14=35.0),
+            PriceBar(
+                company_id=company.id,
+                date=date(2026, 5, 29),
+                adj_close=100.0,
+                provider="yfinance",
+                interval="1d",
+            ),
+            DailyMetric(
+                company_id=company.id, date=date(2026, 5, 29), drawdown_52w=-0.15, rsi_14=35.0
+            ),
         ]
     )
     db_session.commit()
@@ -532,7 +589,9 @@ def test_load_pullback_candidates_keeps_advanced_packaging_in_ai_infrastructure(
     assert amat["theme_family"] == "AI Infrastructure"
 
 
-def test_watchlist_update_propagates_to_opportunity_score(sqlite_engine, db_session, monkeypatch) -> None:
+def test_watchlist_update_propagates_to_opportunity_score(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
     from argus.core.models import Company, Watchlist, WatchlistItem, PriceBar, DailyMetric
     from argus.services.pullback_finder_service import load_pullback_candidates
     from argus.services.watchlist_service import update_watchlist_items
@@ -559,7 +618,9 @@ def test_watchlist_update_propagates_to_opportunity_score(sqlite_engine, db_sess
     wi = WatchlistItem(watchlist_id=w.id, company_id=c.id, watch_status="watch")
     db_session.add(wi)
 
-    pb = PriceBar(company_id=c.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d")
+    pb = PriceBar(
+        company_id=c.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d"
+    )
     db_session.add(pb)
 
     dm = DailyMetric(
@@ -630,9 +691,27 @@ def test_load_pullback_candidates_sorting_by_score(sqlite_engine, db_session) ->
     db_session.add_all([wi_low, wi_high, wi_mid])
 
     # Price bars
-    pb_low = PriceBar(company_id=c_low.id, date=date(2026, 5, 29), adj_close=10.0, provider="yfinance", interval="1d")
-    pb_high = PriceBar(company_id=c_high.id, date=date(2026, 5, 29), adj_close=100.0, provider="yfinance", interval="1d")
-    pb_mid = PriceBar(company_id=c_mid.id, date=date(2026, 5, 29), adj_close=50.0, provider="yfinance", interval="1d")
+    pb_low = PriceBar(
+        company_id=c_low.id,
+        date=date(2026, 5, 29),
+        adj_close=10.0,
+        provider="yfinance",
+        interval="1d",
+    )
+    pb_high = PriceBar(
+        company_id=c_high.id,
+        date=date(2026, 5, 29),
+        adj_close=100.0,
+        provider="yfinance",
+        interval="1d",
+    )
+    pb_mid = PriceBar(
+        company_id=c_mid.id,
+        date=date(2026, 5, 29),
+        adj_close=50.0,
+        provider="yfinance",
+        interval="1d",
+    )
     db_session.add_all([pb_low, pb_high, pb_mid])
 
     # Daily Metrics (high drawdown + high watchlist priority => high score)
@@ -749,5 +828,6 @@ def test_compute_opportunity_score_macro_adjustment() -> None:
     )
     non_sensitive_breakdown = compute_opportunity_score(non_sensitive_inputs)
     assert non_sensitive_breakdown.macro_penalty == 0.0
-    assert non_sensitive_breakdown.opportunity_score == pytest.approx(base_breakdown.opportunity_score)
-
+    assert non_sensitive_breakdown.opportunity_score == pytest.approx(
+        base_breakdown.opportunity_score
+    )

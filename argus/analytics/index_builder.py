@@ -49,7 +49,9 @@ def validate_manual_weights(weights: dict[str, float]) -> dict[str, float]:
     if not weights:
         raise ValueError("manual index definitions require at least one included company")
 
-    normalized_symbols = {symbol.strip().upper(): float(weight) for symbol, weight in weights.items()}
+    normalized_symbols = {
+        symbol.strip().upper(): float(weight) for symbol, weight in weights.items()
+    }
     if any(weight < 0 for weight in normalized_symbols.values()):
         raise ValueError("manual weights must be non-negative")
 
@@ -118,9 +120,13 @@ def ensure_default_index_definition(session: Session) -> IndexDefinition:
                 )
                 dirty = True
 
-    updated_rows = session.query(IndexValue).filter(IndexValue.index_definition_id.is_(None)).update(
-        {IndexValue.index_definition_id: definition.id},
-        synchronize_session=False,
+    updated_rows = (
+        session.query(IndexValue)
+        .filter(IndexValue.index_definition_id.is_(None))
+        .update(
+            {IndexValue.index_definition_id: definition.id},
+            synchronize_session=False,
+        )
     )
     if updated_rows > 0:
         dirty = True
@@ -151,7 +157,9 @@ def get_index_definition(session: Session, definition_id: int | None = None) -> 
     return definition
 
 
-def _included_constituents(session: Session, definition: IndexDefinition) -> list[tuple[Company, float]]:
+def _included_constituents(
+    session: Session, definition: IndexDefinition
+) -> list[tuple[Company, float]]:
     rows = (
         session.query(Company, IndexConstituent.target_weight)
         .join(IndexConstituent, IndexConstituent.company_id == Company.id)
@@ -193,7 +201,9 @@ def get_index_weights(
         return normalized or {symbol: 1.0 / len(symbols) for symbol in symbols}
 
     if definition.mode == INDEX_MODE_MANUAL:
-        return _normalize_weights({company.symbol: target_weight for company, target_weight in rows})
+        return _normalize_weights(
+            {company.symbol: target_weight for company, target_weight in rows}
+        )
 
     raise ValueError(f"unsupported index mode: {definition.mode}")
 
@@ -372,7 +382,9 @@ def calculate_weighted_index(
     valid_returns = returns_df.notna()
     active_weight_total = valid_returns.multiply(aligned_weights, axis=1).sum(axis=1)
     weighted_return_sum = returns_df.fillna(0.0).multiply(aligned_weights, axis=1).sum(axis=1)
-    weighted_returns = weighted_return_sum.divide(active_weight_total.where(active_weight_total > 0))
+    weighted_returns = weighted_return_sum.divide(
+        active_weight_total.where(active_weight_total > 0)
+    )
     weighted_returns = weighted_returns.fillna(0.0)
 
     index_base_value = float(base_value if base_value is not None else definition.base_value)

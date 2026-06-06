@@ -73,7 +73,9 @@ def _link_ticker_series(series: pd.Series) -> pd.Series:
 
 def _render_performance_chart(rel_df: pd.DataFrame, title: str) -> None:
     if rel_df.empty:
-        st.info("No index performance history available yet. Run `python scripts/refresh_index.py`.")
+        st.info(
+            "No index performance history available yet. Run `python scripts/refresh_index.py`."
+        )
         return
 
     fig = go.Figure()
@@ -142,7 +144,12 @@ def _render_contributors(contributors: pd.DataFrame) -> None:
         st.info("No contribution data available for the selected period.")
         return
     view = contributors.rename(
-        columns={"symbol": "Ticker", "name": "Company", "return": "Return", "contribution": "Contribution"}
+        columns={
+            "symbol": "Ticker",
+            "name": "Company",
+            "return": "Return",
+            "contribution": "Contribution",
+        }
     ).copy()
     view["Ticker"] = _link_ticker_series(view["Ticker"])
     view["Return"] = view["Return"].apply(lambda value: f"{value * 100:+.2f}%")
@@ -151,7 +158,9 @@ def _render_contributors(contributors: pd.DataFrame) -> None:
         style_positive_green_negative_red,
         subset=["Return", "Contribution"],
     )
-    st.dataframe(styled, hide_index=True, width="stretch", column_config=_ticker_link_column_config())
+    st.dataframe(
+        styled, hide_index=True, width="stretch", column_config=_ticker_link_column_config()
+    )
 
 
 def _render_theme_concentration(themes: pd.DataFrame) -> None:
@@ -165,6 +174,7 @@ def _render_theme_concentration(themes: pd.DataFrame) -> None:
 
 def _save_definition(name: str, mode: str, editor_df: pd.DataFrame) -> None:
     from sqlalchemy.exc import SQLAlchemyError
+
     try:
         engine = get_index_lab_engine()
         SessionLocal = sessionmaker(bind=engine)
@@ -199,7 +209,9 @@ def render_index_lab() -> None:
     selected = options[selected_idx]
 
     created_at = selected["created_at"]
-    created_label = format_et_datetime(created_at, fmt="%Y-%m-%d %I:%M %p ET") if created_at else "n/a"
+    created_label = (
+        format_et_datetime(created_at, fmt="%Y-%m-%d %I:%M %p ET") if created_at else "n/a"
+    )
 
     # Split Created timestamp into date + time parts for the secondary sub-label
     if created_label and created_label != "n/a":
@@ -216,11 +228,15 @@ def render_index_lab() -> None:
         unsafe_allow_html=True,
     )
     card_col2.markdown(
-        render_plain_metric_card("Base Value", f"{float(selected['base_value']):.1f}", value_font_size=21),
+        render_plain_metric_card(
+            "Base Value", f"{float(selected['base_value']):.1f}", value_font_size=21
+        ),
         unsafe_allow_html=True,
     )
     card_col3.markdown(
-        render_plain_metric_card_parts("Created", created_primary, created_secondary, value_font_size=21),
+        render_plain_metric_card_parts(
+            "Created", created_primary, created_secondary, value_font_size=21
+        ),
         unsafe_allow_html=True,
     )
 
@@ -273,7 +289,9 @@ def render_index_lab() -> None:
                 "The Weight % column is ignored."
             )
         else:
-            st.info("Manual weight uses the Weight % column and requires included weights to total 100%.")
+            st.info(
+                "Manual weight uses the Weight % column and requires included weights to total 100%."
+            )
 
         manual_mode = mode == INDEX_MODE_MANUAL
         disabled_columns = (

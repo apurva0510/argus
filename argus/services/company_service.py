@@ -75,13 +75,22 @@ def build_relative_performance_frame(
 
 def get_company_options() -> list[str]:
     with session_scope() as session:
-        symbols = session.query(Company.symbol).filter(Company.is_active.is_(True)).order_by(Company.symbol).all()
+        symbols = (
+            session.query(Company.symbol)
+            .filter(Company.is_active.is_(True))
+            .order_by(Company.symbol)
+            .all()
+        )
     return [row[0] for row in symbols]
 
 
 def get_company_by_symbol(symbol: str) -> dict | None:
     with session_scope() as session:
-        company = session.query(Company).filter(Company.symbol == symbol, Company.is_active.is_(True)).one_or_none()
+        company = (
+            session.query(Company)
+            .filter(Company.symbol == symbol, Company.is_active.is_(True))
+            .one_or_none()
+        )
         if not company:
             return None
         return {
@@ -294,21 +303,13 @@ def add_company_note(
 
 def get_watch_status(company_id: int) -> str:
     with session_scope() as session:
-        item = (
-            session.query(WatchlistItem)
-            .filter(WatchlistItem.company_id == company_id)
-            .first()
-        )
+        item = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).first()
         return item.watch_status if item else "watch"
 
 
 def update_watch_status(company_id: int, watch_status: str) -> None:
     with session_scope() as session:
-        items = (
-            session.query(WatchlistItem)
-            .filter(WatchlistItem.company_id == company_id)
-            .all()
-        )
+        items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
         if items:
             for item in items:
                 item.watch_status = watch_status
@@ -323,10 +324,12 @@ def update_watch_status(company_id: int, watch_status: str) -> None:
             if not wl:
                 wl = session.query(Watchlist).first()
             if not wl:
-                wl = Watchlist(name="General Watchlist", description="General watchlist for all stocks")
+                wl = Watchlist(
+                    name="General Watchlist", description="General watchlist for all stocks"
+                )
                 session.add(wl)
                 session.flush()
-            
+
             item = WatchlistItem(
                 watchlist_id=wl.id,
                 company_id=company_id,
@@ -344,4 +347,6 @@ def get_watchlist_notes(company_id: int) -> list[dict]:
             .filter(WatchlistItem.company_id == company_id)
             .all()
         )
-        return [{"watchlist": row[0], "notes": row[1]} for row in results if row[1] and row[1].strip()]
+        return [
+            {"watchlist": row[0], "notes": row[1]} for row in results if row[1] and row[1].strip()
+        ]

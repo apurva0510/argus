@@ -12,6 +12,7 @@ from argus.core.db import Base, create_database_engine
 def force_test_settings(monkeypatch) -> None:
     """Force settings to standard test defaults so local .env config doesn't pollute/break tests."""
     from argus.core.settings import settings
+
     monkeypatch.setattr(settings, "market_data_provider", "yfinance")
     monkeypatch.setattr(settings, "finnhub_api_key", "")
     monkeypatch.setattr(settings, "twelve_data_api_key", "")
@@ -26,6 +27,7 @@ def sqlite_engine(tmp_path, monkeypatch) -> Iterator[Engine]:
     Base.metadata.create_all(bind=engine)
 
     from argus.core import db as db_module
+
     factory = sessionmaker(
         bind=engine,
         autocommit=False,

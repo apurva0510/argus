@@ -118,6 +118,7 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
 
 def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
     from argus.pipelines import run_daily_refresh as module
+
     monkeypatch.setattr(module.settings, "sec_user_agent", "")
     monkeypatch.setattr(module.settings, "fred_api_key", "")
 
@@ -146,6 +147,7 @@ def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
 
 def test_build_daily_refresh_steps_with_all_enabled(monkeypatch) -> None:
     from argus.pipelines import run_daily_refresh as module
+
     monkeypatch.setattr(module.settings, "sec_user_agent", "Argus/1.0 (test@example.com)")
     monkeypatch.setattr(module.settings, "fred_api_key", "test-key")
 

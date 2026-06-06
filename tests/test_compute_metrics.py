@@ -78,7 +78,9 @@ def _series(start: date, prices: list[float]) -> pd.Series:
     return pd.Series(prices, index=index, dtype="float64")
 
 
-def test_compute_metrics_is_idempotent_and_stores_expected_values(sqlite_engine, monkeypatch) -> None:
+def test_compute_metrics_is_idempotent_and_stores_expected_values(
+    sqlite_engine, monkeypatch
+) -> None:
     db_module = _patch_session(sqlite_engine, monkeypatch)
 
     with db_module.session_scope() as session:
@@ -196,7 +198,9 @@ def test_compute_metrics_populates_phase4_windowed_metrics(
         assert latest.drawdown_52w == pytest.approx((latest_price / high_52w) - 1.0)
         assert latest.distance_from_50dma == pytest.approx((latest_price / ma_50) - 1.0)
         assert latest.distance_from_200dma == pytest.approx((latest_price / ma_200) - 1.0)
-        assert latest.volatility_20d == pytest.approx(annualized_volatility(abc_series, 20).iloc[-1])
+        assert latest.volatility_20d == pytest.approx(
+            annualized_volatility(abc_series, 20).iloc[-1]
+        )
         assert latest.relative_return_vs_qqq_1m == pytest.approx(
             relative_return(abc_series, qqq_series, 21).iloc[-1]
         )
@@ -389,7 +393,16 @@ def test_compute_metrics_with_mismatched_benchmark_dates(sqlite_engine, monkeypa
     with db_module.session_scope() as session:
         # Check that metrics are stored for all 4 dates for ABC
         abc_id = session.query(Company.id).filter(Company.symbol == "ABC").scalar()
-        abc_metrics = session.query(DailyMetric).filter(DailyMetric.company_id == abc_id).order_by(DailyMetric.date.asc()).all()
+        abc_metrics = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.company_id == abc_id)
+            .order_by(DailyMetric.date.asc())
+            .all()
+        )
         assert len(abc_metrics) == 4
-        assert [m.date for m in abc_metrics] == [start, start + timedelta(days=1), start + timedelta(days=2), start + timedelta(days=4)]
-
+        assert [m.date for m in abc_metrics] == [
+            start,
+            start + timedelta(days=1),
+            start + timedelta(days=2),
+            start + timedelta(days=4),
+        ]

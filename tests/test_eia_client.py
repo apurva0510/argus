@@ -74,11 +74,13 @@ def test_fetch_eia_series_retries_and_raises(monkeypatch) -> None:
         return httpx.Response(500, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx.Client, "get", mock_get)
-    
+
     import time
+
     monkeypatch.setattr(time, "sleep", lambda x: None)
 
     import pytest
+
     with pytest.raises(httpx.HTTPError):
         fetch_eia_series("electricity/retail-sales")
 

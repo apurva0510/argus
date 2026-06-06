@@ -5,13 +5,17 @@ import argparse
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh Argus catalyst news from free sources.")
-    parser.add_argument("--force", action="store_true", help="Bypass the recent successful refresh throttle.")
+    parser.add_argument(
+        "--force", action="store_true", help="Bypass the recent successful refresh throttle."
+    )
     parser.add_argument(
         "--bypass-refresh-throttle",
         action="store_true",
         help="Bypass only the recent successful refresh throttle while respecting provider cooldowns.",
     )
-    parser.add_argument("--max-queries", type=int, default=None, help="Limit broad news queries for this run.")
+    parser.add_argument(
+        "--max-queries", type=int, default=None, help="Limit broad news queries for this run."
+    )
     return parser.parse_args()
 
 

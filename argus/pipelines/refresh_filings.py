@@ -41,7 +41,9 @@ def _finish_job_run(
     with session_scope() as session:
         job = session.get(JobRun, job_id)
         if job is None:
-            job = JobRun(id=job_id, job_name="refresh_filings", started_at=_utc_now(), status=status)
+            job = JobRun(
+                id=job_id, job_name="refresh_filings", started_at=_utc_now(), status=status
+            )
             session.add(job)
 
         job.finished_at = _utc_now()
@@ -61,23 +63,23 @@ def _upsert_filing_rows(session, company_id: int, filings: list[dict]) -> int:
     accession_numbers = [filing["accession_no"] for filing in filings]
     existing = set(
         session.scalars(
-            select(SecFiling.accession_no).where(
-                SecFiling.accession_no.in_(accession_numbers)
-            )
+            select(SecFiling.accession_no).where(SecFiling.accession_no.in_(accession_numbers))
         ).all()
     )
     values = []
     for f in filings:
-        values.append({
-            "company_id": company_id,
-            "accession_no": f["accession_no"],
-            "form": f["form"],
-            "filing_date": f["filing_date"],
-            "acceptance_datetime": f["acceptance_datetime"],
-            "primary_doc_url": f["primary_doc_url"],
-            "filing_detail_url": f["filing_detail_url"],
-            "is_new": True,
-        })
+        values.append(
+            {
+                "company_id": company_id,
+                "accession_no": f["accession_no"],
+                "form": f["form"],
+                "filing_date": f["filing_date"],
+                "acceptance_datetime": f["acceptance_datetime"],
+                "primary_doc_url": f["primary_doc_url"],
+                "filing_detail_url": f["filing_detail_url"],
+                "is_new": True,
+            }
+        )
 
     insert_fn = get_insert_statement_producer(session)
     statement = insert_fn(SecFiling).values(values)
@@ -280,9 +282,7 @@ def refresh_filings() -> dict[str, object]:
             if failed_symbols:
                 details.append(f"Failed symbols: {', '.join(sorted(failed_symbols))}")
             if not_found_symbols:
-                details.append(
-                    f"SEC submission 404s: {', '.join(sorted(not_found_symbols))}"
-                )
+                details.append(f"SEC submission 404s: {', '.join(sorted(not_found_symbols))}")
             if missing_cik_symbols:
                 details.append(f"Missing CIKs: {', '.join(sorted(missing_cik_symbols))}")
             error_text = "; ".join(details) or None

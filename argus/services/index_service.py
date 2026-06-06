@@ -144,10 +144,7 @@ def save_index_definition_from_editor(
     """Validate and insert a new index definition along with its constituents based on table input."""
     included = editor_df[editor_df["Include"]].copy()
     if mode == INDEX_MODE_MANUAL:
-        weights = {
-            row["Ticker"]: float(row["Weight %"]) / 100.0
-            for _, row in included.iterrows()
-        }
+        weights = {row["Ticker"]: float(row["Weight %"]) / 100.0 for _, row in included.iterrows()}
         validate_manual_weights(weights)
     else:
         weights = {row["Ticker"]: 1.0 for _, row in included.iterrows()}

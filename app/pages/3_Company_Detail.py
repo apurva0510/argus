@@ -47,7 +47,7 @@ def _html_block(markup: str) -> str:
 def _sentiment_badge(score: float | None) -> str:
     if score is None:
         return '<span style="background: rgba(139, 148, 158, 0.15); color: #8b949e; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Sentiment: N/A</span>'
-    
+
     if score > 0.05:
         return f'<span style="background: rgba(63, 185, 80, 0.15); color: #3fb950; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Positive ({score:+.2f})</span>'
     elif score < -0.05:
@@ -165,7 +165,9 @@ def load_index_relative_returns(
         else:
             start_date_utc = start_date
 
-        rel_df = calculate_relative_performance(session, index_df, start_date_utc, interval=interval)
+        rel_df = calculate_relative_performance(
+            session, index_df, start_date_utc, interval=interval
+        )
         return rel_df
 
 
@@ -237,13 +239,17 @@ def _start_for_timeframe(latest_point, earliest_point, tf: str):
     return earliest_point
 
 
-def _filter_price_timeframe(df: pd.DataFrame, tf: str, interval: str) -> tuple[pd.DataFrame, object]:
+def _filter_price_timeframe(
+    df: pd.DataFrame, tf: str, interval: str
+) -> tuple[pd.DataFrame, object]:
     if df.empty:
         return df, None
 
     df_sorted = df.sort_values("date").copy()
     if interval == "15m" and tf in {"1D", "5D"}:
-        filtered = filter_latest_market_sessions(df_sorted, 1 if tf == "1D" else 5, naive_tz=MARKET_TZ)
+        filtered = filter_latest_market_sessions(
+            df_sorted, 1 if tf == "1D" else 5, naive_tz=MARKET_TZ
+        )
         if filtered.empty:
             return filtered, None
         return filtered, filtered["date"].min()
@@ -269,6 +275,7 @@ def _maybe_append_close_bar(
 
     from datetime import time as dt_time
     from zoneinfo import ZoneInfo
+
     _et = ZoneInfo("America/New_York")
 
     last_bar = pd.to_datetime(df_intraday["date"].max())
@@ -321,7 +328,7 @@ def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) 
 
     tickvals = []
     ticktext = []
-    
+
     if tf == "1D":
         _1d_ticks = {"09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"}
         for i, dt in enumerate(dates_ny):
@@ -336,7 +343,7 @@ def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) 
                 tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(day_str)
                 last_date = day_str
-                
+
     if tickvals:
         fig.update_xaxes(
             type="category",
@@ -565,7 +572,7 @@ def render_company_detail() -> None:
             horizontal=True,
             key="timeframe_radio",
         )
-        
+
         chart_tabs = st.tabs(["Price Chart", "Relative Performance"])
 
         with chart_tabs[0]:
@@ -661,10 +668,14 @@ def render_company_detail() -> None:
                     qqq_comp = get_company_by_symbol("QQQ")
                     nvda_comp = get_company_by_symbol("NVDA")
                     df_qqq = (
-                        load_price_history(qqq_comp["id"], interval).copy() if qqq_comp else pd.DataFrame()
+                        load_price_history(qqq_comp["id"], interval).copy()
+                        if qqq_comp
+                        else pd.DataFrame()
                     )
                     df_nvda = (
-                        load_price_history(nvda_comp["id"], interval).copy() if nvda_comp else pd.DataFrame()
+                        load_price_history(nvda_comp["id"], interval).copy()
+                        if nvda_comp
+                        else pd.DataFrame()
                     )
 
                     if not df_qqq.empty:
@@ -675,7 +686,9 @@ def render_company_detail() -> None:
                                 dates = dates.dt.tz_localize("UTC")
                             else:
                                 dates = dates.dt.tz_convert("UTC")
-                            df_qqq["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                            df_qqq["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(
+                                None
+                            )
                         elif interval == "1d":
                             df_qqq["date"] = df_qqq["date"].dt.date
                     if not df_nvda.empty:
@@ -686,7 +699,9 @@ def render_company_detail() -> None:
                                 dates = dates.dt.tz_localize("UTC")
                             else:
                                 dates = dates.dt.tz_convert("UTC")
-                            df_nvda["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                            df_nvda["date"] = dates.dt.tz_convert(
+                                "America/New_York"
+                            ).dt.tz_localize(None)
                         elif interval == "1d":
                             df_nvda["date"] = df_nvda["date"].dt.date
 
@@ -761,7 +776,9 @@ def render_company_detail() -> None:
                                 dates = dates.dt.tz_localize("UTC")
                             else:
                                 dates = dates.dt.tz_convert("UTC")
-                            idx_rel["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                            idx_rel["date"] = dates.dt.tz_convert(
+                                "America/New_York"
+                            ).dt.tz_localize(None)
 
                         # Merge onto rel_df to align timestamps perfectly
                         aligned_idx = pd.merge(
@@ -859,9 +876,7 @@ def render_company_detail() -> None:
         else:
             for note in existing_notes:
                 created_at_et = _to_et(note["created_at"])
-                dt_str = (
-                    created_at_et.strftime("%Y-%m-%d %I:%M %p ET") if created_at_et else "n/a"
-                )
+                dt_str = created_at_et.strftime("%Y-%m-%d %I:%M %p ET") if created_at_et else "n/a"
                 st.markdown(f"**{note['created_by'] or 'User'}** ({dt_str}):")
                 st.info(note["note_text"])
 
@@ -990,17 +1005,29 @@ def render_company_detail() -> None:
                 if f.get("acceptance_datetime") is not None:
                     ts = _to_et(f["acceptance_datetime"])
                 else:
-                    ts = _to_et(datetime.combine(f["filing_date"], datetime.min.time())) if f["filing_date"] else None
+                    ts = (
+                        _to_et(datetime.combine(f["filing_date"], datetime.min.time()))
+                        if f["filing_date"]
+                        else None
+                    )
 
                 time_str = (
                     ts.strftime("%b %d, %Y %I:%M %p ET")
                     if ts
-                    else (f["filing_date"].strftime("%b %d, %Y") if f["filing_date"] else "Unknown date")
+                    else (
+                        f["filing_date"].strftime("%b %d, %Y")
+                        if f["filing_date"]
+                        else "Unknown date"
+                    )
                 )
 
                 now_ny = pd.Timestamp.now(tz="America/New_York").to_pydatetime()
                 is_new = (now_ny - ts) <= pd.Timedelta(hours=24) if ts is not None else False
-                new_star = "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>" if is_new else ""
+                new_star = (
+                    "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>"
+                    if is_new
+                    else ""
+                )
 
                 ticker = _html(company["symbol"])
                 company_name = _html(company["name"])

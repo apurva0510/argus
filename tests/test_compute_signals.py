@@ -98,7 +98,9 @@ def test_compute_signals_writes_rich_signal_row(sqlite_engine, monkeypatch) -> N
         )
 
         for offset in (20, 32, 44, 56):
-            session.add(EarningsEvent(company_id=nvda.id, event_date=start + timedelta(days=offset)))
+            session.add(
+                EarningsEvent(company_id=nvda.id, event_date=start + timedelta(days=offset))
+            )
 
         for company in hyperscalers:
             session.add(

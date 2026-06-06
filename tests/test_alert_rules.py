@@ -1,4 +1,5 @@
 """Tests for Phase 10: Alert rules, deduplication, and pipeline."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
@@ -291,14 +292,18 @@ class TestRsiBelow:
 
 
 class TestCrossed50dma:
-    def test_triggers_any_crossover(self, alert_session, sample_company, sample_metrics, sample_price_bar):
+    def test_triggers_any_crossover(
+        self, alert_session, sample_company, sample_metrics, sample_price_bar
+    ):
         alert = _make_alert(alert_session, sample_company, "crossed_50dma", {"direction": "any"})
         result = check_crossed_50dma(alert_session, alert, sample_company)
         # Yesterday was below (distance_from_50dma=-0.04), today above (0.02) → cross
         assert result is not None
         assert result[0]["direction"] == "any"
 
-    def test_triggers_above_crossover(self, alert_session, sample_company, sample_metrics, sample_price_bar):
+    def test_triggers_above_crossover(
+        self, alert_session, sample_company, sample_metrics, sample_price_bar
+    ):
         alert = _make_alert(alert_session, sample_company, "crossed_50dma", {"direction": "above"})
         result = check_crossed_50dma(alert_session, alert, sample_company)
         assert result is not None
@@ -384,9 +389,7 @@ class TestNewSecFiling:
         alert_session.add(filing)
         alert_session.commit()
 
-        alert = _make_alert(
-            alert_session, sample_company, "new_sec_filing", {"forms": ["8-K"]}
-        )
+        alert = _make_alert(alert_session, sample_company, "new_sec_filing", {"forms": ["8-K"]})
         result = check_new_sec_filing(alert_session, alert, sample_company)
         assert result is None
 
@@ -484,7 +487,9 @@ class TestNewsKeywordMatch:
         result = check_news_keyword_match(alert_session, alert, sample_company)
         assert result is None
 
-    def test_triggers_on_any_recent_mention_when_keywords_omitted(self, alert_session, sample_company):
+    def test_triggers_on_any_recent_mention_when_keywords_omitted(
+        self, alert_session, sample_company
+    ):
         news = NewsItem(
             title="Vertiv wins data center cooling contract",
             summary="Backlog expands",
@@ -525,9 +530,7 @@ class TestEarningsWithinDays:
         alert_session.add(event)
         alert_session.commit()
 
-        alert = _make_alert(
-            alert_session, sample_company, "earnings_within_days", {"days": 7}
-        )
+        alert = _make_alert(alert_session, sample_company, "earnings_within_days", {"days": 7})
         result = check_earnings_within_days(alert_session, alert, sample_company)
         assert result is not None
         assert result[0]["days_until"] == 3
@@ -542,9 +545,7 @@ class TestEarningsWithinDays:
         alert_session.add(event)
         alert_session.commit()
 
-        alert = _make_alert(
-            alert_session, sample_company, "earnings_within_days", {"days": 7}
-        )
+        alert = _make_alert(alert_session, sample_company, "earnings_within_days", {"days": 7})
         result = check_earnings_within_days(alert_session, alert, sample_company)
         assert result is None
 
@@ -584,9 +585,7 @@ class TestEnteredPullbackZone:
         assert abs(result[0]["drawdown_52w"]) * 100.0 >= 10.0
         assert result[0]["rsi_14"] <= 55.0
 
-    def test_does_not_trigger_when_drawdown_too_small(
-        self, alert_session, sample_company
-    ):
+    def test_does_not_trigger_when_drawdown_too_small(self, alert_session, sample_company):
         dm = DailyMetric(
             company_id=sample_company.id,
             date=date.today(),
@@ -679,9 +678,7 @@ class TestDeduplication:
 
         # Attempt to insert a duplicate
         existing = (
-            alert_session.query(AlertEvent)
-            .filter(AlertEvent.dedupe_key == dedupe_key)
-            .first()
+            alert_session.query(AlertEvent).filter(AlertEvent.dedupe_key == dedupe_key).first()
         )
         assert existing is not None
         assert existing.id == event1.id
@@ -711,11 +708,7 @@ class TestDeduplication:
         alert_session.add_all([event1, event2])
         alert_session.commit()
 
-        count = (
-            alert_session.query(AlertEvent)
-            .filter(AlertEvent.alert_id == alert.id)
-            .count()
-        )
+        count = alert_session.query(AlertEvent).filter(AlertEvent.alert_id == alert.id).count()
         assert count == 2
 
     def test_unique_constraint_on_dedupe_key(self, alert_session, sample_company):
@@ -755,7 +748,9 @@ class TestDeduplication:
         monkeypatch,
     ):
         alert = _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
-        dedupe_key = f"alert:{alert.id}:company:{sample_company.id}:date:{sample_price_bar.date.isoformat()}"
+        dedupe_key = (
+            f"alert:{alert.id}:company:{sample_company.id}:date:{sample_price_bar.date.isoformat()}"
+        )
         alert_session.add(
             AlertEvent(
                 alert_id=alert.id,
@@ -775,7 +770,9 @@ class TestDeduplication:
         alert_session.expire_all()
         assert result["rows_read"] == 1
         assert result["rows_written"] == 0
-        assert alert_session.query(AlertEvent).filter(AlertEvent.dedupe_key == dedupe_key).count() == 1
+        assert (
+            alert_session.query(AlertEvent).filter(AlertEvent.dedupe_key == dedupe_key).count() == 1
+        )
 
 
 # ── Alert Pipeline Worker ────────────────────────────────────────────
@@ -798,7 +795,12 @@ class TestAlertPipelineWorker:
 
         alert_session.expire_all()
         events = alert_session.query(AlertEvent).all()
-        jobs = alert_session.query(JobRun).filter(JobRun.job_name == "run_alerts").order_by(JobRun.id).all()
+        jobs = (
+            alert_session.query(JobRun)
+            .filter(JobRun.job_name == "run_alerts")
+            .order_by(JobRun.id)
+            .all()
+        )
         alert = alert_session.query(Alert).one()
 
         assert first_result["status"] == "success"
@@ -857,6 +859,7 @@ class TestAlertPipelineWorker:
         assert result["rows_written"] == 1
         assert event.delivery_status == "failed"
 
+
 # ── Formatting ───────────────────────────────────────────────────────
 
 
@@ -871,7 +874,9 @@ class TestFormatting:
         assert "$90.00" in text
         assert "VRT" in html
 
-    def test_format_uses_hosted_company_detail_url(self, alert_session, sample_company, monkeypatch):
+    def test_format_uses_hosted_company_detail_url(
+        self, alert_session, sample_company, monkeypatch
+    ):
         from argus.alerts import formatting
 
         monkeypatch.setattr(
@@ -933,11 +938,11 @@ class TestEmailDelivery:
     def test_smtp_not_configured_by_default(self, monkeypatch):
         # In test env, EMAIL_HOST / EMAIL_TO should not be set
         from argus.alerts import email_delivery
+
         monkeypatch.setattr(email_delivery.settings, "email_host", "")
         monkeypatch.setattr(email_delivery.settings, "email_to", "")
         result = is_smtp_configured()
         assert result is False
-
 
     def test_send_email_returns_false_without_smtp_config_and_does_not_open_connection(
         self, monkeypatch
@@ -1083,7 +1088,9 @@ class TestAlertService:
                 config_json={"threshold": "not numeric"},
             )
 
-    def test_create_alert_service_normalizes_config(self, alert_engine, alert_session, sample_company, monkeypatch):
+    def test_create_alert_service_normalizes_config(
+        self, alert_engine, alert_session, sample_company, monkeypatch
+    ):
         alert_id = alert_service.create_alert(
             name="Valid",
             rule_type="price_below",

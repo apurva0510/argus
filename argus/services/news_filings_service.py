@@ -172,4 +172,3 @@ def get_last_job_run(engine: Engine, job_name: str) -> dict[str, object] | None:
         if df.empty:
             return None
         return df.iloc[0].to_dict()
-

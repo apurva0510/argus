@@ -45,7 +45,9 @@ def rate_limit_sec() -> None:
 def _sec_headers() -> dict[str, str]:
     user_agent = settings.sec_user_agent
     if not user_agent or not user_agent.strip():
-        raise ValueError("SEC_USER_AGENT is not configured. Please set it in environment or .env file.")
+        raise ValueError(
+            "SEC_USER_AGENT is not configured. Please set it in environment or .env file."
+        )
     return {
         "User-Agent": user_agent,
         "Accept-Encoding": "gzip, deflate",
@@ -54,6 +56,7 @@ def _sec_headers() -> dict[str, str]:
 
 def _sec_verify_ssl() -> bool:
     import os
+
     return os.getenv("ARGUS_SKIP_SSL_VERIFY", "").lower() not in ("true", "1", "yes")
 
 
@@ -83,9 +86,7 @@ def _normalized_name_tokens(name: str) -> set[str]:
         "SE",
     }
     return {
-        token
-        for token in re.findall(r"[A-Z0-9]+", name.upper())
-        if token not in legal_suffixes
+        token for token in re.findall(r"[A-Z0-9]+", name.upper()) if token not in legal_suffixes
     }
 
 
@@ -117,7 +118,9 @@ def parse_sec_ticker_identities(payload: object) -> dict[str, SecTickerIdentity]
             cik_index = fields.index("cik")
             name_index = fields.index("name")
         except ValueError as exc:
-            raise ValueError("SEC ticker exchange payload missing ticker, cik, or name fields") from exc
+            raise ValueError(
+                "SEC ticker exchange payload missing ticker, cik, or name fields"
+            ) from exc
         exchange_index = fields.index("exchange") if "exchange" in fields else None
         for row in data:
             required_indexes = [ticker_index, cik_index, name_index]
@@ -162,8 +165,7 @@ def parse_sec_ticker_identities(payload: object) -> dict[str, SecTickerIdentity]
 def parse_sec_ticker_mapping(payload: object) -> dict[str, str]:
     """Parse either official SEC ticker mapping JSON shape into ticker-to-CIK values."""
     return {
-        ticker: identity.cik
-        for ticker, identity in parse_sec_ticker_identities(payload).items()
+        ticker: identity.cik for ticker, identity in parse_sec_ticker_identities(payload).items()
     }
 
 
@@ -220,7 +222,7 @@ def fetch_filings(cik: str | int) -> list[dict]:
     headers = _sec_headers()
 
     logger.info("Fetching SEC filings for CIK %s from %s", cik_padded, url)
-    
+
     max_retries = 3
     backoff_factor = 2.0
     response = None
@@ -240,7 +242,12 @@ def fetch_filings(cik: str | int) -> list[dict]:
                 logger.error("All retry attempts failed for CIK %s: %s", cik_padded, exc)
                 raise
             wait = backoff_factor ** (attempt + 1)
-            logger.warning("SEC query failed on attempt %d: %s. Retrying in %d seconds...", attempt + 1, exc, wait)
+            logger.warning(
+                "SEC query failed on attempt %d: %s. Retrying in %d seconds...",
+                attempt + 1,
+                exc,
+                wait,
+            )
             time.sleep(wait)
 
     assert response is not None
@@ -280,14 +287,16 @@ def fetch_filings(cik: str | int) -> list[dict]:
             f"{accession_no_no_dashes}/{primary_doc}"
         )
 
-        filings.append({
-            "accession_no": accession_no,
-            "form": form,
-            "filing_date": parse_sec_date(filing_date_str),
-            "acceptance_datetime": parse_sec_datetime(acceptance_dt_str),
-            "primary_doc_url": primary_doc_url,
-            "filing_detail_url": filing_detail_url,
-        })
+        filings.append(
+            {
+                "accession_no": accession_no,
+                "form": form,
+                "filing_date": parse_sec_date(filing_date_str),
+                "acceptance_datetime": parse_sec_datetime(acceptance_dt_str),
+                "primary_doc_url": primary_doc_url,
+                "filing_detail_url": filing_detail_url,
+            }
+        )
 
     logger.info("Found %d tracked filings for CIK %s", len(filings), cik_padded)
     return filings
@@ -380,16 +389,21 @@ def parse_capex_facts(facts: dict) -> list[dict]:
 
             try:
                 from datetime import date as date_cls
+
                 fiscal_period_end = date_cls.fromisoformat(end_str)
             except (ValueError, TypeError):
                 continue
 
-            results.append({
-                "fiscal_period_end": fiscal_period_end,
-                "capex_amount": abs(float(val)),  # Capex is often reported as negative in cash flow
-                "form": form,
-                "accession_no": accession,
-            })
+            results.append(
+                {
+                    "fiscal_period_end": fiscal_period_end,
+                    "capex_amount": abs(
+                        float(val)
+                    ),  # Capex is often reported as negative in cash flow
+                    "form": form,
+                    "accession_no": accession,
+                }
+            )
 
         if results:
             return sorted(results, key=lambda r: r["fiscal_period_end"])

@@ -35,6 +35,7 @@ def test_execute_provider_request_success(sqlite_engine) -> None:
 
 def test_execute_provider_request_rate_limited(sqlite_engine) -> None:
     with Session(sqlite_engine) as session:
+
         def fail_rate_limit():
             raise NewsProviderRateLimitError("yfinance", "dummy")
 
@@ -57,6 +58,7 @@ def test_execute_provider_request_rate_limited(sqlite_engine) -> None:
 
 def test_execute_provider_request_general_failure(sqlite_engine) -> None:
     with Session(sqlite_engine) as session:
+
         def fail_general():
             raise ValueError("boom")
 
@@ -87,7 +89,12 @@ def test_execute_provider_request_across_multiple_dates(sqlite_engine) -> None:
         # Record today attempt
         record_provider_attempt(session, "yfinance", "success", now)
 
-        usages = session.query(ProviderDailyUsage).filter_by(provider="yfinance").order_by(ProviderDailyUsage.date.asc()).all()
+        usages = (
+            session.query(ProviderDailyUsage)
+            .filter_by(provider="yfinance")
+            .order_by(ProviderDailyUsage.date.asc())
+            .all()
+        )
         assert len(usages) == 2
         assert usages[0].date == yesterday.date()
         assert usages[0].request_count == 1

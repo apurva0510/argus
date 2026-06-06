@@ -80,7 +80,9 @@ def article_relevance(mentions: list[dict]) -> float | None:
     return min(1.0, best)
 
 
-def recency_weight(published_at: datetime | None, as_of: datetime, *, half_life_days: float = 3.0) -> float:
+def recency_weight(
+    published_at: datetime | None, as_of: datetime, *, half_life_days: float = 3.0
+) -> float:
     if published_at is None:
         return 0.25
     age_days = max(0.0, (as_of - published_at).total_seconds() / 86400.0)

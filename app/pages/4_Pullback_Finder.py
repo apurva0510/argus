@@ -171,7 +171,11 @@ def render_pullback_finder() -> None:
             theme_family=None if selected_theme_family == "All" else selected_theme_family,
             theme=None if selected_theme == "All" else selected_theme,
         )
-        status_options = sorted(status_base["watch_status"].dropna().unique().tolist()) if "watch_status" in status_base else sorted(WATCH_STATUSES)
+        status_options = (
+            sorted(status_base["watch_status"].dropna().unique().tolist())
+            if "watch_status" in status_base
+            else sorted(WATCH_STATUSES)
+        )
         selected_statuses = st.multiselect(
             "Watch Status",
             status_options,
@@ -190,7 +194,9 @@ def render_pullback_finder() -> None:
     with filter7:
         exclude_benchmarks = st.checkbox("Exclude Benchmarks (NVDA, QQQ, MSFT, etc.)", value=True)
     with filter8:
-        exclude_hyperscalers = st.checkbox("Exclude Hyperscalers (AMZN, GOOGL, META, MSFT)", value=False)
+        exclude_hyperscalers = st.checkbox(
+            "Exclude Hyperscalers (AMZN, GOOGL, META, MSFT)", value=False
+        )
 
     filtered = apply_pullback_filters(
         candidates,
@@ -215,7 +221,9 @@ def render_pullback_finder() -> None:
     display_df["ticker"] = display_df["ticker"].apply(company_detail_url)
     display_df["score"] = display_df["opportunity_score"].round(1)
     display_df["drawdown"] = display_df["drawdown_52w"].apply(_fmt_pct)
-    display_df["rsi"] = display_df["rsi_14"].apply(lambda value: "n/a" if pd.isna(value) else f"{value:.1f}")
+    display_df["rsi"] = display_df["rsi_14"].apply(
+        lambda value: "n/a" if pd.isna(value) else f"{value:.1f}"
+    )
     display_df["vs QQQ 3M"] = display_df["relative_return_vs_qqq_3m"].apply(_fmt_pct)
     display_df["200DMA"] = display_df["distance_from_200dma"].apply(_fmt_pct)
     display_df["max theme score"] = display_df["theme_exposure_score"].apply(
@@ -242,8 +250,7 @@ def render_pullback_finder() -> None:
 
     st.subheader("Ranked pullback candidates")
     styled_table_df = table_df.style.map(
-        style_positive_green_negative_red,
-        subset=["drawdown", "200DMA", "vs QQQ 3M"]
+        style_positive_green_negative_red, subset=["drawdown", "200DMA", "vs QQQ 3M"]
     ).map(
         style_score_traffic_light,
         subset=["score"],
@@ -261,23 +268,26 @@ def render_pullback_finder() -> None:
         selection_mode="single-row",
     )
 
-    st.caption("💡 *Tip: Click on any row in the table above to view the full, wrapped reason/explanation below.*")
+    st.caption(
+        "💡 *Tip: Click on any row in the table above to view the full, wrapped reason/explanation below.*"
+    )
 
     if event and event.selection and event.selection.rows:
         selected_row_idx = event.selection.rows[0]
         selected_row = display_df.iloc[selected_row_idx]
-        
+
         # Extract symbol from link
         import re
+
         ticker_symbol = selected_row["ticker"]
         match = re.search(r"ticker=([^&]+)", ticker_symbol)
         if match:
             ticker_symbol = match.group(1)
-            
+
         company_name = selected_row["company"]
         explanation_text = selected_row["explanation"]
         score_val = selected_row["score"]
-        
+
         st.html(render_explanation_card(ticker_symbol, company_name, explanation_text, score_val))
 
     with st.expander("Score component breakdown"):
@@ -307,14 +317,15 @@ def render_pullback_finder() -> None:
             }
         )
         styled_breakdown_df = breakdown_df.style.map(
-            style_positive_green_negative_red,
-            subset=["risk penalty", "macro penalty"]
+            style_positive_green_negative_red, subset=["risk penalty", "macro penalty"]
         )
         st.dataframe(
-            styled_breakdown_df, 
-            hide_index=True, 
+            styled_breakdown_df,
+            hide_index=True,
             width="stretch",
-            column_config={"ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")}
+            column_config={
+                "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")
+            },
         )
 
 

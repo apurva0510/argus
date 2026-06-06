@@ -56,6 +56,7 @@ def render_metric_card(label: str, value: float | None, is_percentage: bool = Tr
 
     return _metric_card_shell(label, escape(value_str, quote=True), color)
 
+
 def render_plain_metric_card(
     label: str,
     value: str | int | float | None,
@@ -96,6 +97,6 @@ def render_plain_metric_card_parts(
     val_html = (
         f'<span style="color: #f0f6fc;">{escape(primary, quote=True)}</span>'
         f'<span style="color: {secondary_color}; font-size: 16px; font-weight: 500; margin-left: 8px;">'
-        f'({escape(secondary, quote=True)})</span>'
+        f"({escape(secondary, quote=True)})</span>"
     )
     return _metric_card_shell(label, val_html, value_font_size=value_font_size)

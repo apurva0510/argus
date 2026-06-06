@@ -57,9 +57,7 @@ def test_refresh_ciks_updates_matches_and_preserves_unmatched(sqlite_engine, mon
     monkeypatch.setattr(
         module,
         "fetch_ticker_identities",
-        lambda: {
-            "NVDA": SecTickerIdentity("NVDA", "0001045810", "NVIDIA CORP", "Nasdaq")
-        },
+        lambda: {"NVDA": SecTickerIdentity("NVDA", "0001045810", "NVIDIA CORP", "Nasdaq")},
     )
 
     with db_module.session_scope() as session:
@@ -101,9 +99,7 @@ def test_refresh_ciks_refuses_conflicting_issuer_identity(sqlite_engine, monkeyp
     monkeypatch.setattr(
         module,
         "fetch_ticker_identities",
-        lambda: {
-            "NVDA": SecTickerIdentity("NVDA", "0001045810", "UNRELATED ENERGY CORP", "NYSE")
-        },
+        lambda: {"NVDA": SecTickerIdentity("NVDA", "0001045810", "UNRELATED ENERGY CORP", "NYSE")},
     )
 
     with db_module.session_scope() as session:

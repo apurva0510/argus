@@ -117,7 +117,9 @@ def get_insert_statement_producer(session):
 
     if dialect_name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert
+
         return insert
     else:
         from sqlalchemy.dialects.sqlite import insert
+
         return insert

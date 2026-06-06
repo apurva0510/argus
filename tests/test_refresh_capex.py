@@ -102,8 +102,20 @@ def test_parse_capex_facts_deduplicates_by_period() -> None:
                 "PaymentsToAcquirePropertyPlantAndEquipment": {
                     "units": {
                         "USD": [
-                            {"form": "10-Q", "fp": "Q1", "end": "2025-03-31", "val": 100, "accn": "a"},
-                            {"form": "10-Q", "fp": "Q1", "end": "2025-03-31", "val": 200, "accn": "b"},
+                            {
+                                "form": "10-Q",
+                                "fp": "Q1",
+                                "end": "2025-03-31",
+                                "val": 100,
+                                "accn": "a",
+                            },
+                            {
+                                "form": "10-Q",
+                                "fp": "Q1",
+                                "end": "2025-03-31",
+                                "val": 200,
+                                "accn": "b",
+                            },
                         ]
                     }
                 }
@@ -126,7 +138,9 @@ def test_refresh_capex_preserves_manual_observations(sqlite_engine, monkeypatch)
 
     # Seed a company with CIK
     with db_module.session_scope() as session:
-        company = Company(symbol="MSFT", name="Microsoft", is_active=True, cik="0000789019", is_hyperscaler=True)
+        company = Company(
+            symbol="MSFT", name="Microsoft", is_active=True, cik="0000789019", is_hyperscaler=True
+        )
         session.add(company)
         session.flush()
         # Add a manual capex observation
@@ -180,14 +194,18 @@ def test_refresh_capex_skips_company_without_cik(sqlite_engine, monkeypatch) -> 
     )
 
     with db_module.session_scope() as session:
-        session.add(Company(symbol="MSFT", name="Microsoft", is_active=True, cik=None, is_hyperscaler=True))
+        session.add(
+            Company(symbol="MSFT", name="Microsoft", is_active=True, cik=None, is_hyperscaler=True)
+        )
 
     result = refresh_capex()
     # Should still succeed but with a warning about missing CIK
     assert result["rows_written"] == 0
 
 
-def test_upsert_capex_observation_overwrites_automated_observation(sqlite_engine, monkeypatch) -> None:
+def test_upsert_capex_observation_overwrites_automated_observation(
+    sqlite_engine, monkeypatch
+) -> None:
     from argus.core import db as db_module
     from argus.pipelines.capex_observations import upsert_capex_observation
 
@@ -198,7 +216,9 @@ def test_upsert_capex_observation_overwrites_automated_observation(sqlite_engine
     )
 
     with db_module.session_scope() as session:
-        company = Company(symbol="MSFT", name="Microsoft", is_active=True, cik="0000789019", is_hyperscaler=True)
+        company = Company(
+            symbol="MSFT", name="Microsoft", is_active=True, cik="0000789019", is_hyperscaler=True
+        )
         session.add(company)
         session.flush()
         # Seed an automated capex observation

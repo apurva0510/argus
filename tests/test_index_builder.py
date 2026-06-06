@@ -66,7 +66,7 @@ def test_get_default_index_symbols(db_session: Session) -> None:
 
 def test_calculate_equal_weight_index(db_session: Session) -> None:
     start_date = date(2026, 5, 1)
-    
+
     # Add constituents
     c1 = Company(symbol="A", name="A", is_active=True)
     c2 = Company(symbol="B", name="B", is_active=True)
@@ -84,7 +84,7 @@ def test_calculate_equal_weight_index(db_session: Session) -> None:
     assert not index_df.empty
     assert len(index_df) == 3
     assert index_df.iloc[0]["index_value"] == 100.0
-    
+
     # Return on day 1: A = 10%, B = 5%. Average return = 7.5%
     # Index day 1: 100 * 1.075 = 107.5
     assert index_df.iloc[1]["index_value"] == pytest.approx(107.5)
@@ -96,7 +96,7 @@ def test_calculate_equal_weight_index(db_session: Session) -> None:
 
 def test_calculate_equal_weight_index_missing_history(db_session: Session) -> None:
     start_date = date(2026, 5, 1)
-    
+
     # Constituent A is there for all 3 days
     # Constituent B is a new IPO, starts on day 1 (offset 1)
     c1 = Company(symbol="A", name="A", is_active=True)
@@ -110,16 +110,26 @@ def test_calculate_equal_weight_index_missing_history(db_session: Session) -> No
         PriceBar(
             company_id=c2.id,
             date=start_date + timedelta(days=1),
-            open=100.0, high=100.0, low=100.0, close=100.0, adj_close=100.0,
-            provider="yfinance", interval="1d"
+            open=100.0,
+            high=100.0,
+            low=100.0,
+            close=100.0,
+            adj_close=100.0,
+            provider="yfinance",
+            interval="1d",
         )
     )
     db_session.add(
         PriceBar(
             company_id=c2.id,
             date=start_date + timedelta(days=2),
-            open=110.0, high=110.0, low=110.0, close=110.0, adj_close=110.0,
-            provider="yfinance", interval="1d"
+            open=110.0,
+            high=110.0,
+            low=110.0,
+            close=110.0,
+            adj_close=110.0,
+            provider="yfinance",
+            interval="1d",
         )
     )
     db_session.flush()
@@ -143,7 +153,7 @@ def test_calculate_equal_weight_index_missing_history(db_session: Session) -> No
 
 def test_calculate_relative_performance(db_session: Session) -> None:
     start_date = date(2026, 5, 1)
-    
+
     # Benchmarks
     c_qqq = Company(symbol="QQQ", name="QQQ", is_active=True, is_benchmark=True)
     c_nvda = Company(symbol="NVDA", name="NVDA", is_active=True, is_benchmark=True)
@@ -155,11 +165,13 @@ def test_calculate_relative_performance(db_session: Session) -> None:
     db_session.flush()
 
     # Pre-calculated index levels
-    index_df = pd.DataFrame([
-        {"date": start_date, "index_value": 100.0},
-        {"date": start_date + timedelta(days=1), "index_value": 105.0},
-        {"date": start_date + timedelta(days=2), "index_value": 110.25},
-    ])
+    index_df = pd.DataFrame(
+        [
+            {"date": start_date, "index_value": 100.0},
+            {"date": start_date + timedelta(days=1), "index_value": 105.0},
+            {"date": start_date + timedelta(days=2), "index_value": 110.25},
+        ]
+    )
 
     rel_perf = calculate_relative_performance(db_session, index_df, start_date)
 
@@ -195,7 +207,7 @@ def test_calculate_top_contributors(db_session: Session) -> None:
         db_session,
         symbols=["A", "B"],
         start_date=start_date,
-        end_date=start_date + timedelta(days=1)
+        end_date=start_date + timedelta(days=1),
     )
 
     assert len(contribs) == 2
@@ -252,16 +264,26 @@ def test_calculate_equal_weight_index_all_nan_prices(db_session: Session) -> Non
         PriceBar(
             company_id=c1.id,
             date=start_date,
-            open=None, high=None, low=None, close=None, adj_close=None,
-            provider="yfinance", interval="1d"
+            open=None,
+            high=None,
+            low=None,
+            close=None,
+            adj_close=None,
+            provider="yfinance",
+            interval="1d",
         )
     )
     db_session.add(
         PriceBar(
             company_id=c1.id,
             date=start_date + timedelta(days=1),
-            open=None, high=None, low=None, close=None, adj_close=None,
-            provider="yfinance", interval="1d"
+            open=None,
+            high=None,
+            low=None,
+            close=None,
+            adj_close=None,
+            provider="yfinance",
+            interval="1d",
         )
     )
     db_session.flush()
@@ -289,10 +311,7 @@ def test_calculate_equal_weight_index_zero_price_handling(db_session: Session) -
 
     # Check top contributor with a base price of 0.0
     contribs = calculate_top_contributors(
-        db_session,
-        symbols=["A"],
-        start_date=start_date,
-        end_date=start_date + timedelta(days=1)
+        db_session, symbols=["A"], start_date=start_date, end_date=start_date + timedelta(days=1)
     )
     assert contribs.empty
     assert contribs.columns.tolist() == ["symbol", "name", "return", "contribution"]
@@ -349,15 +368,35 @@ def test_calculate_equal_weight_index_weight_normalization_gaps(db_session: Sess
     # Day 1: A=11 (+10%), B=22 (+10%), C=NaN
     # Day 2: A=11 (0%), B=22 (0%), C=33 (+10% from 30)
     # Day 3: A=11 (0%), B=22 (0%), C=36.3 (+10% from 33)
-    
+
     # Seed A
     _seed_prices(db_session, c1.id, start_date, [10.0, 11.0, 11.0, 11.0])
     # Seed B
     _seed_prices(db_session, c2.id, start_date, [20.0, 22.0, 22.0, 22.0])
     # Seed C with gap on day 1
-    db_session.add(PriceBar(company_id=c3.id, date=start_date, adj_close=30.0, provider="yfinance", interval="1d"))
-    db_session.add(PriceBar(company_id=c3.id, date=start_date + timedelta(days=2), adj_close=33.0, provider="yfinance", interval="1d"))
-    db_session.add(PriceBar(company_id=c3.id, date=start_date + timedelta(days=3), adj_close=36.3, provider="yfinance", interval="1d"))
+    db_session.add(
+        PriceBar(
+            company_id=c3.id, date=start_date, adj_close=30.0, provider="yfinance", interval="1d"
+        )
+    )
+    db_session.add(
+        PriceBar(
+            company_id=c3.id,
+            date=start_date + timedelta(days=2),
+            adj_close=33.0,
+            provider="yfinance",
+            interval="1d",
+        )
+    )
+    db_session.add(
+        PriceBar(
+            company_id=c3.id,
+            date=start_date + timedelta(days=3),
+            adj_close=36.3,
+            provider="yfinance",
+            interval="1d",
+        )
+    )
     db_session.flush()
 
     index_df = calculate_equal_weight_index(db_session, symbols=["A", "B", "C"])

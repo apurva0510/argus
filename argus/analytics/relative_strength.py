@@ -3,7 +3,9 @@ from __future__ import annotations
 import pandas as pd
 
 
-def relative_return(asset_prices: pd.Series, benchmark_prices: pd.Series, periods: int) -> pd.Series:
+def relative_return(
+    asset_prices: pd.Series, benchmark_prices: pd.Series, periods: int
+) -> pd.Series:
     aligned_prices = pd.concat(
         [asset_prices.rename("asset"), benchmark_prices.rename("benchmark")],
         axis=1,

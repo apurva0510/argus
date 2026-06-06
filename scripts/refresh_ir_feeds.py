@@ -11,7 +11,9 @@ def ensure_project_root_on_path() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh Argus investor relations news feeds.")
-    parser.add_argument("--force", action="store_true", help="Bypass the recent successful refresh throttle.")
+    parser.add_argument(
+        "--force", action="store_true", help="Bypass the recent successful refresh throttle."
+    )
     return parser.parse_args()
 
 
@@ -33,7 +35,6 @@ def main() -> None:
     print(f"Rows written: {result['rows_written']}")
     if result.get("error_text"):
         print(f"Warning: {result['error_text']}")
-
 
 
 if __name__ == "__main__":

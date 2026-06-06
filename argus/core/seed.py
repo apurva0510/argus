@@ -5,7 +5,14 @@ SECTOR_GROUPS: dict[str, list[str]] = {
     "Power and Grid": ["ETN", "GEV", "PWR", "ABBNY", "SBGSY", "SIEGY", "HUBB"],
     "Cooling and Data Center Infrastructure": ["VRT", "TT", "CARR", "JCI"],
     "Optical, Fiber, and Networking": ["CIEN", "GLW", "COHR", "LITE", "NOK", "CSCO", "ANET"],
-    "Semiconductor Equipment and Advanced Packaging": ["AMAT", "KLAC", "LRCX", "ASML", "ONTO", "TER"],
+    "Semiconductor Equipment and Advanced Packaging": [
+        "AMAT",
+        "KLAC",
+        "LRCX",
+        "ASML",
+        "ONTO",
+        "TER",
+    ],
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
     "Data Center REITs": ["EQIX", "DLR"],
     "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
@@ -81,7 +88,10 @@ SECTOR_THEME_CODES: dict[str, list[str]] = {
     "Power and Grid": ["power_grid"],
     "Cooling and Data Center Infrastructure": ["cooling"],
     "Optical, Fiber, and Networking": ["optical_networking"],
-    "Semiconductor Equipment and Advanced Packaging": ["semiconductor_equipment", "advanced_packaging"],
+    "Semiconductor Equipment and Advanced Packaging": [
+        "semiconductor_equipment",
+        "advanced_packaging",
+    ],
     "Energy, Nuclear, and Utilities": ["energy_nuclear_utilities"],
     "Data Center REITs": ["data_center_reit"],
     "Cybersecurity": ["cybersecurity"],
@@ -257,7 +267,9 @@ def normalize_symbol(symbol: str) -> str:
 
 
 def _company_metadata(symbol: str) -> dict[str, str]:
-    return COMPANY_METADATA.get(symbol, {"exchange": "UNKNOWN", "country": "UNKNOWN", "industry": "UNKNOWN"})
+    return COMPANY_METADATA.get(
+        symbol, {"exchange": "UNKNOWN", "country": "UNKNOWN", "industry": "UNKNOWN"}
+    )
 
 
 def seed_themes(session) -> None:
@@ -312,12 +324,13 @@ def seed_companies(session) -> None:
             )
 
 
-
 def seed_watchlists(session) -> None:
     for sector, symbols in SECTOR_GROUPS.items():
         watchlist = session.query(Watchlist).filter(Watchlist.name == sector).one_or_none()
         if watchlist is None:
-            watchlist = Watchlist(name=sector, description=f"System watchlist: {sector}", is_system=True)
+            watchlist = Watchlist(
+                name=sector, description=f"System watchlist: {sector}", is_system=True
+            )
             session.add(watchlist)
             session.flush()
 
@@ -328,7 +341,10 @@ def seed_watchlists(session) -> None:
                 continue
             existing_item = (
                 session.query(WatchlistItem)
-                .filter(WatchlistItem.watchlist_id == watchlist.id, WatchlistItem.company_id == company.id)
+                .filter(
+                    WatchlistItem.watchlist_id == watchlist.id,
+                    WatchlistItem.company_id == company.id,
+                )
                 .one_or_none()
             )
             status = WATCH_STATUS_BY_SYMBOL.get(company.symbol, "watch")
@@ -362,11 +378,7 @@ def seed_exposure_defaults(session) -> None:
         if not theme_codes:
             continue
 
-        expected_theme_ids = {
-            theme_map[code]
-            for code in theme_codes
-            if code in theme_map
-        }
+        expected_theme_ids = {theme_map[code] for code in theme_codes if code in theme_map}
         _remove_obsolete_seed_exposures(session, company, expected_theme_ids)
 
         for code in theme_codes:
@@ -399,7 +411,9 @@ def seed_exposure_defaults(session) -> None:
             )
 
 
-def _remove_obsolete_seed_exposures(session, company: Company, expected_theme_ids: set[int]) -> None:
+def _remove_obsolete_seed_exposures(
+    session, company: Company, expected_theme_ids: set[int]
+) -> None:
     stale_seed_exposures = (
         session.query(CompanyThemeExposure)
         .filter(

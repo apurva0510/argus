@@ -43,4 +43,3 @@ def test_sqlite_engine_has_busy_timeout() -> None:
     with db_engine.connect() as conn:
         timeout_ms = conn.execute(text("PRAGMA busy_timeout")).scalar()
         assert timeout_ms == 30000
-

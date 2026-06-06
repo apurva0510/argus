@@ -69,9 +69,7 @@ def refresh_ciks() -> dict[str, object]:
             if missing_symbols:
                 details.append(f"Unmatched active symbols: {', '.join(sorted(missing_symbols))}")
             if identity_conflicts:
-                details.append(
-                    f"Identity conflicts: {', '.join(sorted(identity_conflicts))}"
-                )
+                details.append(f"Identity conflicts: {', '.join(sorted(identity_conflicts))}")
             error_text = "; ".join(details) or None
         with session_scope() as session:
             job = session.get(JobRun, job_id)

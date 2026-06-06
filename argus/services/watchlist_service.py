@@ -128,7 +128,7 @@ def update_watchlist_items(edits: list[dict[str, Any]]) -> tuple[int, list[str]]
                         company_id=item.company_id,
                         note_text=new_notes.strip(),
                         note_type="watchlist_update",
-                        created_by="User"
+                        created_by="User",
                     )
                     session.add(user_note)
                 changed = True

@@ -31,7 +31,9 @@ def test_moving_average() -> None:
 
 
 def test_rsi_range() -> None:
-    prices = pd.Series([100, 101, 100, 102, 103, 102, 104, 105, 104, 106, 107, 106, 108, 109, 110, 111])
+    prices = pd.Series(
+        [100, 101, 100, 102, 103, 102, 104, 105, 104, 106, 107, 106, 108, 109, 110, 111]
+    )
     rsi = compute_rsi(prices, window=14)
     latest = rsi.dropna().iloc[-1]
     assert 0 <= latest <= 100
