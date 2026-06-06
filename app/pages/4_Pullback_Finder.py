@@ -64,9 +64,7 @@ def render_explanation_card(ticker: str, company: str, explanation: str, score: 
                 Score: {score:.1f}
             </div>
         </div>
-        <div style="color: #c9d1d9; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">
-            {explanation}
-        </div>
+        <div style="color: #c9d1d9; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">{explanation}</div>
     </div>
     """
 
