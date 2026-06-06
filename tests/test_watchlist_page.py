@@ -69,7 +69,7 @@ def test_watchlist_renders_tickers_as_links_with_config(monkeypatch) -> None:
     # Mock streamlit
     MockSt.session_state = {"auth_token": "test-token-123"}
     monkeypatch.setattr("app.pages.2_Watchlists.st", MockSt)
-    monkeypatch.setattr("app.components.sidebar.render_sidebar_navigation", lambda: None)
+    monkeypatch.setattr("app.pages.2_Watchlists.render_sidebar_navigation", lambda: None)
     monkeypatch.setattr("app.auth_links.st.session_state", {"auth_token": "test-token-123"})
 
     # Mock database call to return a sample watchlist item
