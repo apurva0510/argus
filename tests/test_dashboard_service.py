@@ -13,6 +13,7 @@ from argus.core.models import (
     PriceBar,
     SecFiling,
     Theme,
+    SignalDaily,
 )
 from argus.services.dashboard_service import (
     build_stale_reasons,
@@ -533,3 +534,53 @@ def test_dashboard_distinguishes_latest_attempt_from_latest_success(db_session, 
 
     assert latest_dates["last_price_refresh_at"] == "2026-05-29 20:01:00.000000"
     assert latest_dates["last_price_attempt_at"] == "2026-05-30 20:01:00.000000"
+
+
+def test_load_dashboard_data_includes_latest_signals(db_session, sqlite_engine) -> None:
+    c1 = Company(symbol="XYZ", name="XYZ Corp", is_active=True)
+    db_session.add(c1)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            SignalDaily(
+                company_id=c1.id,
+                date=date(2026, 5, 28),
+                sentiment_proxy_7d=0.1,
+                news_relevance_7d=0.5,
+                corr_nvda_60d=0.3,
+                corr_hyperscaler_60d=0.4,
+                earnings_sensitivity=0.01,
+                power_signal=0.02,
+                capex_signal=0.03,
+            ),
+            SignalDaily(
+                company_id=c1.id,
+                date=date(2026, 5, 29),
+                sentiment_proxy_7d=0.2,
+                news_relevance_7d=0.6,
+                corr_nvda_60d=0.5,
+                corr_hyperscaler_60d=0.6,
+                earnings_sensitivity=0.02,
+                power_signal=0.04,
+                capex_signal=0.06,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    data = load_dashboard_data_from_engine(sqlite_engine)
+    signals_df = data["latest_signals"]
+
+    assert not signals_df.empty
+    assert len(signals_df) == 1
+    row = signals_df.iloc[0]
+    assert row["symbol"] == "XYZ"
+    assert row["sentiment_proxy_7d"] == 0.2
+    assert row["news_relevance_7d"] == 0.6
+    assert row["corr_nvda_60d"] == 0.5
+    assert row["corr_hyperscaler_60d"] == 0.6
+    assert row["earnings_sensitivity"] == 0.02
+    assert row["power_signal"] == 0.04
+    assert row["capex_signal"] == 0.06
+

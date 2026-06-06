@@ -5,8 +5,22 @@ import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
 from argus.analytics.market_hours import filter_regular_market_hours
-from argus.core.models import Company, PriceBar, IndexValue
+from argus.core.models import (
+    Company,
+    CompanyThemeExposure,
+    IndexConstituent,
+    IndexDefinition,
+    IndexValue,
+    PriceBar,
+    Theme,
+)
 from argus.core.settings import settings
+
+DEFAULT_INDEX_NAME = "AI Infra Core Equal Weight"
+INDEX_MODE_EQUAL = "equal"
+INDEX_MODE_EXPOSURE = "exposure"
+INDEX_MODE_MANUAL = "manual"
+INDEX_MODES = {INDEX_MODE_EQUAL, INDEX_MODE_EXPOSURE, INDEX_MODE_MANUAL}
 
 
 def get_default_index_symbols(session: Session) -> list[str]:
@@ -21,29 +35,281 @@ def get_default_index_symbols(session: Session) -> list[str]:
     return [c.symbol for c in companies if c.symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS]
 
 
-def calculate_equal_weight_index(
+def _normalize_weights(raw_weights: dict[str, float]) -> dict[str, float]:
+    weights = {symbol: max(0.0, float(weight)) for symbol, weight in raw_weights.items()}
+    total = sum(weights.values())
+    if total <= 0:
+        return {}
+    return {symbol: weight / total for symbol, weight in weights.items() if weight > 0}
+
+
+def validate_manual_weights(weights: dict[str, float]) -> dict[str, float]:
+    """Validate manual weights supplied as fractions whose total must equal 1.0."""
+    if not weights:
+        raise ValueError("manual index definitions require at least one included company")
+
+    normalized_symbols = {symbol.strip().upper(): float(weight) for symbol, weight in weights.items()}
+    if any(weight < 0 for weight in normalized_symbols.values()):
+        raise ValueError("manual weights must be non-negative")
+
+    total = sum(normalized_symbols.values())
+    if abs(total - 1.0) > 0.000001:
+        raise ValueError("manual weights must total exactly 100%")
+
+    return {symbol: weight for symbol, weight in normalized_symbols.items() if weight > 0}
+
+
+def _default_constituent_weights(session: Session) -> dict[str, float]:
+    symbols = sorted(get_default_index_symbols(session))
+    if not symbols:
+        return {}
+    equal_weight = 1.0 / len(symbols)
+    return {symbol: equal_weight for symbol in symbols}
+
+
+def ensure_default_index_definition(session: Session) -> IndexDefinition:
+    """Create the default immutable definition shell and migrate legacy values."""
+    definition = (
+        session.query(IndexDefinition)
+        .filter(IndexDefinition.name == DEFAULT_INDEX_NAME)
+        .one_or_none()
+    )
+    dirty = False
+    if definition is None:
+        definition = IndexDefinition(
+            name=DEFAULT_INDEX_NAME,
+            mode=INDEX_MODE_EQUAL,
+            base_value=100.0,
+            is_active=True,
+        )
+        session.add(definition)
+        session.flush()
+        dirty = True
+
+    has_constituents = (
+        session.query(IndexConstituent)
+        .filter(IndexConstituent.index_definition_id == definition.id)
+        .first()
+        is not None
+    )
+    if not has_constituents:
+        for symbol, weight in _default_constituent_weights(session).items():
+            company = session.query(Company).filter(Company.symbol == symbol).one_or_none()
+            if company is not None:
+                session.add(
+                    IndexConstituent(
+                        index_definition_id=definition.id,
+                        company_id=company.id,
+                        target_weight=weight,
+                        is_included=True,
+                    )
+                )
+                dirty = True
+
+    updated_rows = session.query(IndexValue).filter(IndexValue.index_definition_id.is_(None)).update(
+        {IndexValue.index_definition_id: definition.id},
+        synchronize_session=False,
+    )
+    if updated_rows > 0:
+        dirty = True
+
+    if dirty:
+        session.commit()
+    else:
+        session.flush()
+    return definition
+
+
+def list_index_definitions(session: Session, active_only: bool = True) -> list[IndexDefinition]:
+    ensure_default_index_definition(session)
+    query = session.query(IndexDefinition)
+    if active_only:
+        query = query.filter(IndexDefinition.is_active.is_(True))
+    return query.order_by(IndexDefinition.created_at.asc(), IndexDefinition.name.asc()).all()
+
+
+def get_index_definition(session: Session, definition_id: int | None = None) -> IndexDefinition:
+    default_definition = ensure_default_index_definition(session)
+    if definition_id is None:
+        return default_definition
+
+    definition = session.get(IndexDefinition, definition_id)
+    if definition is None:
+        return default_definition
+    return definition
+
+
+def _included_constituents(session: Session, definition: IndexDefinition) -> list[tuple[Company, float]]:
+    rows = (
+        session.query(Company, IndexConstituent.target_weight)
+        .join(IndexConstituent, IndexConstituent.company_id == Company.id)
+        .filter(
+            IndexConstituent.index_definition_id == definition.id,
+            IndexConstituent.is_included.is_(True),
+            Company.is_active.is_(True),
+        )
+        .order_by(Company.symbol.asc())
+        .all()
+    )
+    return rows
+
+
+def get_index_weights(
     session: Session,
-    symbols: list[str] | None = None,
+    definition_id: int | None = None,
+) -> dict[str, float]:
+    definition = get_index_definition(session, definition_id)
+    rows = _included_constituents(session, definition)
+    symbols = [company.symbol for company, _target_weight in rows]
+    if not symbols:
+        return {}
+
+    if definition.mode == INDEX_MODE_EQUAL:
+        return {symbol: 1.0 / len(symbols) for symbol in symbols}
+
+    if definition.mode == INDEX_MODE_EXPOSURE:
+        exposure_rows = (
+            session.query(Company.symbol, CompanyThemeExposure.exposure_score)
+            .join(CompanyThemeExposure, CompanyThemeExposure.company_id == Company.id)
+            .filter(Company.symbol.in_(symbols))
+            .all()
+        )
+        raw_weights = {symbol: 0.0 for symbol in symbols}
+        for symbol, exposure_score in exposure_rows:
+            raw_weights[symbol] += max(0.0, float(exposure_score or 0.0))
+        normalized = _normalize_weights(raw_weights)
+        return normalized or {symbol: 1.0 / len(symbols) for symbol in symbols}
+
+    if definition.mode == INDEX_MODE_MANUAL:
+        return _normalize_weights({company.symbol: target_weight for company, target_weight in rows})
+
+    raise ValueError(f"unsupported index mode: {definition.mode}")
+
+
+def get_index_constituent_table(
+    session: Session,
+    definition_id: int | None = None,
+) -> pd.DataFrame:
+    definition = get_index_definition(session, definition_id)
+    weights = get_index_weights(session, definition.id)
+    rows = _included_constituents(session, definition)
+    records = []
+    for company, target_weight in rows:
+        records.append(
+            {
+                "company_id": company.id,
+                "symbol": company.symbol,
+                "name": company.name,
+                "sector": company.sector,
+                "mode": definition.mode,
+                "target_weight": float(target_weight or 0.0),
+                "effective_weight": weights.get(company.symbol, 0.0),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def create_index_definition(
+    session: Session,
+    name: str,
+    mode: str,
+    company_weights: dict[str, float] | None = None,
     base_value: float = 100.0,
+) -> IndexDefinition:
+    """Create an immutable index definition. Future edits should create another definition."""
+    mode = mode.strip().lower()
+    if mode not in INDEX_MODES:
+        raise ValueError(f"unsupported index mode: {mode}")
+
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("index name is required")
+    if session.query(IndexDefinition).filter(IndexDefinition.name == clean_name).one_or_none():
+        raise ValueError("index name already exists")
+
+    if company_weights is None:
+        company_weights = _default_constituent_weights(session)
+
+    if mode == INDEX_MODE_MANUAL:
+        company_weights = validate_manual_weights(company_weights)
+    else:
+        company_weights = _normalize_weights(company_weights)
+
+    if not company_weights:
+        raise ValueError("index definitions require at least one included company")
+
+    companies = (
+        session.query(Company)
+        .filter(Company.symbol.in_(sorted(company_weights)), Company.is_active.is_(True))
+        .all()
+    )
+    company_by_symbol = {company.symbol: company for company in companies}
+    missing = sorted(set(company_weights) - set(company_by_symbol))
+    if missing:
+        raise ValueError(f"unknown or inactive companies: {', '.join(missing)}")
+
+    definition = IndexDefinition(
+        name=clean_name,
+        mode=mode,
+        base_value=float(base_value),
+        is_active=True,
+    )
+    session.add(definition)
+    session.flush()
+    for symbol, weight in sorted(company_weights.items()):
+        session.add(
+            IndexConstituent(
+                index_definition_id=definition.id,
+                company_id=company_by_symbol[symbol].id,
+                target_weight=float(weight),
+                is_included=True,
+            )
+        )
+    session.flush()
+    return definition
+
+
+def clone_index_definition(
+    session: Session,
+    source_definition_id: int,
+    name: str,
+    mode: str | None = None,
+    company_weights: dict[str, float] | None = None,
+) -> IndexDefinition:
+    source = get_index_definition(session, source_definition_id)
+    if company_weights is None:
+        current = get_index_constituent_table(session, source.id)
+        company_weights = dict(zip(current["symbol"], current["target_weight"], strict=False))
+    return create_index_definition(
+        session,
+        name=name,
+        mode=mode or source.mode,
+        company_weights=company_weights,
+        base_value=source.base_value,
+    )
+
+
+def calculate_weighted_index(
+    session: Session,
+    definition_id: int | None = None,
+    base_value: float | None = None,
     use_precomputed: bool = True,
     interval: str = "1d",
 ) -> pd.DataFrame:
-    """
-    Build an equal-weight index. If symbols is None and the pre-calculated
-    index_values table has data, we load it directly from the database for speed.
-    Otherwise, we calculate it dynamically from price_bars.
-    """
+    definition = get_index_definition(session, definition_id)
     interval = interval.strip().lower()
     if interval not in {"1d", "15m"}:
-        raise ValueError("calculate_equal_weight_index supports interval='1d' or interval='15m'")
+        raise ValueError("calculate_weighted_index supports interval='1d' or interval='15m'")
 
     if interval == "15m":
         use_precomputed = False
 
-    if symbols is None and use_precomputed:
+    if use_precomputed:
         try:
-            query = session.query(IndexValue.date, IndexValue.index_value).order_by(
-                IndexValue.date.asc()
+            query = (
+                session.query(IndexValue.date, IndexValue.index_value)
+                .filter(IndexValue.index_definition_id == definition.id)
+                .order_by(IndexValue.date.asc())
             )
             df_pre = pd.read_sql_query(query.statement, session.connection())
             if not df_pre.empty:
@@ -57,8 +323,81 @@ def calculate_equal_weight_index(
                 "Could not read pre-calculated index_values: %s", exc
             )
 
+    weights = get_index_weights(session, definition.id)
+    if not weights:
+        return pd.DataFrame(columns=["date", "index_value"])
+
+    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
+    query = (
+        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
+        .join(Company, Company.id == PriceBar.company_id)
+        .filter(
+            Company.symbol.in_(list(weights)),
+            PriceBar.provider == settings.market_data_provider,
+            PriceBar.interval == interval,
+        )
+        .order_by(point_column.asc())
+    )
+    df = pd.read_sql_query(query.statement, session.connection())
+
+    if df.empty:
+        return pd.DataFrame(columns=["date", "index_value"])
+
+    df["date"] = pd.to_datetime(df["date"])
+    if interval == "15m":
+        df = filter_regular_market_hours(df)
+        if df.empty:
+            return pd.DataFrame(columns=["date", "index_value"])
+
+    pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
+    pivot_df = pivot_df.sort_index().astype(float)
+    if interval == "15m":
+        pivot_df = pivot_df.ffill(limit=4)
+
+    returns_df = pivot_df.pct_change(fill_method=None)
+    weight_series = pd.Series(weights, dtype=float)
+    aligned_weights = weight_series.reindex(returns_df.columns).fillna(0.0)
+    valid_returns = returns_df.notna()
+    active_weight_total = valid_returns.multiply(aligned_weights, axis=1).sum(axis=1)
+    weighted_return_sum = returns_df.fillna(0.0).multiply(aligned_weights, axis=1).sum(axis=1)
+    weighted_returns = weighted_return_sum.divide(active_weight_total.where(active_weight_total > 0))
+    weighted_returns = weighted_returns.fillna(0.0)
+
+    index_base_value = float(base_value if base_value is not None else definition.base_value)
+    index_values = index_base_value * (1.0 + weighted_returns).cumprod()
+    result = index_values.reset_index()
+    result.columns = ["date", "index_value"]
+    if interval == "1d":
+        result["date"] = result["date"].dt.date
+    return result
+
+
+def calculate_equal_weight_index(
+    session: Session,
+    symbols: list[str] | None = None,
+    base_value: float = 100.0,
+    use_precomputed: bool = True,
+    interval: str = "1d",
+) -> pd.DataFrame:
+    """
+    Build an equal-weight index. If symbols is None and the pre-calculated
+    index_values table has data, we load it directly from the database for speed.
+    Otherwise, we calculate it dynamically from price_bars.
+    """
     if symbols is None:
-        symbols = get_default_index_symbols(session)
+        return calculate_weighted_index(
+            session,
+            base_value=base_value,
+            use_precomputed=use_precomputed,
+            interval=interval,
+        )
+
+    interval = interval.strip().lower()
+    if interval not in {"1d", "15m"}:
+        raise ValueError("calculate_equal_weight_index supports interval='1d' or interval='15m'")
+
+    if interval == "15m":
+        use_precomputed = False
 
     if not symbols:
         return pd.DataFrame(columns=["date", "index_value"])
@@ -204,6 +543,7 @@ def calculate_top_contributors(
     symbols: list[str],
     start_date: date,
     end_date: date,
+    weights: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """
     Calculate performance and index contribution for each constituent.
@@ -232,10 +572,17 @@ def calculate_top_contributors(
     if df.empty:
         return pd.DataFrame(columns=["symbol", "name", "return", "contribution"])
 
-    active_symbols = df["symbol"].unique()
+    active_symbols = sorted(df["symbol"].unique())
     n_constituents = len(active_symbols)
     if n_constituents == 0:
         return pd.DataFrame(columns=["symbol", "name", "return", "contribution"])
+
+    if weights is None:
+        active_weights = {symbol: 1.0 / n_constituents for symbol in active_symbols}
+    else:
+        active_weights = _normalize_weights(
+            {symbol: weights.get(symbol, 0.0) for symbol in active_symbols}
+        )
 
     comp_names = {
         c.symbol: c.name
@@ -259,7 +606,7 @@ def calculate_top_contributors(
         else:
             continue
 
-        contrib = ret / n_constituents
+        contrib = ret * active_weights.get(sym, 0.0)
         records.append(
             {
                 "symbol": sym,
@@ -273,3 +620,59 @@ def calculate_top_contributors(
     if not res_df.empty:
         res_df = res_df.sort_values("contribution", ascending=False)
     return res_df
+
+
+def calculate_top_contributors_for_definition(
+    session: Session,
+    definition_id: int | None,
+    start_date: date,
+    end_date: date,
+) -> pd.DataFrame:
+    weights = get_index_weights(session, definition_id)
+    return calculate_top_contributors(
+        session,
+        symbols=list(weights),
+        start_date=start_date,
+        end_date=end_date,
+        weights=weights,
+    )
+
+
+def calculate_theme_concentration(
+    session: Session,
+    definition_id: int | None = None,
+) -> pd.DataFrame:
+    definition = get_index_definition(session, definition_id)
+    weights = get_index_weights(session, definition.id)
+    if not weights:
+        return pd.DataFrame(columns=["theme", "weight"])
+
+    rows = (
+        session.query(Company.symbol, Theme.name, CompanyThemeExposure.exposure_score)
+        .join(CompanyThemeExposure, CompanyThemeExposure.company_id == Company.id)
+        .join(Theme, Theme.id == CompanyThemeExposure.theme_id)
+        .filter(Company.symbol.in_(list(weights)))
+        .all()
+    )
+    by_symbol: dict[str, list[tuple[str, float]]] = {}
+    for symbol, theme_name, exposure_score in rows:
+        score = max(0.0, float(exposure_score or 0.0))
+        if score <= 0:
+            continue
+        by_symbol.setdefault(symbol, []).append((theme_name, score))
+
+    concentration: dict[str, float] = {}
+    for symbol, company_weight in weights.items():
+        exposures = by_symbol.get(symbol)
+        if not exposures:
+            concentration["Unclassified"] = concentration.get("Unclassified", 0.0) + company_weight
+            continue
+        exposure_total = sum(score for _theme_name, score in exposures)
+        for theme_name, score in exposures:
+            concentration[theme_name] = concentration.get(theme_name, 0.0) + (
+                company_weight * score / exposure_total
+            )
+
+    return pd.DataFrame(
+        [{"theme": theme, "weight": weight} for theme, weight in concentration.items()]
+    ).sort_values("weight", ascending=False)

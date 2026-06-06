@@ -6,9 +6,13 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, PriceBar, JobRun, IndexValue
+from argus.core.models import Company, PriceBar, JobRun, IndexDefinition, IndexValue
 from argus.pipelines.refresh_index import refresh_index
-from argus.analytics.index_builder import calculate_equal_weight_index
+from argus.analytics.index_builder import (
+    INDEX_MODE_MANUAL,
+    calculate_equal_weight_index,
+    create_index_definition,
+)
 
 
 def _seed_prices(session: Session, company_id: int, start_date: date, prices: list[float]) -> None:
@@ -340,3 +344,46 @@ def test_calculate_intraday_relative_performance_uses_intraday_benchmarks(
     assert rel_df["index_ret"].tolist() == pytest.approx([0.0, 1.0])
     assert rel_df["qqq_ret"].tolist() == pytest.approx([0.0, 2.0])
     assert rel_df["nvda_ret"].tolist() == pytest.approx([0.0, -1.0])
+
+
+def test_refresh_index_persists_values_for_selected_definition(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    from argus.core import db as db_module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        company_a = Company(symbol="AAA", name="AAA", is_active=True)
+        company_b = Company(symbol="BBB", name="BBB", is_active=True)
+        session.add_all([company_a, company_b])
+        session.flush()
+        start_date = date(2026, 6, 1)
+        _seed_prices(session, company_a.id, start_date, [100.0, 110.0])
+        _seed_prices(session, company_b.id, start_date, [100.0, 120.0])
+        definition = create_index_definition(
+            session,
+            name="Manual Refresh",
+            mode=INDEX_MODE_MANUAL,
+            company_weights={"AAA": 0.25, "BBB": 0.75},
+        )
+        definition_id = definition.id
+
+    result = refresh_index(index_definition_id=definition_id)
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        definition = session.query(IndexDefinition).filter_by(name="Manual Refresh").one()
+        values = (
+            session.query(IndexValue)
+            .filter(IndexValue.index_definition_id == definition.id)
+            .order_by(IndexValue.date.asc())
+            .all()
+        )
+        assert len(values) == 2
+        assert values[-1].index_value == pytest.approx(117.5)

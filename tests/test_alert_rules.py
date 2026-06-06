@@ -5,10 +5,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from argus.core import models  # noqa: F401
-from argus.core.db import Base, create_database_engine
 from argus.core.models import (
     Alert,
     AlertEvent,
@@ -755,8 +754,6 @@ class TestDeduplication:
         sample_price_bar,
         monkeypatch,
     ):
-        from argus.core import db as db_module
-
         alert = _make_alert(alert_session, sample_company, "price_below", {"threshold": 90.0})
         dedupe_key = f"alert:{alert.id}:company:{sample_company.id}:date:{sample_price_bar.date.isoformat()}"
         alert_session.add(

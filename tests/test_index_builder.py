@@ -2,12 +2,19 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
-from argus.core.models import Company, PriceBar
+from argus.core.models import Company, CompanyThemeExposure, IndexDefinition, PriceBar, Theme
 from argus.analytics.index_builder import (
+    INDEX_MODE_EXPOSURE,
+    INDEX_MODE_MANUAL,
     get_default_index_symbols,
     calculate_equal_weight_index,
     calculate_relative_performance,
     calculate_top_contributors,
+    calculate_theme_concentration,
+    calculate_weighted_index,
+    create_index_definition,
+    get_index_weights,
+    validate_manual_weights,
 )
 
 
@@ -376,3 +383,118 @@ def test_calculate_equal_weight_index_weight_normalization_gaps(db_session: Sess
     # Average return = 10% / 3 = 3.333%
     # Index = 110 * (1 + 0.10/3) = 113.6667
     assert index_df.iloc[3]["index_value"] == pytest.approx(110.0 * (1.0 + 0.10 / 3.0))
+
+
+def test_exposure_weight_index_uses_theme_scores(db_session: Session) -> None:
+    start_date = date(2026, 5, 1)
+    company_a = Company(symbol="A", name="A", is_active=True)
+    company_b = Company(symbol="B", name="B", is_active=True)
+    theme = Theme(code="power", name="Power")
+    db_session.add_all([company_a, company_b, theme])
+    db_session.flush()
+    db_session.add_all(
+        [
+            CompanyThemeExposure(
+                company_id=company_a.id,
+                theme_id=theme.id,
+                exposure_score=3.0,
+            ),
+            CompanyThemeExposure(
+                company_id=company_b.id,
+                theme_id=theme.id,
+                exposure_score=1.0,
+            ),
+        ]
+    )
+    _seed_prices(db_session, company_a.id, start_date, [100.0, 110.0])
+    _seed_prices(db_session, company_b.id, start_date, [100.0, 120.0])
+    create_index_definition(
+        db_session,
+        name="Exposure Test",
+        mode=INDEX_MODE_EXPOSURE,
+        company_weights={"A": 1.0, "B": 1.0},
+    )
+    db_session.flush()
+    definition = db_session.query(IndexDefinition).filter_by(name="Exposure Test").one()
+
+    weights = get_index_weights(db_session, definition.id)
+    index_df = calculate_weighted_index(
+        db_session,
+        definition_id=definition.id,
+        use_precomputed=False,
+    )
+
+    assert weights == pytest.approx({"A": 0.75, "B": 0.25})
+    assert index_df.iloc[1]["index_value"] == pytest.approx(112.5)
+
+
+def test_manual_weight_validation_and_index(db_session: Session) -> None:
+    start_date = date(2026, 5, 1)
+    company_a = Company(symbol="A", name="A", is_active=True)
+    company_b = Company(symbol="B", name="B", is_active=True)
+    db_session.add_all([company_a, company_b])
+    db_session.flush()
+    _seed_prices(db_session, company_a.id, start_date, [100.0, 110.0])
+    _seed_prices(db_session, company_b.id, start_date, [100.0, 120.0])
+
+    with pytest.raises(ValueError, match="100%"):
+        validate_manual_weights({"A": 0.6, "B": 0.3})
+    with pytest.raises(ValueError, match="non-negative"):
+        validate_manual_weights({"A": 1.1, "B": -0.1})
+
+    definition = create_index_definition(
+        db_session,
+        name="Manual Test",
+        mode=INDEX_MODE_MANUAL,
+        company_weights={"A": 0.6, "B": 0.4},
+    )
+    index_df = calculate_weighted_index(
+        db_session,
+        definition_id=definition.id,
+        use_precomputed=False,
+    )
+
+    assert get_index_weights(db_session, definition.id) == pytest.approx({"A": 0.6, "B": 0.4})
+    assert index_df.iloc[1]["index_value"] == pytest.approx(114.0)
+
+
+def test_theme_concentration_allocates_weight_by_exposure(db_session: Session) -> None:
+    company = Company(symbol="A", name="A", is_active=True)
+    power = Theme(code="power", name="Power")
+    cooling = Theme(code="cooling", name="Cooling")
+    db_session.add_all([company, power, cooling])
+    db_session.flush()
+    db_session.add_all(
+        [
+            CompanyThemeExposure(company_id=company.id, theme_id=power.id, exposure_score=3.0),
+            CompanyThemeExposure(company_id=company.id, theme_id=cooling.id, exposure_score=1.0),
+        ]
+    )
+    definition = create_index_definition(
+        db_session,
+        name="Theme Test",
+        mode=INDEX_MODE_MANUAL,
+        company_weights={"A": 1.0},
+    )
+
+    concentration = calculate_theme_concentration(db_session, definition.id)
+    by_theme = dict(zip(concentration["theme"], concentration["weight"], strict=False))
+
+    assert by_theme["Power"] == pytest.approx(0.75)
+    assert by_theme["Cooling"] == pytest.approx(0.25)
+
+
+def test_ensure_default_index_definition_commits_when_dirty(db_session: Session) -> None:
+    from argus.analytics.index_builder import ensure_default_index_definition, DEFAULT_INDEX_NAME
+    from argus.core.models import IndexDefinition, IndexConstituent
+
+    # Clean out any pre-existing default index definitions/constituents
+    db_session.query(IndexConstituent).delete()
+    db_session.query(IndexDefinition).filter_by(name=DEFAULT_INDEX_NAME).delete()
+    db_session.commit()
+
+    # Call it to trigger creation/commit
+    ensure_default_index_definition(db_session)
+
+    # Check it persisted
+    assert db_session.query(IndexDefinition).filter_by(name=DEFAULT_INDEX_NAME).count() == 1

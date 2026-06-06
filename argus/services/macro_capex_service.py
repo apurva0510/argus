@@ -18,7 +18,8 @@ def load_macro_capex_context_from_engine(engine: Engine) -> dict[str, object]:
                 SELECT series_code, observation_date, value
                 FROM macro_observations
                 WHERE series_code IN (
-                    'DGS10', 'DGS30', 'DGS2', 'FEDFUNDS', 'CPIAUCSL', 'CPILFESL', 'PPIACO'
+                    'DGS10', 'DGS30', 'DGS2', 'FEDFUNDS', 'CPIAUCSL', 'CPILFESL', 'PPIACO',
+                    'EIA_ELEC_PRICE', 'EIA_ELEC_DEMAND'
                 )
                 ORDER BY observation_date ASC
                 """
@@ -59,6 +60,9 @@ def build_macro_capex_context(
     core_cpi_yoy = _yoy_change(macro, "CPILFESL")
     ppi_yoy = _yoy_change(macro, "PPIACO")
 
+    elec_price = _latest_observation(macro, "EIA_ELEC_PRICE")
+    elec_demand = _latest_observation(macro, "EIA_ELEC_DEMAND")
+
     latest_capex = _latest_capex_total(capex)
     pressure = _capex_pressure_label(
         dgs10_3m_bps=dgs10_3m_bps,
@@ -79,6 +83,10 @@ def build_macro_capex_context(
             "cpi_yoy": cpi_yoy,
             "core_cpi_yoy": core_cpi_yoy,
             "ppi_yoy": ppi_yoy,
+        },
+        "electricity": {
+            "price": elec_price,
+            "demand": elec_demand,
         },
         "capex": latest_capex,
         "pressure_label": pressure["label"],

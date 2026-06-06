@@ -120,6 +120,15 @@ def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
 def _upsert_observations(session, series_code: str, observations: pd.DataFrame, provider: str = "fred") -> int:
     if observations.empty:
         return 0
+
+    observations = (
+        observations[["observation_date", "value"]]
+        .dropna(subset=["observation_date", "value"])
+        .groupby("observation_date", as_index=False, sort=True)["value"]
+        .mean()
+    )
+    if observations.empty:
+        return 0
  
     values = [
         {

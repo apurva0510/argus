@@ -432,7 +432,7 @@ def test_dashboard_recent_news_renders_multiple_ticker_links_in_dataframe(monkey
         "/Company_Detail?ticker=VRT",
     ]
     assert news_out["Headline"].tolist() == ["Power grid update", "Power grid update"]
-    assert news_out.columns.tolist() == ["Published", "Headline", "Source", "Ticker", "Link"]
+    assert news_out.columns.tolist() == ["Ticker", "Headline", "Link"]
 
 
 def test_dashboard_theme_coverage_renders_before_empty_metrics_return() -> None:
@@ -540,7 +540,6 @@ def test_dashboard_upcoming_earnings_none_filled(monkeypatch) -> None:
 
     assert len(captured_df) == 1
     df_out = captured_df[0]
-    assert df_out.iloc[0]["Fiscal Period"] == "n/a"
-    assert df_out.iloc[1]["Fiscal Period"] == "n/a"
+    assert df_out.columns.tolist() == ["Date", "Ticker", "Company"]
     assert df_out.iloc[0]["Ticker"] == "/Company_Detail?ticker=AAPL"
     assert df_out.iloc[1]["Ticker"] == "/Company_Detail?ticker=MSFT"

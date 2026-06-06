@@ -124,7 +124,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
             .filter(AppSetting.key == "schema_version")
             .one()
         )
-        assert schema_version.value == "7"
+        assert schema_version.value == "8"
     test_engine.dispose()
 
 
@@ -167,7 +167,11 @@ def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_
     assert "index_definition_id" in columns
     with test_engine.connect() as conn:
         val = conn.execute(text("SELECT index_definition_id FROM index_values WHERE id = 1")).scalar_one()
-        assert val is None
+        definition_name = conn.execute(
+            text("SELECT name FROM index_definitions WHERE id = :definition_id"),
+            {"definition_id": val},
+        ).scalar_one()
+        assert definition_name == "AI Infra Core Equal Weight"
     test_engine.dispose()
 
 

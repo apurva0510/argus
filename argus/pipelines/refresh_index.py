@@ -5,9 +5,13 @@ from datetime import UTC, datetime
 from sqlalchemy import delete
 
 from argus.core.db import session_scope
-from argus.core.models import Company, JobRun, IndexValue, PriceBar
+from argus.core.models import Company, JobRun, IndexDefinition, IndexValue, PriceBar
 from argus.core.settings import settings
-from argus.analytics.index_builder import calculate_equal_weight_index, get_default_index_symbols
+from argus.analytics.index_builder import (
+    calculate_weighted_index,
+    ensure_default_index_definition,
+    get_index_weights,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +20,8 @@ def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def refresh_index() -> dict[str, object]:
-    """Calculate the AI Infra Core Index values and persist them to the database."""
+def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
+    """Calculate an index definition's values and persist them to the database."""
     with session_scope() as session:
         job = JobRun(job_name="refresh_index", started_at=_utc_now(), status="running")
         session.add(job)
@@ -31,7 +35,17 @@ def refresh_index() -> dict[str, object]:
 
     try:
         with session_scope() as session:
-            symbols = get_default_index_symbols(session)
+            default_definition = ensure_default_index_definition(session)
+            definition = (
+                session.get(IndexDefinition, index_definition_id)
+                if index_definition_id is not None
+                else default_definition
+            )
+            if definition is None:
+                raise ValueError(f"index definition {index_definition_id} not found")
+
+            weights = get_index_weights(session, definition.id)
+            symbols = list(weights)
             if symbols:
                 rows_read = (
                     session.query(PriceBar)
@@ -44,15 +58,22 @@ def refresh_index() -> dict[str, object]:
                     .count()
                 )
 
-            # 1. Calculate equal-weight index using historical price bars
-            df = calculate_equal_weight_index(session, symbols=symbols, use_precomputed=False)
+            # 1. Calculate weighted index using historical price bars
+            df = calculate_weighted_index(
+                session,
+                definition_id=definition.id,
+                use_precomputed=False,
+            )
             if not df.empty:
-                # 2. Clear existing pre-calculated index values to support historical updates/splits
-                session.execute(delete(IndexValue))
+                # 2. Clear this definition's values to support historical updates/splits
+                session.execute(
+                    delete(IndexValue).where(IndexValue.index_definition_id == definition.id)
+                )
 
                 # 3. Batch insert the new calculated time series
                 values = [
                     {
+                        "index_definition_id": definition.id,
                         "date": row["date"],
                         "index_value": float(row["index_value"]),
                     }
@@ -63,7 +84,11 @@ def refresh_index() -> dict[str, object]:
                     session.execute(IndexValue.__table__.insert(), values)
                     rows_written = len(values)
 
-            logger.info("Successfully refreshed %d index value rows", rows_written)
+            logger.info(
+                "Successfully refreshed %d index value rows for %s",
+                rows_written,
+                definition.name,
+            )
 
     except Exception as exc:
         status = "failed"

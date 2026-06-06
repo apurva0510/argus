@@ -54,6 +54,48 @@ def test_refresh_macro_success_and_idempotency(sqlite_engine, monkeypatch) -> No
         assert session.query(JobRun).filter(JobRun.job_name == "refresh_macro").count() == 2
 
 
+def test_refresh_macro_deduplicates_eia_observation_dates(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    from argus.core.settings import settings
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(settings, "eia_api_key", "test-key")
+
+    def fake_fetch_eia(_route: str, **_kwargs) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {"observation_date": date(2026, 1, 1), "value": 100.0},
+                {"observation_date": date(2026, 1, 1), "value": 104.0},
+                {"observation_date": date(2026, 1, 2), "value": 110.0},
+            ]
+        )
+
+    monkeypatch.setattr("argus.pipelines.refresh_macro.fetch_eia_series", fake_fetch_eia)
+
+    result = refresh_macro(series_codes=["EIA_ELEC_DEMAND"])
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 3
+    assert result["rows_written"] == 2
+
+    with db_module.session_scope() as session:
+        observations = (
+            session.query(MacroObservation)
+            .filter(MacroObservation.series_code == "EIA_ELEC_DEMAND")
+            .order_by(MacroObservation.observation_date)
+            .all()
+        )
+        assert len(observations) == 2
+        assert observations[0].observation_date == date(2026, 1, 1)
+        assert observations[0].value == 102.0
+        assert observations[1].observation_date == date(2026, 1, 2)
+        assert observations[1].value == 110.0
+
+
 def test_refresh_macro_records_partial_failure(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
 

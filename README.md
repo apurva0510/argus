@@ -335,3 +335,17 @@ The custom **AI Infra Core Index** is built to monitor the collective performanc
 * **Base Level**: Set to a base of 100.0. The chart on the Dashboard dynamically rebases the index level to 100 on the starting date of the selected timeframe for easy comparison.
 * **Dynamic Rebalancing / Missing History**: IPOs (e.g., `GEV` or `ALAB`) and companies with missing historical price bars are handled gracefully. The daily index return is the average of daily returns of only those constituents that have valid price data on both the current and the previous trading day. This average return is compounded daily.
 * **Exclusions**: Benchmark-only and large hyperscaler names (`QQQ`, `NVDA`, `MSFT`, `AMZN`, `GOOGL`, `META`), optional highly aggressive stocks (`ALAB`, `CRDO`), and Emerging Compute names such as Quantum Computing stocks are excluded from the AI Infra Core index calculation by default.
+
+---
+
+## 🧪 Custom Index Lab
+
+Argus includes an interactive **Index Lab** page (`app/pages/8_Index_Lab.py`) that allows users to define, backtest, and analyze custom index definitions:
+
+* **Weighting Modes**:
+  1. **Equal weight**: Distributes weights equally across all selected constituent tickers.
+  2. **Theme exposure weight**: Normalizes and scales constituent weights based on their manually assigned theme exposure scores.
+  3. **Manual weight**: Allows custom percentage weights for each constituent, validated to ensure they sum to exactly 100%.
+* **Historical Analysis**: Backtests custom definitions and renders interactive Plotly charts comparing their performance against QQQ and NVDA benchmarks across 1M, 3M, 6M, 1Y, and historical timeframes.
+* **Deep Dives**: Displays the constituent weights table, historical theme concentration breakdown, and top performance contributors over the past 90 days.
+

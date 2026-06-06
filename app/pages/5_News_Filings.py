@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from app.components.sidebar import render_sidebar_navigation
+from app.auth_links import company_detail_url
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 from argus.core.timezones import ET, to_et
@@ -79,8 +80,9 @@ def _ticker_badges(tickers_str: str | None) -> str:
         t_clean = t.strip()
         if t_clean:
             ticker = escape(t_clean, quote=True)
+            url = company_detail_url(t_clean)
             badges.append(
-                f'<a href="/Company_Detail?ticker={ticker}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 4px;">{ticker}</a>'
+                f'<a href="{url}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 4px;">{ticker}</a>'
             )
     return "".join(badges)
 
@@ -365,7 +367,8 @@ def render_page() -> None:
             form = _html(item["form"])
             filing_detail_url = _html(item["filing_detail_url"])
             primary_doc_url = _html(item["primary_doc_url"])
-            ticker_badge = f'<a href="/Company_Detail?ticker={ticker}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px;">{ticker}</a>'
+            url = company_detail_url(item["ticker"])
+            ticker_badge = f'<a href="{url}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px;">{ticker}</a>'
             raw_document_link = (
                 f'<a href="{primary_doc_url}" target="_blank" style="background: rgba(139, 148, 158, 0.15); color: #c9d1d9; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">Raw SEC Document</a>'
                 if primary_doc_url

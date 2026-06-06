@@ -74,6 +74,8 @@ def test_build_macro_capex_context_calculates_pressure_and_capex_yoy() -> None:
             {"series_code": "CPIAUCSL", "observation_date": date(2026, 4, 1), "value": 319.3},
             {"series_code": "PPIACO", "observation_date": date(2025, 4, 1), "value": 250.0},
             {"series_code": "PPIACO", "observation_date": date(2026, 4, 1), "value": 260.0},
+            {"series_code": "EIA_ELEC_PRICE", "observation_date": date(2026, 4, 1), "value": 16.2},
+            {"series_code": "EIA_ELEC_DEMAND", "observation_date": date(2026, 4, 1), "value": 380000.0},
         ]
     )
     capex = pd.DataFrame(
@@ -92,6 +94,8 @@ def test_build_macro_capex_context_calculates_pressure_and_capex_yoy() -> None:
     assert context["capex"]["latest_total"] == pytest.approx(36.0)
     assert context["capex"]["capex_yoy"] == pytest.approx(0.20)
     assert context["pressure_label"] == "High"
+    assert context["electricity"]["price"]["value"] == 16.2
+    assert context["electricity"]["demand"]["value"] == 380000.0
 
 
 def test_build_macro_capex_context_handles_empty_data() -> None:
@@ -101,6 +105,8 @@ def test_build_macro_capex_context_handles_empty_data() -> None:
     assert context["inflation"]["core_cpi_yoy"] is None
     assert context["capex"]["latest_total"] is None
     assert context["pressure_label"] == "Low"
+    assert context["electricity"]["price"] is None
+    assert context["electricity"]["demand"] is None
 
 
 def test_load_macro_capex_context_from_engine(sqlite_engine, monkeypatch) -> None:

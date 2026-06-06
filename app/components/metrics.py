@@ -31,9 +31,15 @@ def render_metric_card(label: str, value: float | None, is_percentage: bool = Tr
         padding: 16px 20px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+        height: 120px !important;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
     ">
-        <div style="color: #8b949e; font-size: 14px; font-weight: 500; margin-bottom: 8px;">{label}</div>
-        <div style="color: {color}; font-size: 28px; font-weight: 600; line-height: 1.2;">{value_str}</div>
+        <div style="color: #8b949e; font-size: 14px; font-weight: 500; line-height: 1.2;">{label}</div>
+        <div style="color: {color}; font-size: 26px; font-weight: 600; line-height: 1.2;">{value_str}</div>
     </div>
     """
 
@@ -54,8 +60,14 @@ def render_plain_metric_card(label: str, value: str | int | float | None, format
         padding: 16px 20px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+        height: 120px !important;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
     ">
-        <div style="color: #8b949e; font-size: 14px; font-weight: 500; margin-bottom: 8px;">{label}</div>
-        <div style="color: #f0f6fc; font-size: 28px; font-weight: 600; line-height: 1.2;">{val_display}</div>
+        <div style="color: #8b949e; font-size: 14px; font-weight: 500; line-height: 1.2;">{label}</div>
+        <div style="color: #f0f6fc; font-size: 26px; font-weight: 600; line-height: 1.2;">{val_display}</div>
     </div>
     """

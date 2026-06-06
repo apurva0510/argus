@@ -69,7 +69,8 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                         dm.return_1w,
                         dm.return_1m,
                         dm.rsi_14,
-                        dm.drawdown_52w
+                        dm.drawdown_52w,
+                        dm.opportunity_score
                     FROM daily_metrics dm
                     JOIN companies c ON c.id = dm.company_id
                     WHERE c.is_active = TRUE
@@ -251,9 +252,34 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             "alphavantage_available": bool(settings.alpha_vantage_api_key),
         }
 
+        latest_signals = pd.read_sql_query(
+            text(
+                """
+                SELECT
+                    c.symbol,
+                    sd.sentiment_proxy_7d,
+                    sd.news_relevance_7d,
+                    sd.corr_nvda_60d,
+                    sd.corr_hyperscaler_60d,
+                    sd.earnings_sensitivity,
+                    sd.power_signal,
+                    sd.capex_signal
+                FROM signal_daily sd
+                JOIN companies c ON c.id = sd.company_id
+                WHERE c.is_active = TRUE
+                    AND sd.date = (
+                        SELECT MAX(sd2.date)
+                        FROM signal_daily sd2
+                    )
+                """
+            ),
+            conn,
+        )
+
     return {
         "latest_dates": latest_dates.iloc[0].to_dict(),
         "latest_metrics": latest_metrics,
+        "latest_signals": latest_signals,
         "active_company_count": int(active_symbol_count),
         "index_constituent_count": int(index_constituent_count),
         "index_symbol_count": int(active_symbol_count),

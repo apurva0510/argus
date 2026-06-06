@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from argus.core import models  # noqa: F401
 from argus.core.db import Base
-from argus.core.models import AppSetting
+from argus.core.models import AppSetting, IndexDefinition, IndexValue
 
 
-CURRENT_SCHEMA_VERSION = "7"
+CURRENT_SCHEMA_VERSION = "8"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -25,6 +25,7 @@ def run_migrations(database_engine: Engine) -> None:
     Base.metadata.create_all(bind=database_engine)
     _migrate_price_bars_bar_time(database_engine)
     _migrate_index_values_for_definitions(database_engine)
+    _ensure_default_index_definition(database_engine)
     with Session(database_engine) as session:
         schema_version = (
             session.query(AppSetting)
@@ -188,6 +189,31 @@ def _migrate_postgres_index_values(database_engine: Engine) -> None:
                 """
             )
         )
+
+
+def _ensure_default_index_definition(database_engine: Engine) -> None:
+    from argus.analytics.index_builder import DEFAULT_INDEX_NAME, INDEX_MODE_EQUAL
+
+    with Session(database_engine) as session:
+        definition = (
+            session.query(IndexDefinition)
+            .filter(IndexDefinition.name == DEFAULT_INDEX_NAME)
+            .one_or_none()
+        )
+        if definition is None:
+            definition = IndexDefinition(
+                name=DEFAULT_INDEX_NAME,
+                mode=INDEX_MODE_EQUAL,
+                base_value=100.0,
+                is_active=True,
+            )
+            session.add(definition)
+            session.flush()
+        session.query(IndexValue).filter(IndexValue.index_definition_id.is_(None)).update(
+            {IndexValue.index_definition_id: definition.id},
+            synchronize_session=False,
+        )
+        session.commit()
 
 
 def _migrate_capex_observations_source_column(database_engine: Engine) -> None:

@@ -49,21 +49,42 @@ def load_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_index_relative_returns(start_date, interval: str = "1d") -> pd.DataFrame:
+def load_index_options() -> list[dict[str, object]]:
+    from argus.core.app_engine import create_migrated_database_engine
+    from argus.core.settings import settings
+    from sqlalchemy.orm import sessionmaker
+    from argus.analytics.index_builder import list_index_definitions
+
+    engine = create_migrated_database_engine(settings.database_url)
+    SessionLocal = sessionmaker(bind=engine)
+    with SessionLocal() as session:
+        return [
+            {"id": definition.id, "name": definition.name, "mode": definition.mode}
+            for definition in list_index_definitions(session)
+        ]
+
+
+@st.cache_data(ttl=300)
+def load_index_relative_returns(
+    start_date,
+    interval: str = "1d",
+    index_definition_id: int | None = None,
+) -> pd.DataFrame:
     from argus.core.app_engine import create_migrated_database_engine
     from argus.core.settings import settings
     from sqlalchemy.orm import sessionmaker
     from argus.analytics.index_builder import (
-        calculate_equal_weight_index,
         calculate_relative_performance,
+        calculate_weighted_index,
     )
 
     engine = create_migrated_database_engine(settings.database_url)
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
         interval = interval.strip().lower()
-        index_df = calculate_equal_weight_index(
+        index_df = calculate_weighted_index(
             session,
+            definition_id=index_definition_id,
             interval=interval,
             use_precomputed=interval == "1d",
         )
@@ -174,6 +195,7 @@ def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) 
 
     # dates are already in US Eastern Time (New York) naive format
     dates_ny = pd.to_datetime(df["date"])
+    tick_value_column = "date_label" if "date_label" in df.columns else "date"
 
     tickvals = []
     ticktext = []
@@ -183,14 +205,14 @@ def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) 
             time_str = dt.strftime("%I:%M %p")
             # Show tick at start, 11:00 AM, 01:00 PM, 03:00 PM, and end of session
             if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates_ny) - 1:
-                tickvals.append(df.iloc[i]["date"])
+                tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(time_str)
     elif tf == "5D":
         last_date = None
         for i, dt in enumerate(dates_ny):
             day_str = dt.strftime("%b %d")
             if last_date != day_str:
-                tickvals.append(df.iloc[i]["date"])
+                tickvals.append(df.iloc[i][tick_value_column])
                 ticktext.append(day_str)
                 last_date = day_str
                 
@@ -374,11 +396,19 @@ def render_company_detail() -> None:
                 if df_filtered.empty:
                     st.info("No regular-market price history available for this timeframe.")
                 else:
+                    x_column = "date"
+                    if interval == "15m":
+                        df_filtered = df_filtered.copy()
+                        df_filtered["date_label"] = pd.to_datetime(df_filtered["date"]).dt.strftime(
+                            "%b %d, %Y %I:%M %p ET"
+                        )
+                        x_column = "date_label"
+
                     # Plotly Chart
                     fig = go.Figure()
                     fig.add_trace(
                         go.Scatter(
-                            x=df_filtered["date"],
+                            x=df_filtered[x_column],
                             y=df_filtered["adj_close"],
                             name="Adj Close",
                             line=dict(color="#1f77b4", width=2.5),
@@ -407,7 +437,7 @@ def render_company_detail() -> None:
 
                     fig.update_layout(
                         title=f"{company['symbol']} {'Intraday' if interval == '15m' else 'Historical'} Price",
-                        xaxis_title="Market Time" if interval == "15m" else "Date",
+                        xaxis_title="Market Time (ET)" if interval == "15m" else "Date",
                         yaxis_title="Price ($)",
                         template="plotly_white",
                         margin=dict(l=40, r=40, t=40, b=40),
@@ -467,10 +497,35 @@ def render_company_detail() -> None:
                 if rel_df.empty:
                     st.info("No overlapping data found for this timeframe.")
                 else:
+                    x_column = "date"
+                    if interval == "15m":
+                        rel_df = rel_df.copy()
+                        rel_df["date_label"] = pd.to_datetime(rel_df["date"]).dt.strftime(
+                            "%b %d, %Y %I:%M %p ET"
+                        )
+                        x_column = "date_label"
+
+                    index_options = load_index_options()
+                    selected_index_id = None
+                    selected_index_name = "AI Infra Core Index"
+                    if index_options:
+                        selected_index_name = st.selectbox(
+                            "Index Comparison",
+                            [str(option["name"]) for option in index_options],
+                            index=0,
+                            key="detail_index_selectbox",
+                        )
+                        selected_index = next(
+                            option
+                            for option in index_options
+                            if option["name"] == selected_index_name
+                        )
+                        selected_index_id = int(selected_index["id"])
+
                     fig_rel = go.Figure()
                     fig_rel.add_trace(
                         go.Scatter(
-                            x=rel_df["date"],
+                            x=rel_df[x_column],
                             y=rel_df["comp_ret"],
                             name=company["symbol"],
                             line=dict(color="#1f77b4", width=2.5),
@@ -479,7 +534,7 @@ def render_company_detail() -> None:
                     if "qqq_ret" in rel_df:
                         fig_rel.add_trace(
                             go.Scatter(
-                                x=rel_df["date"],
+                                x=rel_df[x_column],
                                 y=rel_df["qqq_ret"],
                                 name="QQQ (Benchmark)",
                                 line=dict(color="#2ca02c", width=1.5, dash="dot"),
@@ -488,7 +543,7 @@ def render_company_detail() -> None:
                     if "nvda_ret" in rel_df:
                         fig_rel.add_trace(
                             go.Scatter(
-                                x=rel_df["date"],
+                                x=rel_df[x_column],
                                 y=rel_df["nvda_ret"],
                                 name="NVDA (Benchmark)",
                                 line=dict(color="#9467bd", width=1.5, dash="dot"),
@@ -496,7 +551,11 @@ def render_company_detail() -> None:
                         )
 
                     # Real AI Infra Core Index
-                    idx_rel = load_index_relative_returns(start_date, interval).copy()
+                    idx_rel = load_index_relative_returns(
+                        start_date,
+                        interval,
+                        selected_index_id,
+                    ).copy()
                     if not idx_rel.empty and "index_ret" in idx_rel:
                         if interval == "15m":
                             dates = pd.to_datetime(idx_rel["date"])
@@ -505,18 +564,21 @@ def render_company_detail() -> None:
                             else:
                                 dates = dates.dt.tz_convert("UTC")
                             idx_rel["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
+                            idx_rel["date_label"] = pd.to_datetime(idx_rel["date"]).dt.strftime(
+                                "%b %d, %Y %I:%M %p ET"
+                            )
                         fig_rel.add_trace(
                             go.Scatter(
-                                x=idx_rel["date"],
+                                x=idx_rel[x_column] if interval == "15m" else idx_rel["date"],
                                 y=idx_rel["index_ret"],
-                                name="AI Infra Core Index",
+                                name=selected_index_name,
                                 line=dict(color="#7f7f7f", width=2.0, dash="dash"),
                             )
                         )
 
                     fig_rel.update_layout(
                         title=f"Relative Cumulative Return vs Benchmarks (Start Date: {start_date})",
-                        xaxis_title="Market Time" if interval == "15m" else "Date",
+                        xaxis_title="Market Time (ET)" if interval == "15m" else "Date",
                         yaxis_title="Return (%)",
                         template="plotly_white",
                         margin=dict(l=40, r=40, t=40, b=40),
@@ -544,6 +606,7 @@ def render_company_detail() -> None:
             # Clear relevant Streamlit cache
             load_price_history.clear()
             load_index_relative_returns.clear()
+            load_index_options.clear()
             load_company_fundamentals.clear()
             load_company_news.clear()
             load_company_filings.clear()
@@ -576,6 +639,7 @@ def render_company_detail() -> None:
                 # Clear relevant Streamlit cache
                 load_price_history.clear()
                 load_index_relative_returns.clear()
+                load_index_options.clear()
                 load_company_fundamentals.clear()
                 load_company_news.clear()
                 load_company_filings.clear()
