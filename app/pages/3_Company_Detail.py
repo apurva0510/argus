@@ -235,6 +235,53 @@ def _filter_price_timeframe(df: pd.DataFrame, tf: str, interval: str) -> tuple[p
     return df_sorted[df_sorted["date"] >= start_date], start_date
 
 
+def _maybe_append_close_bar(
+    df_intraday: pd.DataFrame,
+    df_daily: pd.DataFrame,
+    tf: str,
+) -> pd.DataFrame:
+    """Append a synthetic 4:00 PM ET closing bar for the 1D view.
+
+    yfinance 15-minute data ends at 3:45 PM ET.  When the session is
+    complete (i.e. not today), we splice in the official daily adj_close
+    at 16:00 so the chart extends to market close.
+    """
+    if tf != "1D" or df_intraday.empty or df_daily.empty:
+        return df_intraday
+
+    from datetime import time as dt_time
+    from zoneinfo import ZoneInfo
+    _et = ZoneInfo("America/New_York")
+
+    last_bar = pd.to_datetime(df_intraday["date"].max())
+    # Only inject when the final 15m bar is at 3:45 PM (session complete)
+    if last_bar.time() != dt_time(15, 45):
+        return df_intraday
+
+    session_date = last_bar.date()
+
+    # Do not inject for a live/in-progress session (today in ET)
+    today_et = pd.Timestamp.now(tz=_et).date()
+    if session_date >= today_et:
+        return df_intraday
+
+    # Look up the daily close for that session date
+    df_daily_copy = df_daily.copy()
+    df_daily_copy["_date"] = pd.to_datetime(df_daily_copy["date"]).dt.date
+    match = df_daily_copy[df_daily_copy["_date"] == session_date]
+    if match.empty:
+        return df_intraday
+
+    close_price = float(match.iloc[-1]["adj_close"])
+    close_ts = pd.Timestamp(session_date.year, session_date.month, session_date.day, 16, 0)
+
+    close_row = {col: None for col in df_intraday.columns}
+    close_row["date"] = close_ts
+    close_row["adj_close"] = close_price
+
+    return pd.concat([df_intraday, pd.DataFrame([close_row])], ignore_index=True)
+
+
 def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) -> None:
     # Support old signature: apply_intraday_xaxis(fig, interval)
     if tf is None:
@@ -522,6 +569,10 @@ def render_company_detail() -> None:
                 if df_filtered.empty:
                     st.info("No regular-market price history available for this timeframe.")
                 else:
+                    # For 1D, append the official 4:00 PM closing bar if the session is complete
+                    if tf == "1D" and interval == "15m":
+                        df_filtered = _maybe_append_close_bar(df_filtered, df_daily_price, tf)
+
                     x_column = "date"
                     if interval == "15m":
                         df_filtered = df_filtered.copy()

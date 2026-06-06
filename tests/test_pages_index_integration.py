@@ -319,6 +319,67 @@ def test_company_detail_short_ranges_return_empty_when_all_rows_are_off_hours() 
     assert start_date is None
 
 
+def test_maybe_append_close_bar_injects_4pm_for_complete_session() -> None:
+    """Verify that a 4:00 PM closing bar is appended when the last 15m bar is 3:45 PM
+    and the session is in the past (not today)."""
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    # A clearly past session: Jan 3 2025 bars ending at 3:45 PM ET
+    intraday = pd.DataFrame(
+        {
+            "date": [
+                datetime(2025, 1, 3, 9, 30),
+                datetime(2025, 1, 3, 15, 45),
+            ],
+            "adj_close": [200.0, 210.0],
+            "volume": [100, 200],
+        }
+    )
+    daily = pd.DataFrame(
+        {
+            "date": [datetime(2025, 1, 3)],
+            "adj_close": [212.5],
+        }
+    )
+
+    result = detail_module._maybe_append_close_bar(intraday, daily, "1D")
+
+    assert len(result) == 3
+    last = result.iloc[-1]
+    assert pd.to_datetime(last["date"]) == pd.Timestamp("2025-01-03 16:00:00")
+    assert float(last["adj_close"]) == 212.5
+
+
+def test_maybe_append_close_bar_skips_when_session_still_live() -> None:
+    """No synthetic bar should be added for today's session (may still be trading)."""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+
+    today_et = _dt.datetime.now(ZoneInfo("America/New_York")).date()
+    intraday = pd.DataFrame(
+        {
+            "date": [
+                datetime(today_et.year, today_et.month, today_et.day, 9, 30),
+                datetime(today_et.year, today_et.month, today_et.day, 15, 45),
+            ],
+            "adj_close": [200.0, 210.0],
+        }
+    )
+    daily = pd.DataFrame(
+        {
+            "date": [datetime(today_et.year, today_et.month, today_et.day)],
+            "adj_close": [212.5],
+        }
+    )
+
+    result = detail_module._maybe_append_close_bar(intraday, daily, "1D")
+
+    # Should be unchanged — today's session might still be live
+    assert len(result) == 2
+
+
 def test_intraday_chart_helpers_compress_non_market_time() -> None:
     dashboard_module = importlib.import_module("app.pages.1_Dashboard")
     detail_module = importlib.import_module("app.pages.3_Company_Detail")
