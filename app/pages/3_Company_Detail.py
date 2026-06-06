@@ -90,7 +90,20 @@ def load_index_relative_returns(
         )
         if index_df.empty:
             return pd.DataFrame()
-        rel_df = calculate_relative_performance(session, index_df, start_date, interval=interval)
+
+        # Convert start_date from America/New_York naive datetime to UTC naive datetime for comparison in SQL/Pandas
+        if interval == "15m" and start_date is not None:
+            start_date_utc = (
+                pd.to_datetime(start_date)
+                .tz_localize("America/New_York")
+                .tz_convert("UTC")
+                .tz_localize(None)
+                .to_pydatetime()
+            )
+        else:
+            start_date_utc = start_date
+
+        rel_df = calculate_relative_performance(session, index_df, start_date_utc, interval=interval)
         return rel_df
 
 
@@ -564,17 +577,25 @@ def render_company_detail() -> None:
                             else:
                                 dates = dates.dt.tz_convert("UTC")
                             idx_rel["date"] = dates.dt.tz_convert("America/New_York").dt.tz_localize(None)
-                            idx_rel["date_label"] = pd.to_datetime(idx_rel["date"]).dt.strftime(
-                                "%b %d, %Y %I:%M %p ET"
-                            )
-                        fig_rel.add_trace(
-                            go.Scatter(
-                                x=idx_rel[x_column] if interval == "15m" else idx_rel["date"],
-                                y=idx_rel["index_ret"],
-                                name=selected_index_name,
-                                line=dict(color="#7f7f7f", width=2.0, dash="dash"),
-                            )
+
+                        # Merge onto rel_df to align timestamps perfectly
+                        aligned_idx = pd.merge(
+                            rel_df[["date"]],
+                            idx_rel[["date", "index_ret"]],
+                            on="date",
+                            how="left",
                         )
+                        aligned_idx["index_ret"] = aligned_idx["index_ret"].ffill()
+
+                        if not aligned_idx["index_ret"].isna().all():
+                            fig_rel.add_trace(
+                                go.Scatter(
+                                    x=rel_df[x_column],
+                                    y=aligned_idx["index_ret"],
+                                    name=selected_index_name,
+                                    line=dict(color="#7f7f7f", width=2.0, dash="dash"),
+                                )
+                            )
 
                     fig_rel.update_layout(
                         title=f"Relative Cumulative Return vs Benchmarks (Start Date: {start_date})",

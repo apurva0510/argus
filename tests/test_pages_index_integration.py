@@ -543,3 +543,42 @@ def test_dashboard_upcoming_earnings_none_filled(monkeypatch) -> None:
     assert df_out.columns.tolist() == ["Date", "Ticker", "Company"]
     assert df_out.iloc[0]["Ticker"] == "/Company_Detail?ticker=AAPL"
     assert df_out.iloc[1]["Ticker"] == "/Company_Detail?ticker=MSFT"
+
+
+def test_company_detail_load_index_relative_returns_intraday(
+    sqlite_engine,
+    monkeypatch,
+    db_session: Session,
+) -> None:
+    import importlib
+    c1 = Company(symbol="A", name="A", is_active=True, is_benchmark=False)
+    c2 = Company(symbol="B", name="B", is_active=True, is_benchmark=False)
+    c_qqq = Company(symbol="QQQ", name="QQQ", is_active=True, is_benchmark=True)
+    db_session.add_all([c1, c2, c_qqq])
+    db_session.flush()
+
+    # Seed some intraday prices (9:30 AM to 4:00 PM Eastern, 14:00:00 UTC is 10:00:00 AM EDT)
+    start_time = datetime(2026, 6, 4, 14, 0)
+    _seed_intraday_prices(db_session, c1.id, start_time, [10.0, 10.5, 11.0])
+    _seed_intraday_prices(db_session, c2.id, start_time, [20.0, 21.0, 22.0])
+    _seed_intraday_prices(db_session, c_qqq.id, start_time, [100.0, 101.0, 102.0])
+    db_session.commit()
+
+    monkeypatch.setattr("argus.core.settings.settings.database_url", str(sqlite_engine.url))
+
+    detail_module = importlib.import_module("app.pages.3_Company_Detail")
+    load_index_relative_returns = detail_module.load_index_relative_returns
+    load_index_relative_returns.clear()
+
+    # start_time is UTC 14:00:00, which corresponds to 10:00:00 AM NY time (EDT)
+    start_date_ny = datetime(2026, 6, 4, 10, 0)
+
+    rel_returns = load_index_relative_returns(start_date_ny, interval="15m")
+
+    assert not rel_returns.empty
+    assert "index_ret" in rel_returns
+    # Since start_date is mapped correctly, index return starts at 0.0
+    assert rel_returns.iloc[0]["index_ret"] == pytest.approx(0.0)
+    assert rel_returns.iloc[1]["index_ret"] == pytest.approx(5.0)
+    assert rel_returns.iloc[2]["index_ret"] == pytest.approx(10.0)
+
