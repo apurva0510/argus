@@ -214,33 +214,192 @@ def render_page() -> None:
         else:
             st.success("✅ All core datasets are fresh (updated within the last 3 days).")
 
+        # Prepare display values
+        price_display = "N/A"
+        if not health_data["latest_prices"].empty:
+            row = health_data["latest_prices"].iloc[0]
+            is_dt = row.get("interval") == "15m"
+            price_display = _format_freshness_val(row["val"], is_datetime=is_dt)
+
+        news_display = "N/A"
+        if not health_data["latest_news"].empty:
+            news_display = _format_freshness_val(health_data["latest_news"].at[0, "val"], is_datetime=True)
+
+        metrics_display = _format_freshness_val(metrics_val, is_datetime=False)
+
+        filings_display = "N/A"
+        if not health_data["latest_filings"].empty:
+            row = health_data["latest_filings"].iloc[0]
+            is_dt = bool(row.get("has_time"))
+            filings_display = _format_freshness_val(row["val"], is_datetime=is_dt)
+
+        signals_display = _format_freshness_val(signals_val, is_datetime=False)
+        macro_display = _format_freshness_val(macro_val, is_datetime=False)
+
+        # Compute individual statuses based on the 3-day freshness threshold
+        price_status = "stale" if price_date is None or price_date < stale_threshold else "fresh"
+        metrics_status = "stale" if metrics_date is None or metrics_date < stale_threshold else "fresh"
+        signals_status = "stale" if signals_date is None or signals_date < stale_threshold else "fresh"
+        news_status = "stale" if news_date is None or news_date < stale_threshold else "fresh"
+        filings_status = "stale" if filings_date is None or filings_date < stale_threshold else "fresh"
+        macro_status = "stale" if macro_date is None or macro_date < stale_threshold else "fresh"
+
+        def _render_card_html(title: str, display_val: str, status: str) -> str:
+            if not display_val or display_val == "N/A":
+                value_html = '<span class="freshness-val-na">N/A</span>'
+            else:
+                parts = display_val.split(" ", 1)
+                if len(parts) == 2:
+                    date_part, time_part = parts
+                    value_html = f'<span class="freshness-val-date">{date_part}</span><span class="freshness-val-time">{time_part}</span>'
+                else:
+                    value_html = f'<span class="freshness-val-date">{display_val}</span>'
+
+            status_label = "Fresh" if status == "fresh" else "Stale"
+            return f"""
+            <div class="freshness-card {status}">
+                <div class="freshness-card-header">
+                    <span class="freshness-title">{title}</span>
+                    <span class="status-indicator {status}">
+                        <span class="status-dot"></span>
+                        {status_label}
+                    </span>
+                </div>
+                <div class="freshness-value">
+                    {value_html}
+                </div>
+            </div>
+            """
+
         st.divider()
         st.subheader("Freshness Summary")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            price_display = "N/A"
-            if not health_data["latest_prices"].empty:
-                row = health_data["latest_prices"].iloc[0]
-                is_dt = row.get("interval") == "15m"
-                price_display = _format_freshness_val(row["val"], is_datetime=is_dt)
-            st.metric("Latest Prices", price_display)
 
-            news_display = "N/A"
-            if not health_data["latest_news"].empty:
-                news_display = _format_freshness_val(health_data["latest_news"].at[0, "val"], is_datetime=True)
-            st.metric("Latest News", news_display)
-        with col2:
-            st.metric("Latest Metrics", _format_freshness_val(metrics_val, is_datetime=False))
+        # Inject custom CSS for freshness cards grid
+        st.markdown(
+            """
+            <style>
+            .freshness-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+                margin-top: 12px;
+                margin-bottom: 20px;
+            }
+            .freshness-card {
+                background: linear-gradient(135deg, rgba(22, 27, 34, 0.4) 0%, rgba(17, 22, 29, 0.5) 100%);
+                border: 1px solid rgba(240, 246, 252, 0.1);
+                border-radius: 10px;
+                padding: 14px 16px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+            }
+            .freshness-card:hover {
+                border-color: rgba(56, 139, 253, 0.4);
+                transform: translateY(-2px);
+                box-shadow: 0 6px 16px rgba(56, 139, 253, 0.1);
+            }
+            .freshness-card.stale:hover {
+                border-color: rgba(248, 81, 73, 0.4);
+                box-shadow: 0 6px 16px rgba(248, 81, 73, 0.1);
+            }
+            .freshness-card-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+            .freshness-title {
+                font-size: 11px;
+                color: #8b949e;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+            }
+            .status-indicator {
+                display: inline-flex;
+                align-items: center;
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 2px 8px;
+                border-radius: 12px;
+            }
+            .status-indicator.fresh {
+                color: #3fb950;
+                background: rgba(46, 160, 67, 0.12);
+                border: 1px solid rgba(46, 160, 67, 0.2);
+            }
+            .status-indicator.stale {
+                color: #f85149;
+                background: rgba(248, 81, 73, 0.12);
+                border: 1px solid rgba(248, 81, 73, 0.2);
+            }
+            .status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                margin-right: 5px;
+                display: inline-block;
+            }
+            .status-indicator.fresh .status-dot {
+                background-color: #3fb950;
+                box-shadow: 0 0 6px rgba(46, 160, 67, 0.8);
+            }
+            .status-indicator.stale .status-dot {
+                background-color: #f85149;
+                box-shadow: 0 0 6px rgba(248, 81, 73, 0.8);
+            }
+            .freshness-value {
+                display: flex;
+                align-items: baseline;
+                flex-wrap: wrap;
+                margin-top: 4px;
+            }
+            .freshness-val-date {
+                font-size: 14px;
+                font-weight: 600;
+                color: #f0f6fc;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            }
+            .freshness-val-time {
+                font-size: 12px;
+                color: #8b949e;
+                margin-left: 6px;
+                font-weight: 400;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            }
+            .freshness-val-na {
+                font-size: 14px;
+                font-weight: 600;
+                color: #484f58;
+            }
+            @media (max-width: 768px) {
+                .freshness-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            filings_display = "N/A"
-            if not health_data["latest_filings"].empty:
-                row = health_data["latest_filings"].iloc[0]
-                is_dt = bool(row.get("has_time"))
-                filings_display = _format_freshness_val(row["val"], is_datetime=is_dt)
-            st.metric("Latest Filings", filings_display)
-        with col3:
-            st.metric("Latest Signals", _format_freshness_val(signals_val, is_datetime=False))
-            st.metric("Latest Macro", _format_freshness_val(macro_val, is_datetime=False))
+        st.markdown(
+            f"""
+            <div class="freshness-grid">
+                {_render_card_html("Latest Prices", price_display, price_status)}
+                {_render_card_html("Latest Metrics", metrics_display, metrics_status)}
+                {_render_card_html("Latest Signals", signals_display, signals_status)}
+                {_render_card_html("Latest News", news_display, news_status)}
+                {_render_card_html("Latest Filings", filings_display, filings_status)}
+                {_render_card_html("Latest Macro", macro_display, macro_status)}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # 2. Pipelines Tab
     with tab_pipelines:
