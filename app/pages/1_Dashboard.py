@@ -175,12 +175,11 @@ def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
     ticktext = []
     
     if tf == "1D":
+        _1d_ticks = {"09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"}
         for i, dt in enumerate(dates_ny):
-            time_str = dt.strftime("%I:%M %p")
-            # Show tick at start, 11:00 AM, 01:00 PM, 03:00 PM, and end of session
-            if i == 0 or dt.strftime("%H:%M") in ("11:00", "13:00", "15:00") or i == len(dates_ny) - 1:
+            if dt.strftime("%H:%M") in _1d_ticks:
                 tickvals.append(df.iloc[i][tick_value_column])
-                ticktext.append(time_str)
+                ticktext.append(dt.strftime("%I:%M %p").lstrip("0"))
     elif tf == "5D":
         last_date = None
         for i, dt in enumerate(dates_ny):
