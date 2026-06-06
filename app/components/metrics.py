@@ -50,6 +50,13 @@ def render_plain_metric_card(label: str, value: str | int | float | None, format
     else:
         val_display = format_str.format(value)
 
+    if isinstance(val_display, str) and " (" in val_display and val_display.endswith(")"):
+        main_part, extra_part = val_display.split(" (", 1)
+        extra_part = extra_part.rstrip(")")
+        val_html = f'<span style="color: #f0f6fc;">{main_part}</span><span style="color: #8b949e; font-size: 16px; font-weight: 500; margin-left: 8px;">({extra_part})</span>'
+    else:
+        val_html = f'<span style="color: #f0f6fc;">{val_display}</span>'
+
     return f"""
     <div style="
         background: rgba(22, 27, 34, 0.6);
@@ -68,6 +75,6 @@ def render_plain_metric_card(label: str, value: str | int | float | None, format
         box-sizing: border-box;
     ">
         <div style="color: #8b949e; font-size: 14px; font-weight: 500; line-height: 1.2;">{label}</div>
-        <div style="color: #f0f6fc; font-size: 26px; font-weight: 600; line-height: 1.2;">{val_display}</div>
+        <div style="font-size: 26px; font-weight: 600; line-height: 1.2;">{val_html}</div>
     </div>
     """

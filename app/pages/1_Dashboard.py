@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -13,11 +13,9 @@ from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 from argus.core.timezones import format_et_datetime, to_et_naive_series
 from argus.services.dashboard_service import (
-    build_stale_reasons,
     calculate_intraday_core_return_from_engine,
     filter_low_rsi,
     load_dashboard_data_from_engine,
-    parse_optional_date,
     rank_biggest_drawdowns,
     rank_top_gainers,
     rank_top_losers,
@@ -522,21 +520,8 @@ def render_dashboard() -> None:
     )
 
     data = load_dashboard_data()
-    latest_dates = data["latest_dates"]
     metrics_df: pd.DataFrame = data["latest_metrics"]
     latest_signals = data.get("latest_signals")
-
-    latest_price_date = parse_optional_date(latest_dates.get("latest_price_date"))
-    latest_metrics_date = parse_optional_date(latest_dates.get("latest_metrics_date"))
-
-    stale_reasons = build_stale_reasons(
-        latest_price_date,
-        latest_metrics_date,
-        today=datetime.now(UTC).date(),
-    )
-
-    failed_job = data.get("failed_job")
-
     # Empty metrics early return - KEEP EXACT STRING SEQUENCE FOR TEST COMPLIANCE
     if metrics_df.empty:
         col1, col2, col3, col4 = st.columns(4)
@@ -581,30 +566,13 @@ def render_dashboard() -> None:
             selected_index_id = int(selected_index["id"])
 
     with ctrl_col2:
-        # Refresh button and health badge aligned side-by-side
-        health_status = "🟢 Systems Fresh"
-        health_color = "#3fb950"
-        if failed_job:
-            health_status = "🔴 Pipeline Failed"
-            health_color = "#f85149"
-        elif stale_reasons:
-            health_status = "🟡 Data Warnings"
-            health_color = "#f0883e"
-
-        badge_col, btn_col = st.columns([4, 3])
-        with badge_col:
-            st.markdown(
-                f"<div style='margin-top: 28px; text-align: right;'><span style='background-color: rgba(22, 27, 34, 0.6); color: {health_color}; border: 1px solid {health_color}33; border-radius: 20px; padding: 6px 12px; font-size: 14px; font-weight: 600; white-space: nowrap;'>{health_status}</span></div>",
-                unsafe_allow_html=True,
-            )
-        with btn_col:
-            st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("Refresh", key="refresh_dashboard_btn", use_container_width=True):
-                load_dashboard_data.clear()
-                load_intraday_core_return.clear()
-                load_index_data.clear()
-                load_index_options.clear()
-                st.rerun()
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("Refresh", key="refresh_dashboard_btn", use_container_width=True):
+            load_dashboard_data.clear()
+            load_intraday_core_return.clear()
+            load_index_data.clear()
+            load_index_options.clear()
+            st.rerun()
 
     st.write("---")
 
