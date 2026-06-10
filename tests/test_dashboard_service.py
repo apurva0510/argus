@@ -10,6 +10,7 @@ from argus.core.models import (
     EarningsEvent,
     JobRun,
     NewsItem,
+    NewsMention,
     PriceBar,
     SecFiling,
     Theme,
@@ -479,6 +480,93 @@ def test_load_dashboard_data_uses_latest_metric_per_company(db_session, sqlite_e
     assert data["latest_dates"]["latest_metrics_date"] == "2026-05-30"
     assert set(metrics["symbol"]) == {"ETN", "VRT"}
     assert metrics.set_index("symbol").loc["VRT", "date"] == "2026-05-29"
+
+
+def test_load_dashboard_data_excludes_reits(db_session, sqlite_engine) -> None:
+    etn = Company(symbol="ETN", name="Eaton", is_active=True, industry="Electrical Components")
+    eqix = Company(symbol="EQIX", name="Equinix", is_active=True, industry="Data Center REIT")
+    db_session.add_all([etn, eqix])
+    db_session.flush()
+
+    ai_theme = Theme(code="ai_infrastructure", name="AI Infrastructure")
+    reit_theme = Theme(code="data_center_reit", name="Data Center REIT")
+    db_session.add_all([ai_theme, reit_theme])
+    db_session.flush()
+
+    latest_date = date(2026, 5, 29)
+    etn_news = NewsItem(
+        title="Eaton power update",
+        url="https://example.com/etn",
+        published_at=datetime(2026, 5, 29, 12, 0),
+    )
+    eqix_news = NewsItem(
+        title="Equinix data center update",
+        url="https://example.com/eqix",
+        published_at=datetime(2026, 5, 29, 13, 0),
+    )
+    db_session.add_all([etn_news, eqix_news])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            CompanyThemeExposure(company_id=etn.id, theme_id=ai_theme.id, exposure_score=4.0),
+            CompanyThemeExposure(company_id=eqix.id, theme_id=reit_theme.id, exposure_score=4.0),
+            DailyMetric(company_id=etn.id, date=latest_date, return_1d=0.02, rsi_14=35.0),
+            DailyMetric(company_id=eqix.id, date=latest_date, return_1d=0.50, rsi_14=10.0),
+            SignalDaily(company_id=etn.id, date=latest_date, power_signal=0.02),
+            SignalDaily(company_id=eqix.id, date=latest_date, power_signal=0.50),
+            PriceBar(
+                company_id=etn.id,
+                date=date.today(),
+                adj_close=100.0,
+                provider="yfinance",
+                interval="1d",
+            ),
+            NewsMention(news_id=etn_news.id, company_id=etn.id, ticker="ETN"),
+            NewsMention(news_id=eqix_news.id, company_id=eqix.id, ticker="EQIX"),
+            SecFiling(
+                company_id=etn.id,
+                accession_no="etn-1",
+                form="8-K",
+                filing_date=latest_date,
+                acceptance_datetime=datetime(2026, 5, 29, 16, 0),
+            ),
+            SecFiling(
+                company_id=eqix.id,
+                accession_no="eqix-1",
+                form="8-K",
+                filing_date=latest_date,
+                acceptance_datetime=datetime(2026, 5, 29, 17, 0),
+            ),
+            EarningsEvent(company_id=etn.id, event_date=date.today() + timedelta(days=7)),
+            EarningsEvent(company_id=eqix.id, event_date=date.today() + timedelta(days=7)),
+        ]
+    )
+    db_session.commit()
+
+    data = load_dashboard_data_from_engine(sqlite_engine)
+
+    assert data["active_company_count"] == 1
+    assert data["index_symbol_count"] == 1
+    assert data["filings_count"] == 1
+    assert data["earnings_count"] == 1
+    assert data["stale_tickers_count"] == 0
+    assert data["latest_metrics"]["symbol"].tolist() == ["ETN"]
+    assert data["latest_signals"]["symbol"].tolist() == ["ETN"]
+    assert data["recent_news"]["title"].tolist() == ["Eaton power update"]
+    assert data["recent_filings"]["symbol"].tolist() == ["ETN"]
+    assert data["upcoming_earnings"]["symbol"].tolist() == ["ETN"]
+    theme_counts = data["theme_counts"].set_index("theme")["company_count"].to_dict()
+    assert theme_counts == {"AI Infrastructure": 1}
+
+    metrics = pd.DataFrame(
+        [
+            {"symbol": "ETN", "name": "Eaton", "return_1d": 0.02, "rsi_14": 35.0},
+            {"symbol": "EQIX", "name": "Equinix", "return_1d": 0.50, "rsi_14": 10.0},
+        ]
+    )
+    assert rank_top_gainers(metrics, limit=2)["symbol"].tolist() == ["ETN"]
+    assert filter_low_rsi(metrics, threshold=40.0)["symbol"].tolist() == ["ETN"]
 
 
 def test_get_dashboard_overview(sqlite_engine, monkeypatch, db_session) -> None:

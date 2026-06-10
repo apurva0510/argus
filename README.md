@@ -1,6 +1,6 @@
 # Argus: AI Infrastructure & Emerging Compute Stock Monitor
 
-Argus is a lightweight Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (power/grid, cooling, optical networking, semiconductor equipment, data center REITs) plus separate Emerging Compute themes such as quantum computing. It supports a local SQLite database for development and a hosted PostgreSQL database (such as Supabase) for production deployment. It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
+Argus is a lightweight Streamlit research application designed to monitor stocks in sectors linked to AI infrastructure and data centers (AI semiconductors and memory, power/grid, cooling, optical networking, and semiconductor equipment) plus separate Emerging Compute themes such as quantum computing. It supports a local SQLite database for development and a hosted PostgreSQL database (such as Supabase) for production deployment. It helps identify high-quality stock pullbacks, tracks recent SEC filings and news catalysts, constructs a custom AI Infra Core index, and sends email alerts.
 
 Argus is designed for a simple, two-user family workflow (research and decision support). It is not a trading execution platform.
 
@@ -348,4 +348,3 @@ Argus includes an interactive **Index Lab** page (`app/pages/8_Index_Lab.py`) th
   3. **Manual weight**: Allows custom percentage weights for each constituent, validated to ensure they sum to exactly 100%.
 * **Historical Analysis**: Backtests custom definitions and renders interactive Plotly charts comparing their performance against QQQ and NVDA benchmarks across 1M, 3M, 6M, 1Y, and historical timeframes.
 * **Deep Dives**: Displays the constituent weights table, historical theme concentration breakdown, and top performance contributors over the past 90 days.
-

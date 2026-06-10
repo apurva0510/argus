@@ -2,10 +2,10 @@ name: Intraday Prices Metrics Alerts
 
 on:
   schedule:
-    # GitHub cron is UTC-only. This half-hour UTC range covers the requested
+    # GitHub cron is UTC-only. These off-hour half-hour marks cover the requested
     # 9:30 AM through 4:00 PM ET weekday window in both EST and EDT; the
     # Python gate below is the source of truth for America/New_York hours.
-    - cron: "*/30 13-21 * * 1-5"
+    - cron: "7,37 13-21 * * 1-5"
   workflow_dispatch: {}
 
 

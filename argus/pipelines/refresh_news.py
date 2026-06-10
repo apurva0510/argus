@@ -159,8 +159,10 @@ def _company_aliases(company: Company) -> list[str]:
         "ETN": ["eaton"],
         "PWR": ["quanta services"],
         "ANET": ["arista networks"],
-        "EQIX": ["equinix"],
-        "DLR": ["digital realty"],
+        "AVGO": ["broadcom"],
+        "MRVL": ["marvell"],
+        "MU": ["micron"],
+        "MCHP": ["microchip"],
     }
     aliases.extend(static_aliases.get(company.symbol.upper(), []))
     return sorted({alias.strip().lower() for alias in aliases if len(alias.strip()) > 3})
@@ -196,7 +198,6 @@ def detect_mentions_and_keywords(
         "fiber",
         "optical",
         "networking",
-        "reit",
     ]
 
     matched_infra = [kw for kw in infra_keywords if re.search(r"\b" + re.escape(kw) + r"\b", text)]

@@ -537,3 +537,48 @@ def test_ensure_default_index_definition_commits_when_dirty(db_session: Session)
 
     # Check it persisted
     assert db_session.query(IndexDefinition).filter_by(name=DEFAULT_INDEX_NAME).count() == 1
+
+
+def test_ensure_default_index_definition_syncs_new_seeded_constituents(
+    db_session: Session,
+) -> None:
+    from argus.analytics.index_builder import (
+        DEFAULT_INDEX_NAME,
+        INDEX_MODE_EQUAL,
+        ensure_default_index_definition,
+    )
+    from argus.core.models import IndexConstituent
+
+    old_company = Company(symbol="ETN", name="Eaton", is_active=True)
+    new_company = Company(symbol="MCHP", name="Microchip", is_active=True)
+    excluded_company = Company(symbol="NVDA", name="NVIDIA", is_active=True, is_benchmark=True)
+    db_session.add_all([old_company, new_company, excluded_company])
+    db_session.flush()
+
+    definition = IndexDefinition(name=DEFAULT_INDEX_NAME, mode=INDEX_MODE_EQUAL, base_value=100.0)
+    db_session.add(definition)
+    db_session.flush()
+    db_session.add(
+        IndexConstituent(
+            index_definition_id=definition.id,
+            company_id=old_company.id,
+            target_weight=1.0,
+            is_included=True,
+        )
+    )
+    db_session.commit()
+
+    ensure_default_index_definition(db_session)
+
+    rows = (
+        db_session.query(Company.symbol, IndexConstituent.target_weight)
+        .join(IndexConstituent, IndexConstituent.company_id == Company.id)
+        .filter(IndexConstituent.index_definition_id == definition.id)
+        .order_by(Company.symbol)
+        .all()
+    )
+    assert [symbol for symbol, _weight in rows] == ["ETN", "MCHP"]
+    assert {symbol: weight for symbol, weight in rows} == {
+        "ETN": pytest.approx(0.5),
+        "MCHP": pytest.approx(0.5),
+    }

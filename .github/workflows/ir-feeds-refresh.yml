@@ -2,10 +2,8 @@ name: IR Feeds Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. These two UTC times cover the target 5:22 PM ET
-    # run in both EDT and EST; the Python gate below prevents the off-hour
-    # invocation from running.
-    - cron: "22 21,22 * * *"
+    # GitHub cron is UTC-only. Run every 6 hours at an off-peak minute.
+    - cron: "22 */6 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -29,56 +27,30 @@ jobs:
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
-      - name: Determine if IR refresh window (ET)
-        id: ir_refresh_window
-        run: |
-          python - <<'PY'
-          from datetime import datetime, time
-          from zoneinfo import ZoneInfo
-          import os
-
-          is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          now_et = datetime.now(ZoneInfo("America/New_York"))
-          start = time(17, 0)
-          end = time(18, 0)
-          in_window = start <= now_et.time() < end
-          run_job = is_manual or in_window
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"run_job={'true' if run_job else 'false'}\n")
-          print(f"now_et={now_et.isoformat()} is_manual={is_manual} in_window={in_window}")
-          PY
-
       - name: Validate required secrets
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: |
           test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
 
       - name: Checkout repository
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         uses: actions/checkout@v6
 
       - name: Set up Python 3.12
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
 
       - name: Refresh IR feeds
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: python scripts/refresh_ir_feeds.py
 
       - name: Compute signals
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: python scripts/compute_signals.py
 
       - name: Run alerts
-        if: steps.ir_refresh_window.outputs.run_job == 'true'
         run: python scripts/run_alerts.py

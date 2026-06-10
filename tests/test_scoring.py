@@ -771,7 +771,7 @@ def test_score_macro_penalty() -> None:
     assert penalty_2 == -6.0
     assert "High pressure" in reasons_2[0]
 
-    penalty_3, reasons_3 = score_macro_penalty(3, "Data Center REITs")
+    penalty_3, reasons_3 = score_macro_penalty(3, "Cooling and Data Center Infrastructure")
     assert penalty_3 == -10.0
     assert "Severe pressure" in reasons_3[0]
 

@@ -25,6 +25,15 @@ from argus.services.macro_capex_service import load_macro_capex_context_from_eng
 
 STALE_DAYS_THRESHOLD = 3
 LOW_RSI_THRESHOLD = 40.0
+DASHBOARD_EXCLUDED_SYMBOLS = frozenset({"DLR", "EQIX"})
+
+
+def _dashboard_company_filter(alias: str = "c") -> str:
+    return f"{alias}.is_active = TRUE AND {alias}.symbol NOT IN :dashboard_excluded_symbols"
+
+
+def _dashboard_params(**params: object) -> dict[str, object]:
+    return {**params, "dashboard_excluded_symbols": sorted(DASHBOARD_EXCLUDED_SYMBOLS)}
 
 
 def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
@@ -74,6 +83,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     FROM daily_metrics dm
                     JOIN companies c ON c.id = dm.company_id
                     WHERE c.is_active = TRUE
+                        AND c.symbol NOT IN :dashboard_excluded_symbols
                         AND dm.date = (
                             SELECT MAX(dm2.date)
                             FROM daily_metrics dm2
@@ -81,17 +91,24 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                         )
                     ORDER BY c.symbol
                     """
-                ),
+                ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
                 conn,
+                params=_dashboard_params(),
             )
 
         active_symbol_count = pd.read_sql_query(
-            text("SELECT COUNT(*) AS count FROM companies WHERE is_active = TRUE"),
+            text(
+                f"SELECT COUNT(*) AS count FROM companies WHERE {_dashboard_company_filter('companies')}"
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         ).at[0, "count"]
         active_symbols = pd.read_sql_query(
-            text("SELECT symbol FROM companies WHERE is_active = TRUE"),
+            text(
+                f"SELECT symbol FROM companies WHERE {_dashboard_company_filter('companies')}"
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )["symbol"].tolist()
         index_constituent_count = len(
             [
@@ -100,15 +117,49 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 if symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS
             ]
         )
-        news_count = pd.read_sql_query(text("SELECT COUNT(*) AS count FROM news_items"), conn).at[
-            0, "count"
-        ]
+        news_count = pd.read_sql_query(
+            text(
+                """
+                SELECT COUNT(*) AS count
+                FROM news_items ni
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM news_mentions nm
+                    JOIN companies c ON c.id = nm.company_id
+                    WHERE nm.news_id = ni.id
+                      AND c.symbol IN :dashboard_excluded_symbols
+                )
+                """
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
+            conn,
+            params=_dashboard_params(),
+        ).at[0, "count"]
         filings_count = pd.read_sql_query(
-            text("SELECT COUNT(*) AS count FROM sec_filings"), conn
+            text(
+                """
+                SELECT COUNT(*) AS count
+                FROM sec_filings sf
+                JOIN companies c ON c.id = sf.company_id
+                WHERE c.is_active = TRUE
+                  AND c.symbol NOT IN :dashboard_excluded_symbols
+                """
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
+            conn,
+            params=_dashboard_params(),
         ).at[0, "count"]
         earnings_count = pd.read_sql_query(
-            text("SELECT COUNT(*) AS count FROM earnings_events WHERE event_date >= CURRENT_DATE"),
+            text(
+                """
+                SELECT COUNT(*) AS count
+                FROM earnings_events ee
+                JOIN companies c ON c.id = ee.company_id
+                WHERE ee.event_date >= CURRENT_DATE
+                  AND c.is_active = TRUE
+                  AND c.symbol NOT IN :dashboard_excluded_symbols
+                """
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         ).at[0, "count"]
         theme_counts = pd.read_sql_query(
             text(
@@ -122,11 +173,13 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 JOIN themes t ON t.id = cte.theme_id
                 LEFT JOIN themes parent ON parent.id = t.parent_theme_id
                 WHERE c.is_active = TRUE
+                    AND c.symbol NOT IN :dashboard_excluded_symbols
                 GROUP BY COALESCE(parent.name, t.name), t.name
                 ORDER BY COALESCE(parent.name, t.name), t.name
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )
         if dialect_name == "postgresql":
             tickers_expr = "string_agg(DISTINCT nm2.ticker, ',')"
@@ -147,11 +200,19 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                         WHERE nm2.news_id = ni.id
                     ) AS tickers
                 FROM news_items ni
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM news_mentions nm3
+                    JOIN companies c3 ON c3.id = nm3.company_id
+                    WHERE nm3.news_id = ni.id
+                      AND c3.symbol IN :dashboard_excluded_symbols
+                )
                 ORDER BY ni.published_at DESC
                 LIMIT 5
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )
         recent_filings = pd.read_sql_query(
             text(
@@ -165,11 +226,14 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                     sf.primary_doc_url
                 FROM sec_filings sf
                 JOIN companies c ON c.id = sf.company_id
+                WHERE c.is_active = TRUE
+                    AND c.symbol NOT IN :dashboard_excluded_symbols
                 ORDER BY sf.filing_date DESC, sf.acceptance_datetime DESC
                 LIMIT 5
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )
         upcoming_earnings = pd.read_sql_query(
             text(
@@ -183,11 +247,14 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 FROM earnings_events ee
                 JOIN companies c ON c.id = ee.company_id
                 WHERE ee.event_date >= CURRENT_DATE
+                    AND c.is_active = TRUE
+                    AND c.symbol NOT IN :dashboard_excluded_symbols
                 ORDER BY ee.event_date ASC, c.symbol ASC
                 LIMIT 5
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )
 
         # Calculate stale tickers count
@@ -197,19 +264,21 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 """
                 SELECT COUNT(DISTINCT symbol) AS count
                 FROM companies
-                WHERE is_active = TRUE AND id NOT IN (
+                WHERE is_active = TRUE
+                  AND symbol NOT IN :dashboard_excluded_symbols
+                  AND id NOT IN (
                     SELECT DISTINCT company_id
                     FROM price_bars
                     WHERE provider = :provider
                       AND date >= :stale_threshold_date
                 )
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
-            params={
-                "provider": settings.market_data_provider,
-                "stale_threshold_date": stale_threshold_date,
-            },
+            params=_dashboard_params(
+                provider=settings.market_data_provider,
+                stale_threshold_date=stale_threshold_date,
+            ),
         ).at[0, "count"]
 
         intraday_stale_tickers_count = pd.read_sql_query(
@@ -217,7 +286,9 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 """
                 SELECT COUNT(DISTINCT symbol) AS count
                 FROM companies
-                WHERE is_active = TRUE AND id NOT IN (
+                WHERE is_active = TRUE
+                  AND symbol NOT IN :dashboard_excluded_symbols
+                  AND id NOT IN (
                     SELECT DISTINCT company_id
                     FROM price_bars
                     WHERE provider = :provider
@@ -225,12 +296,12 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                       AND date >= :stale_threshold_date
                 )
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
-            params={
-                "provider": settings.market_data_provider,
-                "stale_threshold_date": stale_threshold_date,
-            },
+            params=_dashboard_params(
+                provider=settings.market_data_provider,
+                stale_threshold_date=stale_threshold_date,
+            ),
         ).at[0, "count"]
 
         # Fetch latest failed job (only if its most recent run was a failure)
@@ -275,13 +346,15 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
                 FROM signal_daily sd
                 JOIN companies c ON c.id = sd.company_id
                 WHERE c.is_active = TRUE
+                    AND c.symbol NOT IN :dashboard_excluded_symbols
                     AND sd.date = (
                         SELECT MAX(sd2.date)
                         FROM signal_daily sd2
                     )
                 """
-            ),
+            ).bindparams(bindparam("dashboard_excluded_symbols", expanding=True)),
             conn,
+            params=_dashboard_params(),
         )
 
     return {
@@ -446,6 +519,7 @@ def filter_low_rsi(
         return pd.DataFrame(columns=columns)
 
     rsi = metrics_df[columns].dropna(subset=["rsi_14"])
+    rsi = rsi[~rsi["symbol"].isin(DASHBOARD_EXCLUDED_SYMBOLS)]
     return rsi[rsi["rsi_14"] < threshold].sort_values("rsi_14", ascending=True).head(limit)
 
 
@@ -456,7 +530,12 @@ def _rank_by_metric(
     if metrics_df.empty or not set(columns).issubset(metrics_df.columns):
         return pd.DataFrame(columns=columns)
 
-    ranked = metrics_df[columns].dropna(subset=[metric]).sort_values(metric, ascending=ascending)
+    ranked = (
+        metrics_df[columns]
+        .dropna(subset=[metric])
+        .loc[lambda df: ~df["symbol"].isin(DASHBOARD_EXCLUDED_SYMBOLS)]
+        .sort_values(metric, ascending=ascending)
+    )
     return ranked.head(limit)
 
 
@@ -472,7 +551,12 @@ def _mean_or_none(metrics_df: pd.DataFrame, column: str) -> float | None:
 def get_dashboard_overview() -> dict[str, int]:
     with session_scope() as session:
         return {
-            "tracked_companies": session.query(Company).filter(Company.is_active.is_(True)).count(),
+            "tracked_companies": session.query(Company)
+            .filter(
+                Company.is_active.is_(True),
+                Company.symbol.notin_(DASHBOARD_EXCLUDED_SYMBOLS),
+            )
+            .count(),
             "high_priority_count": session.query(WatchlistItem)
             .filter(WatchlistItem.watch_status == "high_priority")
             .count(),

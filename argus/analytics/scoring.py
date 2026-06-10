@@ -24,7 +24,6 @@ WATCH_STATUS_SCORES: dict[str, float] = {
 RATE_SENSITIVE_SECTORS: set[str] = {
     "Power and Grid",
     "Energy, Nuclear, and Utilities",
-    "Data Center REITs",
     "Cooling and Data Center Infrastructure",
 }
 

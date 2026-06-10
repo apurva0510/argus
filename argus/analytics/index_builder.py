@@ -70,6 +70,56 @@ def _default_constituent_weights(session: Session) -> dict[str, float]:
     return {symbol: equal_weight for symbol in symbols}
 
 
+def _sync_default_index_constituents(session: Session, definition: IndexDefinition) -> bool:
+    if definition.name != DEFAULT_INDEX_NAME or definition.mode != INDEX_MODE_EQUAL:
+        return False
+
+    weights = _default_constituent_weights(session)
+    company_by_symbol = {
+        company.symbol: company
+        for company in session.query(Company)
+        .filter(Company.symbol.in_(sorted(weights)), Company.is_active.is_(True))
+        .all()
+    }
+    current_rows = (
+        session.query(IndexConstituent, Company.symbol)
+        .join(Company, Company.id == IndexConstituent.company_id)
+        .filter(IndexConstituent.index_definition_id == definition.id)
+        .all()
+    )
+    current_by_symbol = {symbol: row for row, symbol in current_rows}
+    dirty = False
+
+    for row, symbol in current_rows:
+        if symbol not in weights:
+            session.delete(row)
+            dirty = True
+            continue
+        target_weight = weights[symbol]
+        if not row.is_included or abs(float(row.target_weight or 0.0) - target_weight) > 0.000001:
+            row.is_included = True
+            row.target_weight = target_weight
+            dirty = True
+
+    for symbol, target_weight in weights.items():
+        if symbol in current_by_symbol:
+            continue
+        company = company_by_symbol.get(symbol)
+        if company is None:
+            continue
+        session.add(
+            IndexConstituent(
+                index_definition_id=definition.id,
+                company_id=company.id,
+                target_weight=target_weight,
+                is_included=True,
+            )
+        )
+        dirty = True
+
+    return dirty
+
+
 def ensure_default_index_definition(session: Session) -> IndexDefinition:
     """Create the default immutable definition shell and migrate legacy values."""
     definition = (
@@ -119,6 +169,8 @@ def ensure_default_index_definition(session: Session) -> IndexDefinition:
                     )
                 )
                 dirty = True
+    else:
+        dirty = _sync_default_index_constituents(session, definition) or dirty
 
     updated_rows = (
         session.query(IndexValue)

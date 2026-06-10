@@ -35,6 +35,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_SECTOR_GROUPS = {
     "AI Capex Benchmarks": ["NVDA", "MSFT", "AMZN", "GOOGL", "META", "QQQ"],
+    "AI Semiconductors and Memory": ["AVGO", "MRVL", "MU", "MCHP"],
     "Power and Grid": ["ETN", "GEV", "PWR", "ABBNY", "SBGSY", "SIEGY", "HUBB"],
     "Cooling and Data Center Infrastructure": ["VRT", "TT", "CARR", "JCI"],
     "Optical, Fiber, and Networking": ["CIEN", "GLW", "COHR", "LITE", "NOK", "CSCO", "ANET"],
@@ -47,7 +48,6 @@ EXPECTED_SECTOR_GROUPS = {
         "TER",
     ],
     "Energy, Nuclear, and Utilities": ["CEG", "VST", "NEE", "CCJ", "SMR"],
-    "Data Center REITs": ["EQIX", "DLR"],
     "Cybersecurity": ["CRWD", "PANW", "FTNT", "NET", "S", "ZS"],
     "Quantum Computing": ["IONQ", "RGTI", "QBTS", "QUBT", "INFQ", "IBM"],
     "Optional Aggressive AI Infrastructure Names": ["ALAB", "CRDO"],
@@ -56,13 +56,13 @@ EXPECTED_SECTOR_GROUPS = {
 EXPECTED_THEME_CODES = {
     "ai_infrastructure",
     "ai_capex_benchmark",
+    "ai_semiconductors_memory",
     "power_grid",
     "cooling",
     "optical_networking",
     "semiconductor_equipment",
     "advanced_packaging",
     "energy_nuclear_utilities",
-    "data_center_reit",
     "cybersecurity",
     "aggressive_ai_infra",
     "hyperscaler_capex",
