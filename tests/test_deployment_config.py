@@ -20,8 +20,8 @@ def test_intraday_workflow_runs_every_30_minutes_during_market_hours_et() -> Non
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "covers the requested" in workflow
-    assert 'cron: "*/30 13-21 * * 1-5"' in workflow
+    assert "These off-hour half-hour marks cover the requested" in workflow
+    assert 'cron: "7,37 13-21 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
     assert "start = time(9, 30)" in workflow
     assert "end = time(16, 0)" in workflow
@@ -44,12 +44,12 @@ def test_daily_close_workflow_runs_at_441pm_et_with_manual_override() -> None:
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "target 4:41 PM ET" in workflow
-    assert 'cron: "41 20,21 * * 1-5"' in workflow
+    assert "requested 4:00-6:00 PM ET" in workflow
+    assert 'cron: "17,47 20-22 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
     assert 'os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"' in workflow
-    assert "start = time(16, 30)" in workflow
-    assert "end = time(17, 30)" in workflow
+    assert "start = time(16, 0)" in workflow
+    assert "end = time(18, 0)" in workflow
     assert "is_manual or in_window" in workflow
     assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
     assert "python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings" in workflow
@@ -125,12 +125,10 @@ def test_ir_feeds_workflow_runs_once_daily_at_522pm_et() -> None:
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "target 5:22 PM ET" in workflow
-    assert 'cron: "22 21,22 * * *"' in workflow
-    assert "Determine if IR refresh window" in workflow
-    assert "steps.ir_refresh_window.outputs.run_job == 'true'" in workflow
-    assert "start = time(17, 0)" in workflow
-    assert "end = time(18, 0)" in workflow
+    assert "Run every 6 hours at an off-peak minute" in workflow
+    assert 'cron: "22 */6 * * *"' in workflow
+    assert "Determine if IR refresh window" not in workflow
+    assert "steps.ir_refresh_window.outputs.run_job" not in workflow
     assert "python scripts/refresh_ir_feeds.py" in workflow
     assert "python scripts/compute_signals.py" in workflow
     assert workflow.index("python scripts/refresh_ir_feeds.py") < workflow.index(
