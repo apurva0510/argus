@@ -26,6 +26,7 @@ jobs:
       EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
       EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       EMAIL_TO: ${{ secrets.EMAIL_TO }}
       MARKET_DATA_PROVIDER: yfinance
 

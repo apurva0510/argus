@@ -21,6 +21,11 @@ jobs:
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
       APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
