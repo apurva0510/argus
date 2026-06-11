@@ -1,6 +1,12 @@
-import sys
-from pathlib import Path
+try:
+    import _bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from scripts import _bootstrap  # noqa: F401
+
 import argparse
+from argus.core.db import get_engine
+from argus.core.migrations import run_migrations
+from argus.pipelines.refresh_news import refresh_news
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,21 +25,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def ensure_project_root_on_path() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-
-
 def main() -> None:
-    ensure_project_root_on_path()
-    from argus.core.db import get_engine
-    from argus.core.logging import configure_logging
-    from argus.core.migrations import run_migrations
-    from argus.pipelines.refresh_news import refresh_news
-
     args = parse_args()
-    configure_logging()
     run_migrations(get_engine())
     print("Starting news refresh job (RSS & GDELT)...")
     result = refresh_news(

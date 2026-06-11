@@ -1,12 +1,10 @@
-import sys
-from pathlib import Path
+try:
+    import _bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from scripts import _bootstrap  # noqa: F401
+
 import argparse
-
-
-def ensure_project_root_on_path() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+from argus.pipelines.refresh_index import refresh_all_indexes, refresh_index
 
 
 def main() -> None:
@@ -15,11 +13,6 @@ def main() -> None:
     parser.add_argument("--all-active", action="store_true")
     args = parser.parse_args()
 
-    ensure_project_root_on_path()
-    from argus.core.logging import configure_logging
-    from argus.pipelines.refresh_index import refresh_all_indexes, refresh_index
-
-    configure_logging()
     if args.all_active:
         result = refresh_all_indexes()
     else:

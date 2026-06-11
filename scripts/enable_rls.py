@@ -15,6 +15,11 @@ Usage:
     DATABASE_URL="postgresql://..." python scripts/enable_rls.py
 """
 
+try:
+    import _bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from scripts import _bootstrap  # noqa: F401
+
 import os
 import sys
 

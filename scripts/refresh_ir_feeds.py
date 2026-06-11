@@ -1,12 +1,12 @@
-import sys
+try:
+    import _bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from scripts import _bootstrap  # noqa: F401
+
 import argparse
-from pathlib import Path
-
-
-def ensure_project_root_on_path() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+from argus.core.db import get_engine
+from argus.core.migrations import run_migrations
+from argus.pipelines.refresh_ir_feeds import refresh_ir_feeds
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,14 +18,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    ensure_project_root_on_path()
-    from argus.core.db import get_engine
-    from argus.core.logging import configure_logging
-    from argus.core.migrations import run_migrations
-    from argus.pipelines.refresh_ir_feeds import refresh_ir_feeds
-
     args = parse_args()
-    configure_logging()
     run_migrations(get_engine())
     print("Starting IR feed refresh job...")
     result = refresh_ir_feeds(force=args.force)

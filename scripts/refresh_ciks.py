@@ -1,11 +1,10 @@
+try:
+    import _bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from scripts import _bootstrap  # noqa: F401
+
 import sys
-from pathlib import Path
-
-
-def ensure_project_root_on_path() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+from argus.pipelines.refresh_ciks import refresh_ciks
 
 
 def exit_code_for_status(status: str) -> int:
@@ -13,11 +12,6 @@ def exit_code_for_status(status: str) -> int:
 
 
 def main() -> None:
-    ensure_project_root_on_path()
-    from argus.core.logging import configure_logging
-    from argus.pipelines.refresh_ciks import refresh_ciks
-
-    configure_logging()
     result = refresh_ciks()
     print(
         "CIK refresh finished. "
