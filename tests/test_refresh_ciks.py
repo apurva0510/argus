@@ -112,3 +112,46 @@ def test_refresh_ciks_refuses_conflicting_issuer_identity(sqlite_engine, monkeyp
     assert result["rows_written"] == 0
     with db_module.session_scope() as session:
         assert session.query(Company).one().cik == "0000000001"
+
+
+def test_refresh_ciks_handles_invalid_identities_type(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ciks as module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(module, "fetch_ticker_identities", lambda: None)
+
+    result = refresh_ciks()
+    assert result["status"] == "failed"
+    assert "not a dictionary" in str(result["error_text"])
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).filter(JobRun.job_name == "refresh_ciks").one()
+        assert job.status == "failed"
+        assert "not a dictionary" in job.error_text
+
+
+def test_refresh_ciks_handles_empty_identities(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ciks as module
+
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+    monkeypatch.setattr(module, "fetch_ticker_identities", lambda: {})
+
+    result = refresh_ciks()
+    assert result["status"] == "failed"
+    assert "mapping is empty" in str(result["error_text"])
+
+    with db_module.session_scope() as session:
+        job = session.query(JobRun).filter(JobRun.job_name == "refresh_ciks").one()
+        assert job.status == "failed"
+        assert "mapping is empty" in job.error_text
+

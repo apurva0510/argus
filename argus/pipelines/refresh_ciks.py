@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from argus.core.db import session_scope
-from argus.core.models import Company, JobRun
+from argus.core.models import Company
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.sources.sec_client import fetch_ticker_identities, sec_identity_matches_company
 
 logger = logging.getLogger(__name__)
@@ -18,11 +19,7 @@ def _utc_now() -> datetime:
 
 def refresh_ciks() -> dict[str, object]:
     """Synchronize active-company CIKs from the official SEC ticker mapping."""
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_ciks", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        job_id = job.id
+    job_id = create_job_run("refresh_ciks")
 
     rows_read = 0
     rows_written = 0
@@ -34,6 +31,11 @@ def refresh_ciks() -> dict[str, object]:
 
     try:
         identities = fetch_ticker_identities()
+        if not isinstance(identities, dict):
+            raise TypeError(f"SEC ticker identities mapping is not a dictionary: got {type(identities)}")
+        if not identities:
+            raise ValueError("SEC ticker identities mapping is empty")
+
         rows_read = len(identities)
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
@@ -71,14 +73,15 @@ def refresh_ciks() -> dict[str, object]:
             if identity_conflicts:
                 details.append(f"Identity conflicts: {', '.join(sorted(identity_conflicts))}")
             error_text = "; ".join(details) or None
-        with session_scope() as session:
-            job = session.get(JobRun, job_id)
-            if job is not None:
-                job.finished_at = _utc_now()
-                job.status = status
-                job.rows_read = rows_read
-                job.rows_written = rows_written
-                job.error_text = error_text
+
+        finish_job_run(
+            job_id,
+            "refresh_ciks",
+            status=status,
+            rows_read=rows_read,
+            rows_written=rows_written,
+            error_text=error_text,
+        )
 
     return {
         "status": status,
