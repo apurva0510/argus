@@ -45,13 +45,13 @@ def period_to_timestamps(period: str) -> tuple[int, int]:
     import time
 
     end_ts = int(time.time())
-    if period.endswith("y"):
+    if period.endswith("y") and period[:-1].isdigit():
         years = int(period[:-1])
         start_ts = end_ts - years * 365 * 24 * 60 * 60
-    elif period.endswith("mo"):
+    elif period.endswith("mo") and period[:-2].isdigit():
         months = int(period[:-2])
         start_ts = end_ts - months * 30 * 24 * 60 * 60
-    elif period.endswith("d"):
+    elif period.endswith("d") and period[:-1].isdigit():
         days = int(period[:-1])
         start_ts = end_ts - days * 24 * 60 * 60
     else:

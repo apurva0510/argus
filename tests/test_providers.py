@@ -577,3 +577,39 @@ def test_twelvedata_provider_chunk_truncation(monkeypatch) -> None:
     # Verify that the length of chunks sent is exactly 5
     assert len(calls) == 5
     assert len(df) == 5
+
+
+def test_all_registered_providers_satisfy_contract() -> None:
+    from argus.sources.factory import PROVIDERS
+    from argus.sources.base import BaseMarketDataProvider
+
+    for name, provider_cls in PROVIDERS.items():
+        assert issubclass(provider_cls, BaseMarketDataProvider)
+        instance = provider_cls()
+        assert instance.name == name
+        assert isinstance(instance.supports_intraday_batch, bool)
+
+
+def test_period_to_timestamps_ranges() -> None:
+    from argus.sources.base import period_to_timestamps
+    import time
+
+    now = int(time.time())
+
+    # 2y
+    start, end = period_to_timestamps("2y")
+    assert abs(end - now) < 2
+    assert abs((end - start) - (2 * 365 * 24 * 60 * 60)) < 2
+
+    # 6mo (months)
+    start_mo, end_mo = period_to_timestamps("6mo")
+    assert abs((end_mo - start_mo) - (6 * 30 * 24 * 60 * 60)) < 2
+
+    # 5d (days)
+    start_d, end_d = period_to_timestamps("5d")
+    assert abs((end_d - start_d) - (5 * 24 * 60 * 60)) < 2
+
+    # Default fallback
+    start_def, end_def = period_to_timestamps("invalid_period")
+    assert abs((end_def - start_def) - (2 * 365 * 24 * 60 * 60)) < 2
+
