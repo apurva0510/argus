@@ -4,8 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 import logging
 
-from argus.core.db import session_scope
-from argus.core.models import JobRun
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.core.settings import settings
 from argus.pipelines.compute_metrics import compute_daily_metrics
 from argus.pipelines.compute_scores import compute_opportunity_scores
@@ -32,38 +31,7 @@ def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="run_daily_refresh", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
 
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id,
-                job_name="run_daily_refresh",
-                started_at=_utc_now(),
-                status=status,
-            )
-            session.add(job)
-
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        job.error_text = error_text
 
 
 def build_daily_refresh_steps(
@@ -132,7 +100,7 @@ def run_daily_refresh(
     steps: list[PipelineStep] | None = None,
 ) -> dict[str, object]:
     """Run the daily refresh workflow without requiring Streamlit page load jobs."""
-    job_id = _create_job_run()
+    job_id = create_job_run("run_daily_refresh")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -173,8 +141,9 @@ def run_daily_refresh(
         logger.exception("Daily refresh orchestrator failed")
     finally:
         error_text = "; ".join(errors) if errors else None
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "run_daily_refresh",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
