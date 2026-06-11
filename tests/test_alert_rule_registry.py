@@ -63,3 +63,31 @@ def test_build_rule_registry_requires_all_evaluators() -> None:
 
     with pytest.raises(ValueError, match="Missing alert evaluator"):
         build_rule_registry(incomplete)
+
+
+def test_evaluate_alert_for_company_uses_registry() -> None:
+    from unittest.mock import MagicMock
+    from argus.alerts.rules import evaluate_alert_for_company
+
+    session = MagicMock()
+    company = MagicMock(id=1, symbol="VRT")
+    alert = MagicMock(id=10, rule_type="price_below", config_json={"threshold": 100.0})
+
+    # Temporarily override price_below definition in RULE_DEFINITIONS
+    original_definition = RULE_DEFINITIONS["price_below"]
+    called = False
+
+    def mock_evaluator(s, a, c):
+        nonlocal called
+        called = True
+        return [{"triggered": True}]
+
+    # RULE_DEFINITIONS is a mutable dict, so we can override it temporarily
+    RULE_DEFINITIONS["price_below"] = original_definition.with_evaluator(mock_evaluator)
+    try:
+        res = evaluate_alert_for_company(session, alert, company)
+        assert called is True
+        assert res == [{"triggered": True}]
+    finally:
+        # Restore
+        RULE_DEFINITIONS["price_below"] = original_definition

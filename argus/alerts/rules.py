@@ -463,20 +463,22 @@ def check_entered_pullback_zone(
     return None
 
 
-RULE_CHECKERS = {
-    "price_below": check_price_below,
-    "price_above": check_price_above,
-    "daily_move_gt": check_daily_move_gt,
-    "drawdown_52w_gt": check_drawdown_52w_gt,
-    "rsi_below": check_rsi_below,
-    "crossed_50dma": check_crossed_50dma,
-    "crossed_200dma": check_crossed_200dma,
-    "new_sec_filing": check_new_sec_filing,
-    "news_keyword_match": check_news_keyword_match,
-    "earnings_within_days": check_earnings_within_days,
-    "entered_pullback_zone": check_entered_pullback_zone,
-}
-RULE_DEFINITIONS = build_rule_registry(RULE_CHECKERS)
+RULE_DEFINITIONS = build_rule_registry(
+    {
+        "price_below": check_price_below,
+        "price_above": check_price_above,
+        "daily_move_gt": check_daily_move_gt,
+        "drawdown_52w_gt": check_drawdown_52w_gt,
+        "rsi_below": check_rsi_below,
+        "crossed_50dma": check_crossed_50dma,
+        "crossed_200dma": check_crossed_200dma,
+        "new_sec_filing": check_new_sec_filing,
+        "news_keyword_match": check_news_keyword_match,
+        "earnings_within_days": check_earnings_within_days,
+        "entered_pullback_zone": check_entered_pullback_zone,
+    }
+)
+RULE_CHECKERS = {k: v.evaluator for k, v in RULE_DEFINITIONS.items()}
 
 
 def evaluate_alert_for_company(
