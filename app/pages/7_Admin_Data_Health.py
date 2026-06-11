@@ -7,6 +7,9 @@ import streamlit as st
 from app.components.sidebar import render_sidebar_navigation
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
+from argus.core.timezones import format_et_datetime
+
+
 @st.cache_resource
 def get_db_engine():
     return create_migrated_database_engine(settings.database_url)
@@ -33,32 +36,22 @@ def _parse_date(val) -> date | None:
 def _format_dt(val) -> str:
     if val is None or pd.isna(val):
         return "N/A"
-    try:
-        dt = pd.to_datetime(val)
-        if dt.tz is None:
-            dt = dt.tz_localize("UTC")
-        else:
-            dt = dt.tz_convert("UTC")
-        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
-    except Exception:
-        return str(val)
+    formatted = format_et_datetime(val)
+    return formatted if formatted != "Never" else str(val)
 
 
 def _format_freshness_val(val, is_datetime: bool = False) -> str:
     if val is None or pd.isna(val):
         return "N/A"
-    try:
-        dt = pd.to_datetime(val)
-        if is_datetime:
-            if dt.tz is None:
-                dt = dt.tz_localize("UTC")
-            else:
-                dt = dt.tz_convert("UTC")
-            return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
-        else:
+    if is_datetime:
+        formatted = format_et_datetime(val)
+        return formatted if formatted != "Never" else str(val)
+    else:
+        try:
+            dt = pd.to_datetime(val)
             return dt.strftime("%Y-%m-%d")
-    except Exception:
-        return str(val)
+        except Exception:
+            return str(val)
 
 
 def render_page() -> None:
