@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 import logging
 from sqlalchemy.orm import Session
+from argus.alerts.rule_registry import build_rule_registry
 from argus.core.models import (
     Company,
     DailyMetric,
@@ -475,17 +476,18 @@ RULE_CHECKERS = {
     "earnings_within_days": check_earnings_within_days,
     "entered_pullback_zone": check_entered_pullback_zone,
 }
+RULE_DEFINITIONS = build_rule_registry(RULE_CHECKERS)
 
 
 def evaluate_alert_for_company(
     session: Session, alert: Alert, company: Company
 ) -> list[dict] | None:
-    checker = RULE_CHECKERS.get(alert.rule_type)
-    if not checker:
+    definition = RULE_DEFINITIONS.get(alert.rule_type)
+    if not definition or definition.evaluator is None:
         logger.error("Unknown alert rule type: %s", alert.rule_type)
         return None
     try:
-        return checker(session, alert, company)
+        return definition.evaluator(session, alert, company)
     except Exception:
         logger.exception("Error evaluating alert %s for company %s", alert.id, company.symbol)
         return None

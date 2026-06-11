@@ -363,6 +363,72 @@ def clone_index_definition(
     )
 
 
+def _load_price_matrix(
+    session: Session,
+    symbols: list[str],
+    *,
+    interval: str,
+) -> pd.DataFrame:
+    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
+    query = (
+        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
+        .join(Company, Company.id == PriceBar.company_id)
+        .filter(
+            Company.symbol.in_(symbols),
+            PriceBar.provider == settings.market_data_provider,
+            PriceBar.interval == interval,
+        )
+        .order_by(point_column.asc())
+    )
+    df = pd.read_sql_query(query.statement, session.connection())
+    if df.empty:
+        return pd.DataFrame()
+
+    df["date"] = pd.to_datetime(df["date"])
+    if interval == "15m":
+        df = filter_regular_market_hours(df)
+        if df.empty:
+            return pd.DataFrame()
+
+    pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
+    pivot_df = pivot_df.sort_index().astype(float)
+    if interval == "15m":
+        pivot_df = pivot_df.ffill(limit=4)
+    return pivot_df
+
+
+def _calculate_weighted_returns(price_matrix: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
+    returns_df = price_matrix.pct_change(fill_method=None)
+    weight_series = pd.Series(weights, dtype=float)
+    aligned_weights = weight_series.reindex(returns_df.columns).fillna(0.0)
+    valid_returns = returns_df.notna()
+    active_weight_total = valid_returns.multiply(aligned_weights, axis=1).sum(axis=1)
+    weighted_return_sum = returns_df.fillna(0.0).multiply(aligned_weights, axis=1).sum(axis=1)
+    weighted_returns = weighted_return_sum.divide(
+        active_weight_total.where(active_weight_total > 0)
+    )
+    return weighted_returns.fillna(0.0)
+
+
+def _calculate_equal_weight_returns(price_matrix: pd.DataFrame) -> pd.Series:
+    returns_df = price_matrix.pct_change(fill_method=None)
+    return returns_df.mean(axis=1, skipna=True).fillna(0.0)
+
+
+def _returns_to_index_values(
+    returns: pd.Series,
+    *,
+    base_value: float,
+    interval: str,
+) -> pd.DataFrame:
+    index_values = base_value * (1.0 + returns).cumprod()
+    result = index_values.reset_index()
+    result.columns = ["date", "index_value"]
+    if interval == "1d":
+        result["date"] = result["date"].dt.date
+    return result
+
+
 def calculate_weighted_index(
     session: Session,
     definition_id: int | None = None,
@@ -401,51 +467,17 @@ def calculate_weighted_index(
     if not weights:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
-    query = (
-        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
-        .join(Company, Company.id == PriceBar.company_id)
-        .filter(
-            Company.symbol.in_(list(weights)),
-            PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == interval,
-        )
-        .order_by(point_column.asc())
-    )
-    df = pd.read_sql_query(query.statement, session.connection())
-
-    if df.empty:
+    price_matrix = _load_price_matrix(session, list(weights), interval=interval)
+    if price_matrix.empty:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    df["date"] = pd.to_datetime(df["date"])
-    if interval == "15m":
-        df = filter_regular_market_hours(df)
-        if df.empty:
-            return pd.DataFrame(columns=["date", "index_value"])
-
-    pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
-    pivot_df = pivot_df.sort_index().astype(float)
-    if interval == "15m":
-        pivot_df = pivot_df.ffill(limit=4)
-
-    returns_df = pivot_df.pct_change(fill_method=None)
-    weight_series = pd.Series(weights, dtype=float)
-    aligned_weights = weight_series.reindex(returns_df.columns).fillna(0.0)
-    valid_returns = returns_df.notna()
-    active_weight_total = valid_returns.multiply(aligned_weights, axis=1).sum(axis=1)
-    weighted_return_sum = returns_df.fillna(0.0).multiply(aligned_weights, axis=1).sum(axis=1)
-    weighted_returns = weighted_return_sum.divide(
-        active_weight_total.where(active_weight_total > 0)
-    )
-    weighted_returns = weighted_returns.fillna(0.0)
-
     index_base_value = float(base_value if base_value is not None else definition.base_value)
-    index_values = index_base_value * (1.0 + weighted_returns).cumprod()
-    result = index_values.reset_index()
-    result.columns = ["date", "index_value"]
-    if interval == "1d":
-        result["date"] = result["date"].dt.date
-    return result
+    weighted_returns = _calculate_weighted_returns(price_matrix, weights)
+    return _returns_to_index_values(
+        weighted_returns,
+        base_value=index_base_value,
+        interval=interval,
+    )
 
 
 def calculate_equal_weight_index(
@@ -478,54 +510,12 @@ def calculate_equal_weight_index(
     if not symbols:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    point_column = PriceBar.bar_time if interval == "15m" else PriceBar.date
-    query = (
-        session.query(point_column.label("date"), Company.symbol, PriceBar.adj_close)
-        .join(Company, Company.id == PriceBar.company_id)
-        .filter(
-            Company.symbol.in_(symbols),
-            PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == interval,
-        )
-        .order_by(point_column.asc())
-    )
-    df = pd.read_sql_query(query.statement, session.connection())
-
-    if df.empty:
+    price_matrix = _load_price_matrix(session, symbols, interval=interval)
+    if price_matrix.empty:
         return pd.DataFrame(columns=["date", "index_value"])
 
-    df["date"] = pd.to_datetime(df["date"])
-    if interval == "15m":
-        df = filter_regular_market_hours(df)
-        if df.empty:
-            return pd.DataFrame(columns=["date", "index_value"])
-
-    # Pivot so each column represents a ticker, and the index represents dates
-    pivot_df = df.pivot(index="date", columns="symbol", values="adj_close")
-    pivot_df = pivot_df.sort_index().astype(float)
-    if interval == "15m":
-        pivot_df = pivot_df.ffill(limit=4)
-
-    # Calculate daily percentage returns (pct_change naturally handles NaNs)
-    returns_df = pivot_df.pct_change(fill_method=None)
-
-    # Calculate the average return across all tickers that have valid returns on each day
-    mean_returns = returns_df.mean(axis=1, skipna=True)
-
-    # The first row (and any day with absolutely no returns) is filled with 0
-    mean_returns = mean_returns.fillna(0.0)
-
-    # Chain returns using cumulative product
-    cumulative_returns = (1.0 + mean_returns).cumprod()
-
-    # Apply base value
-    index_values = base_value * cumulative_returns
-
-    result = index_values.reset_index()
-    result.columns = ["date", "index_value"]
-    if interval == "1d":
-        result["date"] = result["date"].dt.date
-    return result
+    mean_returns = _calculate_equal_weight_returns(price_matrix)
+    return _returns_to_index_values(mean_returns, base_value=base_value, interval=interval)
 
 
 def calculate_relative_performance(

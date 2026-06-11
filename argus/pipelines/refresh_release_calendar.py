@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 import logging
 
 import httpx
 
 from argus.core.db import get_insert_statement_producer, session_scope
-from argus.core.models import JobRun, MacroReleaseEvent, MacroSeries
+from argus.core.models import MacroReleaseEvent, MacroSeries
 from argus.core.settings import settings
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 
 logger = logging.getLogger(__name__)
 
@@ -23,40 +24,6 @@ FRED_RELEASE_NAMES: dict[int, str] = {
     10: "Consumer Price Index",
     51: "Producer Price Index",
 }
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_release_calendar", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id, job_name="refresh_release_calendar", started_at=_utc_now(), status=status
-            )
-            session.add(job)
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        job.error_text = error_text
 
 
 def fetch_fred_release_dates(
@@ -104,7 +71,7 @@ def refresh_release_calendar(
             "error_text": "FRED_API_KEY not configured",
         }
 
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_release_calendar")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -167,8 +134,9 @@ def refresh_release_calendar(
         error_text = str(exc)
         logger.exception("Release calendar refresh failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_release_calendar",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,

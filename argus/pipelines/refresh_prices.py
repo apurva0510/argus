@@ -147,7 +147,7 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
     error_text: str | None = None
 
     provider = get_market_data_provider()
-    if interval == "15m" and not hasattr(provider, "fetch_ohlcv_batch"):
+    if interval == "15m" and not provider.supports_intraday_batch:
         logger.warning(
             "Provider '%s' does not support intraday batch fetching. Falling back to yfinance.",
             provider.name,

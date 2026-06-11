@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pandas as pd
 import streamlit as st
 
-from app.components.sidebar import render_sidebar_navigation
 from app.auth_links import company_detail_url
 import os
-from argus.core.app_engine import create_migrated_database_engine
-
+from app.components.charts import apply_intraday_xaxis
+from app.components import formatting as fmt
+from app.components.metrics import (
+    render_metric_card,
+    render_plain_metric_card,
+    render_plain_metric_card_parts,
+)
+from app.components.sidebar import render_sidebar_navigation
+from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 from argus.analytics.market_hours import append_market_close_markers
+from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
-from argus.core.timezones import format_et_datetime, to_et_naive_series
+from argus.core.timezones import to_et_naive_series
 from argus.services.dashboard_service import (
     calculate_intraday_core_return_from_engine,
     filter_low_rsi,
@@ -21,13 +26,19 @@ from argus.services.dashboard_service import (
     rank_top_gainers,
     rank_top_losers,
 )
-from app.components.metrics import (
-    render_metric_card,
-    render_plain_metric_card,
-    render_plain_metric_card_parts,
+from argus.services import index_view_service
+
+_fmt_bps = fmt.format_bps
+_fmt_bps_colored = fmt.format_bps_colored
+_fmt_currency = fmt.format_currency
+_format_dt_et = fmt.format_et_or_never
+_fmt_pct = fmt.format_pct
+_fmt_pct_colored = fmt.format_pct_colored
+_fmt_plain_pct = fmt.format_plain_pct
+_fmt_yield_obs = fmt.format_yield_observation
+_daily_close_levels_from_session_returns = (
+    index_view_service.daily_close_levels_from_session_returns
 )
-from app.components.charts import apply_intraday_xaxis
-from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 
 
 @st.cache_resource
@@ -47,322 +58,14 @@ def load_intraday_core_return() -> float | None:
 
 @st.cache_data(ttl=300)
 def load_index_options() -> list[dict[str, object]]:
-    from sqlalchemy.orm import sessionmaker
-    from argus.analytics.index_builder import list_index_definitions
-
-    engine = get_dashboard_engine()
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as session:
-        return [
-            {"id": definition.id, "name": definition.name, "mode": definition.mode}
-            for definition in list_index_definitions(session)
-        ]
+    return index_view_service.load_index_options_from_engine(get_dashboard_engine())
 
 
 @st.cache_data(ttl=300)
 def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
-    from sqlalchemy.orm import sessionmaker
-    from argus.analytics.index_builder import (
-        calculate_relative_performance,
-        calculate_top_contributors_for_definition,
-        calculate_weighted_index,
-        get_index_weights,
+    return index_view_service.load_dashboard_index_data_from_engine(
+        get_dashboard_engine(), tf, index_definition_id
     )
-    from argus.analytics.market_hours import filter_latest_market_sessions
-    from argus.core.models import Company, PriceBar
-
-    engine = get_dashboard_engine()
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as session:
-        short_range = tf in {"1D", "5D"}
-        interval = "15m" if short_range else "1d"
-        index_df = calculate_weighted_index(
-            session,
-            definition_id=index_definition_id,
-            interval=interval,
-            use_precomputed=not short_range,
-        )
-        if index_df.empty:
-            return {}
-
-        if short_range:
-            index_df = filter_latest_market_sessions(index_df, 1 if tf == "1D" else 5)
-            if index_df.empty:
-                return {}
-
-        latest_point = pd.to_datetime(index_df["date"]).max()
-        if tf == "1D":
-            start_date = pd.to_datetime(index_df["date"]).min()
-        elif tf == "5D":
-            start_date = pd.to_datetime(index_df["date"]).min()
-        elif tf == "1M":
-            start_date = latest_point - pd.Timedelta(days=30)
-        elif tf == "3M":
-            start_date = latest_point - pd.Timedelta(days=90)
-        elif tf == "6M":
-            start_date = latest_point - pd.Timedelta(days=180)
-        elif tf == "1Y":
-            start_date = latest_point - pd.Timedelta(days=365)
-        else:
-            start_date = pd.to_datetime(index_df["date"]).min()
-
-        if not short_range:
-            start_date = pd.to_datetime(start_date).date()
-        latest_date_date = latest_point.date()
-
-        rel_df = calculate_relative_performance(
-            session,
-            index_df,
-            start_date,
-            interval=interval,
-        )
-        daily_close_levels = pd.DataFrame()
-        if not rel_df.empty:
-            rel_df["index_level"] = 100.0 + rel_df["index_ret"]
-            if "qqq_ret" in rel_df and not rel_df["qqq_ret"].isna().all():
-                rel_df["qqq_level"] = 100.0 + rel_df["qqq_ret"]
-            if "nvda_ret" in rel_df and not rel_df["nvda_ret"].isna().all():
-                rel_df["nvda_level"] = 100.0 + rel_df["nvda_ret"]
-
-            if short_range:
-                daily_index_df = calculate_weighted_index(
-                    session,
-                    definition_id=index_definition_id,
-                    interval="1d",
-                    use_precomputed=True,
-                )
-                if daily_index_df.empty:
-                    daily_index_df = calculate_weighted_index(
-                        session,
-                        definition_id=index_definition_id,
-                        interval="1d",
-                        use_precomputed=False,
-                    )
-                if not daily_index_df.empty:
-                    daily_close_levels = _daily_close_levels_from_session_returns(
-                        rel_df,
-                        daily_index_df,
-                        daily_value_column="index_value",
-                        output_column="index_level",
-                    )
-
-                benchmark_bases = {}
-                for symbol in ("QQQ", "NVDA"):
-                    close_column = f"{symbol.lower()}_level"
-                    if close_column not in rel_df or rel_df[close_column].isna().all():
-                        continue
-                    intraday_bench = (
-                        session.query(PriceBar.adj_close)
-                        .join(Company, Company.id == PriceBar.company_id)
-                        .filter(
-                            Company.symbol == symbol,
-                            PriceBar.provider == settings.market_data_provider,
-                            PriceBar.interval == "15m",
-                            PriceBar.bar_time >= start_date,
-                        )
-                        .order_by(PriceBar.bar_time.asc())
-                        .first()
-                    )
-                    if intraday_bench and intraday_bench[0]:
-                        benchmark_bases[symbol] = float(intraday_bench[0])
-
-                if benchmark_bases:
-                    benchmark_daily = pd.read_sql_query(
-                        session.query(PriceBar.date, Company.symbol, PriceBar.adj_close)
-                        .join(Company, Company.id == PriceBar.company_id)
-                        .filter(
-                            Company.symbol.in_(list(benchmark_bases)),
-                            PriceBar.provider == settings.market_data_provider,
-                            PriceBar.interval == "1d",
-                        )
-                        .order_by(PriceBar.date.asc())
-                        .statement,
-                        session.connection(),
-                    )
-                    if not benchmark_daily.empty:
-                        for symbol in benchmark_bases:
-                            level_column = f"{symbol.lower()}_level"
-                            symbol_daily = benchmark_daily[
-                                benchmark_daily["symbol"] == symbol
-                            ].copy()
-                            if symbol_daily.empty:
-                                continue
-                            symbol_close_levels = _daily_close_levels_from_session_returns(
-                                rel_df,
-                                symbol_daily,
-                                daily_value_column="adj_close",
-                                output_column=level_column,
-                            )
-                            if symbol_close_levels.empty:
-                                continue
-                            if daily_close_levels.empty:
-                                daily_close_levels = symbol_close_levels.copy()
-                            else:
-                                daily_close_levels = daily_close_levels.merge(
-                                    symbol_close_levels,
-                                    on="date",
-                                    how="outer",
-                                )
-
-        weights = get_index_weights(session, index_definition_id)
-        symbols = list(weights)
-
-        date_1m = latest_date_date - pd.Timedelta(days=30)
-        date_3m = latest_date_date - pd.Timedelta(days=90)
-        date_ytd = datetime(latest_date_date.year - 1, 12, 31).date()
-
-        contrib_1m = calculate_top_contributors_for_definition(
-            session,
-            index_definition_id,
-            date_1m,
-            latest_date_date,
-        )
-        contrib_3m = calculate_top_contributors_for_definition(
-            session,
-            index_definition_id,
-            date_3m,
-            latest_date_date,
-        )
-        contrib_ytd = calculate_top_contributors_for_definition(
-            session,
-            index_definition_id,
-            date_ytd,
-            latest_date_date,
-        )
-
-        return {
-            "rel_df": rel_df,
-            "contrib_1m": contrib_1m,
-            "contrib_3m": contrib_3m,
-            "contrib_ytd": contrib_ytd,
-            "constituent_count": len(symbols),
-            "interval": interval,
-            "daily_close_levels": daily_close_levels,
-        }
-
-
-def _format_dt_et(val) -> str:
-    if val is None or pd.isna(val):
-        return "Never"
-    formatted = format_et_datetime(val)
-    return formatted if formatted != "Never" else str(val)
-
-
-def _fmt_pct(value: float | None, digits: int = 2) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{value * 100:+.{digits}f}%"
-
-
-def _fmt_plain_pct(value: float | None, digits: int = 2) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{value * 100:.{digits}f}%"
-
-
-def _daily_close_levels_from_session_returns(
-    intraday_frame: pd.DataFrame,
-    daily_frame: pd.DataFrame,
-    *,
-    daily_value_column: str,
-    output_column: str,
-) -> pd.DataFrame:
-    """Map official daily returns onto each session's intraday opening level."""
-    if (
-        intraday_frame.empty
-        or daily_frame.empty
-        or "date" not in intraday_frame
-        or "date" not in daily_frame
-        or output_column not in intraday_frame
-        or daily_value_column not in daily_frame
-    ):
-        return pd.DataFrame(columns=["date", output_column])
-
-    intraday = intraday_frame[["date", output_column]].copy()
-    intraday["session_date"] = pd.to_datetime(to_et_naive_series(intraday["date"])).dt.date
-    intraday[output_column] = pd.to_numeric(intraday[output_column], errors="coerce")
-    session_open_levels = (
-        intraday.dropna(subset=[output_column])
-        .sort_values("date")
-        .groupby("session_date", as_index=False)[output_column]
-        .first()
-    )
-    if session_open_levels.empty:
-        return pd.DataFrame(columns=["date", output_column])
-
-    daily = daily_frame[["date", daily_value_column]].copy()
-    daily["date"] = pd.to_datetime(daily["date"]).dt.date
-    daily[daily_value_column] = pd.to_numeric(daily[daily_value_column], errors="coerce")
-    daily = daily.dropna(subset=[daily_value_column]).sort_values("date")
-    daily["session_return"] = daily[daily_value_column] / daily[daily_value_column].shift(1) - 1.0
-
-    close_levels = session_open_levels.merge(
-        daily[["date", "session_return"]],
-        left_on="session_date",
-        right_on="date",
-        how="inner",
-    ).dropna(subset=["session_return"])
-    if close_levels.empty:
-        return pd.DataFrame(columns=["date", output_column])
-
-    close_levels[output_column] = close_levels[output_column] * (
-        1.0 + close_levels["session_return"]
-    )
-    return pd.DataFrame(
-        {
-            "date": close_levels["session_date"],
-            output_column: close_levels[output_column],
-        }
-    )
-
-
-def _fmt_bps(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{value:+.0f} bps"
-
-
-def _fmt_pct_colored(value: float | None, *, positive_is_bad: bool = False) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    pct_val = value * 100
-    formatted = f"{pct_val:+.2f}%"
-    if pct_val == 0:
-        return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
-    is_bad = pct_val > 0 if positive_is_bad else pct_val < 0
-    color = "#f85149" if is_bad else "#3fb950"
-    return f"<span style='color: {color}; font-weight: 600;'>{formatted}</span>"
-
-
-def _fmt_bps_colored(value: float | None, *, positive_is_bad: bool = False) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    formatted = f"{value:+.0f} bps"
-    if value == 0:
-        return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
-    is_bad = value > 0 if positive_is_bad else value < 0
-    color = "#f85149" if is_bad else "#3fb950"
-    return f"<span style='color: {color}; font-weight: 600;'>{formatted}</span>"
-
-
-def _fmt_yield_obs(observation: object) -> str:
-    if not isinstance(observation, dict) or observation.get("value") is None:
-        return "n/a"
-    return f"{float(observation['value']):.2f}%"
-
-
-def _fmt_currency(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    abs_value = abs(float(value))
-    sign = "-" if float(value) < 0 else ""
-    if abs_value >= 1_000_000_000_000:
-        return f"{sign}${abs_value / 1_000_000_000_000:.2f}T"
-    if abs_value >= 1_000_000_000:
-        return f"{sign}${abs_value / 1_000_000_000:.2f}B"
-    if abs_value >= 1_000_000:
-        return f"{sign}${abs_value / 1_000_000:.2f}M"
-    return f"{sign}${abs_value:,.0f}"
 
 
 def _ticker_link_column_config() -> dict[str, object]:

@@ -5,36 +5,49 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
+from app.components import formatting as fmt
+from app.auth_links import company_detail_url
+from app.components.charts import apply_intraday_xaxis
+from app.components.metrics import render_metric_card, render_plain_metric_card
 from app.components.sidebar import render_sidebar_navigation
-
 from argus.analytics.market_hours import (
     MARKET_TZ,
     append_market_close_markers,
     filter_latest_market_sessions,
 )
+from argus.core.app_engine import create_migrated_database_engine
 from argus.core.seed import WATCH_STATUSES
+from argus.core.settings import settings
 from argus.services.company_service import (
-    build_relative_performance_frame,
-    get_company_options,
-    get_company_by_symbol,
-    get_company_metrics,
-    get_company_price_history,
-    get_company_fundamentals,
-    get_company_news,
-    get_company_filings,
-    get_company_notes,
     add_company_note,
+    build_relative_performance_frame,
+    get_company_by_symbol,
+    get_company_filings,
+    get_company_fundamentals,
+    get_company_metrics,
+    get_company_news,
+    get_company_options,
+    get_company_price_history,
+    get_company_notes,
     get_watch_status,
-    update_watch_status,
     get_watchlist_notes,
+    update_watch_status,
 )
-from app.components.metrics import render_metric_card, render_plain_metric_card
-from app.components.charts import apply_intraday_xaxis
+from argus.services.index_view_service import (
+    load_index_options_from_engine,
+    load_index_relative_returns_from_engine,
+)
 from html import escape
 from textwrap import dedent
-from app.auth_links import company_detail_url
 
 get_relative_perf_df = build_relative_performance_frame
+_fmt_as_of_date = fmt.format_as_of_date
+_fmt_pct = fmt.format_pct
+_fmt_pct_colored = fmt.format_pct_colored
+_fmt_price = fmt.format_price
+_fmt_price_range = fmt.format_price_range
+_fmt_multiple = fmt.format_multiple
+_fmt_large_num = fmt.format_large_number
 
 
 def _html(value: object) -> str:
@@ -92,20 +105,6 @@ def _to_et(val) -> datetime | None:
         return None
 
 
-def _fmt_as_of_date(val) -> str:
-    if val is None or pd.isna(val):
-        return "n/a"
-    try:
-        dt = pd.to_datetime(val)
-    except Exception:
-        return str(val)
-    if getattr(dt, "tzinfo", None) is not None:
-        return dt.tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
-    if isinstance(val, datetime) or (" " in str(val) or "T" in str(val)):
-        return dt.tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d %I:%M %p ET")
-    return dt.strftime("%Y-%m-%d")
-
-
 @st.cache_data(ttl=300)
 def load_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
     return get_company_price_history(company_id, interval=interval)
@@ -113,18 +112,8 @@ def load_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_index_options() -> list[dict[str, object]]:
-    from argus.core.app_engine import create_migrated_database_engine
-    from argus.core.settings import settings
-    from sqlalchemy.orm import sessionmaker
-    from argus.analytics.index_builder import list_index_definitions
-
     engine = create_migrated_database_engine(settings.database_url)
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as session:
-        return [
-            {"id": definition.id, "name": definition.name, "mode": definition.mode}
-            for definition in list_index_definitions(session)
-        ]
+    return load_index_options_from_engine(engine)
 
 
 @st.cache_data(ttl=300)
@@ -133,43 +122,10 @@ def load_index_relative_returns(
     interval: str = "1d",
     index_definition_id: int | None = None,
 ) -> pd.DataFrame:
-    from argus.core.app_engine import create_migrated_database_engine
-    from argus.core.settings import settings
-    from sqlalchemy.orm import sessionmaker
-    from argus.analytics.index_builder import (
-        calculate_relative_performance,
-        calculate_weighted_index,
-    )
-
     engine = create_migrated_database_engine(settings.database_url)
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as session:
-        interval = interval.strip().lower()
-        index_df = calculate_weighted_index(
-            session,
-            definition_id=index_definition_id,
-            interval=interval,
-            use_precomputed=interval == "1d",
-        )
-        if index_df.empty:
-            return pd.DataFrame()
-
-        # Convert start_date from America/New_York naive datetime to UTC naive datetime for comparison in SQL/Pandas
-        if interval == "15m" and start_date is not None:
-            start_date_utc = (
-                pd.to_datetime(start_date)
-                .tz_localize("America/New_York")
-                .tz_convert("UTC")
-                .tz_localize(None)
-                .to_pydatetime()
-            )
-        else:
-            start_date_utc = start_date
-
-        rel_df = calculate_relative_performance(
-            session, index_df, start_date_utc, interval=interval
-        )
-        return rel_df
+    return load_index_relative_returns_from_engine(
+        engine, start_date, interval, index_definition_id
+    )
 
 
 @st.cache_data(ttl=300)
@@ -185,38 +141,6 @@ def load_company_news(company_id: int) -> list[dict]:
 @st.cache_data(ttl=300)
 def load_company_filings(company_id: int) -> list[dict]:
     return get_company_filings(company_id)
-
-
-def _fmt_pct(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{value * 100:+.2f}%"
-
-
-def _fmt_pct_colored(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    pct_val = value * 100
-    formatted = f"{pct_val:+.2f}%"
-    if pct_val > 0:
-        return f"<span style='color: #3fb950; font-weight: 600;'>{formatted}</span>"
-    elif pct_val < 0:
-        return f"<span style='color: #f85149; font-weight: 600;'>{formatted}</span>"
-    else:
-        return f"<span style='color: #8b949e; font-weight: 600;'>{formatted}</span>"
-
-
-def _fmt_price(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"${value:.2f}"
-
-
-def _fmt_price_range(low: float | None, high: float | None) -> str:
-    if low is None or high is None or pd.isna(low) or pd.isna(high):
-        return "n/a"
-    # Two literal dollar signs are parsed as inline LaTeX by st.markdown.
-    return f"&#36;{low:.2f} - &#36;{high:.2f}"
 
 
 def _interval_for_timeframe(tf: str) -> str:
@@ -324,28 +248,6 @@ def _latest_price_from_history(daily_prices: pd.DataFrame, intraday_prices: pd.D
         latest_daily_idx = daily_dates.idxmax()
         return daily_prices.loc[latest_daily_idx, "adj_close"]
     return None
-
-
-def _fmt_multiple(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    return f"{value:.2f}"
-
-
-def _fmt_large_num(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    is_neg = value < 0
-    abs_val = abs(value)
-    if abs_val >= 1e12:
-        formatted = f"${abs_val / 1e12:.2f}T"
-    elif abs_val >= 1e9:
-        formatted = f"${abs_val / 1e9:.2f}B"
-    elif abs_val >= 1e6:
-        formatted = f"${abs_val / 1e6:.2f}M"
-    else:
-        formatted = f"${abs_val:,.2f}"
-    return f"-{formatted}" if is_neg else formatted
 
 
 def render_company_detail() -> None:

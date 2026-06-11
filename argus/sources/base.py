@@ -1,5 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+
 import pandas as pd
 
 
@@ -18,6 +20,19 @@ class BaseMarketDataProvider(ABC):
         ['date', 'open', 'high', 'low', 'close', 'adj_close', 'volume']
         """
         pass
+
+    @property
+    def supports_intraday_batch(self) -> bool:
+        return False
+
+    def fetch_ohlcv_batch(
+        self,
+        symbols: Sequence[str],
+        *,
+        period: str,
+        interval: str,
+    ) -> dict[str, pd.DataFrame]:
+        raise NotImplementedError(f"{self.name} does not support batched OHLCV fetching")
 
     @abstractmethod
     def is_available(self) -> bool:

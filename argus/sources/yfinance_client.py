@@ -152,6 +152,10 @@ class YFinanceProvider(BaseMarketDataProvider):
     def is_available(self) -> bool:
         return True
 
+    @property
+    def supports_intraday_batch(self) -> bool:
+        return True
+
     def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
         return fetch_daily_ohlcv(symbol, period)
 

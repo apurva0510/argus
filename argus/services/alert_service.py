@@ -3,24 +3,14 @@ from __future__ import annotations
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from argus.alerts import rule_registry
 from argus.core.db import session_scope
 from argus.core.models import Alert, AlertEvent
 
-ALERT_RULE_TYPES = {
-    "price_below",
-    "price_above",
-    "daily_move_gt",
-    "drawdown_52w_gt",
-    "rsi_below",
-    "crossed_50dma",
-    "crossed_200dma",
-    "new_sec_filing",
-    "news_keyword_match",
-    "earnings_within_days",
-    "entered_pullback_zone",
-}
-ALERT_DIRECTIONS = {"any", "above", "below"}
-ALERT_FORM_TYPES = {"10-K", "10-Q", "8-K", "6-K", "20-F", "40-F"}
+ALERT_RULE_TYPES = rule_registry.ALERT_RULE_TYPES
+ALERT_DIRECTIONS = rule_registry.ALERT_DIRECTIONS
+ALERT_FORM_TYPES = rule_registry.ALERT_FORM_TYPES
+validate_alert_config = rule_registry.validate_alert_config
 
 
 def get_all_alerts(engine: Engine) -> pd.DataFrame:
@@ -107,72 +97,6 @@ def create_alert(
         session.add(alert)
         session.flush()
         return alert.id
-
-
-def validate_alert_config(rule_type: str, config_json: dict | None) -> dict | None:
-    if rule_type not in ALERT_RULE_TYPES:
-        raise ValueError(f"Unknown alert rule type: {rule_type}")
-
-    config = config_json or {}
-    if rule_type in {"price_below", "price_above", "rsi_below"}:
-        return {"threshold": _required_float(config, "threshold")}
-    if rule_type in {"daily_move_gt", "drawdown_52w_gt"}:
-        return {"threshold_pct": _required_float(config, "threshold_pct")}
-    if rule_type in {"crossed_50dma", "crossed_200dma"}:
-        direction = str(config.get("direction", "any")).strip().lower()
-        if direction not in ALERT_DIRECTIONS:
-            raise ValueError("direction must be one of: any, above, below")
-        return {"direction": direction}
-    if rule_type == "new_sec_filing":
-        forms = config.get("forms")
-        if not forms:
-            return None
-        if isinstance(forms, str):
-            forms = [forms]
-        cleaned_forms = [str(form).strip().upper() for form in forms if str(form).strip()]
-        invalid_forms = [form for form in cleaned_forms if form not in ALERT_FORM_TYPES]
-        if invalid_forms:
-            raise ValueError(f"Unsupported SEC form type(s): {', '.join(invalid_forms)}")
-        return {"forms": cleaned_forms} if cleaned_forms else None
-    if rule_type == "news_keyword_match":
-        keywords = config.get("keywords")
-        if keywords is None:
-            return None
-        if isinstance(keywords, str):
-            cleaned_keywords = [kw.strip() for kw in keywords.split(",") if kw.strip()]
-        else:
-            cleaned_keywords = [str(kw).strip() for kw in keywords if str(kw).strip()]
-        return {"keywords": cleaned_keywords} if cleaned_keywords else None
-    if rule_type == "earnings_within_days":
-        days = int(_required_float(config, "days"))
-        if days < 1:
-            raise ValueError("days must be at least 1")
-        return {"days": days}
-    if rule_type == "entered_pullback_zone":
-        return {
-            "min_drawdown_pct": _optional_float(config, "min_drawdown_pct", 10.0),
-            "max_rsi": _optional_float(config, "max_rsi", 55.0),
-            "min_distance_from_200dma": _optional_float(config, "min_distance_from_200dma", -5.0),
-        }
-    return None
-
-
-def _required_float(config: dict, key: str) -> float:
-    if key not in config or config[key] is None:
-        raise ValueError(f"{key} is required")
-    return _coerce_float(config[key], key)
-
-
-def _optional_float(config: dict, key: str, default: float) -> float:
-    value = config.get(key, default)
-    return _coerce_float(value, key)
-
-
-def _coerce_float(value, key: str) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} must be numeric") from exc
 
 
 def toggle_alert(alert_id: int, is_enabled: bool) -> bool:

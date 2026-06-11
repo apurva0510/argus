@@ -1,54 +1,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from sqlalchemy import select
 import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
-from argus.core.models import Company, JobRun, FundamentalsSnapshot
+from argus.core.models import Company, FundamentalsSnapshot
+from argus.pipelines.job_runs import create_job_run, finish_job_run, utc_now
 from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_fundamentals", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    failed_symbols: list[str],
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id, job_name="refresh_fundamentals", started_at=_utc_now(), status=status
-            )
-            session.add(job)
-
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        if error_text:
-            job.error_text = error_text
-        elif failed_symbols:
-            job.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
 
 
 def _upsert_fundamentals_snapshot(session, company_id: int, snapshot: dict) -> int:
@@ -76,13 +37,13 @@ def _upsert_fundamentals_snapshot(session, company_id: int, snapshot: dict) -> i
 
 def refresh_fundamentals() -> dict[str, object]:
     """Refresh company key fundamentals metrics from yfinance for active companies."""
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_fundamentals")
     rows_read = 0
     rows_written = 0
     failed_symbols: list[str] = []
     status = "success"
     error_text: str | None = None
-    today = _utc_now().date()
+    today = utc_now().date()
 
     try:
         with session_scope() as session:
@@ -136,13 +97,18 @@ def refresh_fundamentals() -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Fundamentals refresh pipeline failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_fundamentals",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_symbols=failed_symbols,
-            error_text=error_text,
+            error_text=error_text
+            or (
+                f"Failed symbols: {', '.join(sorted(failed_symbols))}"
+                if failed_symbols
+                else None
+            ),
         )
 
     return {
