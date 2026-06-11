@@ -9,8 +9,9 @@ import httpx
 from sqlalchemy import select
 
 from argus.core.db import session_scope
-from argus.core.models import Company, JobRun
+from argus.core.models import Company
 from argus.core.settings import settings
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
@@ -51,46 +52,21 @@ def _rate_limit() -> None:
     _last_ir_request_at = time.monotonic()
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_ir_feeds", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
+def _job_error_text(
     provider_outcomes: dict[str, str] | None = None,
     error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id, job_name="refresh_ir_feeds", started_at=_utc_now(), status=status
-            )
-            session.add(job)
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
+) -> str | None:
+    parts = []
+    if provider_outcomes:
+        outcome_parts = [
+            f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
+        ]
+        parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
 
-        parts = []
-        if provider_outcomes:
-            outcome_parts = [
-                f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
-            ]
-            parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
+    if error_text:
+        parts.append(error_text)
 
-        if error_text:
-            parts.append(error_text)
-
-        job.error_text = "; ".join(parts) if parts else None
+    return "; ".join(parts) if parts else None
 
 
 def fetch_ir_feed(symbol: str, url: str) -> list[dict]:
@@ -138,7 +114,7 @@ def fetch_ir_feed(symbol: str, url: str) -> list[dict]:
 
 
 def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_ir_feeds")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -233,13 +209,16 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
         errors.append(str(exc))
         logger.exception("IR feed refresh failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_ir_feeds",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            provider_outcomes=provider_outcomes,
-            error_text="; ".join(dict.fromkeys(errors)) if errors else None,
+            error_text=_job_error_text(
+                provider_outcomes=provider_outcomes,
+                error_text="; ".join(dict.fromkeys(errors)) if errors else None,
+            ),
         )
 
     return {
