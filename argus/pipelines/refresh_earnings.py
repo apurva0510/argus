@@ -7,7 +7,7 @@ import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, EarningsEvent
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
@@ -48,14 +48,9 @@ def _upsert_earnings_event_rows(session, company_id: int, events: list[dict]) ->
 
 def refresh_earnings() -> dict[str, object]:
     """Refresh upcoming earnings dates from yfinance for active companies."""
-    job_id = create_job_run("refresh_earnings")
-    rows_read = 0
-    rows_written = 0
     failed_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
 
-    try:
+    with job_run_context("refresh_earnings") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             for company in companies:
@@ -96,8 +91,8 @@ def refresh_earnings() -> dict[str, object]:
                             )
 
                     if events:
-                        rows_read += len(events)
-                        rows_written += _upsert_earnings_event_rows(session, company.id, events)
+                        state.rows_read += len(events)
+                        state.rows_written += _upsert_earnings_event_rows(session, company.id, events)
 
                 except Exception as exc:
                     logger.warning("Failed to fetch earnings for %s: %s", company.symbol, exc)
@@ -105,32 +100,19 @@ def refresh_earnings() -> dict[str, object]:
                     continue
 
             if failed_symbols:
-                status = "partial_success"
+                state.status = "partial_success"
                 logger.warning("Earnings refresh failed for symbols: %s", ",".join(failed_symbols))
 
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Earnings refresh pipeline failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_earnings",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text
-            or (
+            state.error_text = state.error_text or (
                 f"Failed symbols: {', '.join(sorted(failed_symbols))}"
                 if failed_symbols
                 else None
-            ),
-        )
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_symbols": failed_symbols,
-        "error_text": error_text,
+        "error_text": state.error_text if state.status == "failed" else None,
     }

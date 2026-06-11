@@ -9,7 +9,7 @@ import pandas as pd
 
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import MacroObservation, MacroSeries
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import execute_provider_request
 from argus.sources.eia_client import fetch_eia_series, is_eia_available
 
@@ -261,16 +261,11 @@ def refresh_macro(
     series_codes: list[str] | None = None,
     client: httpx.Client | None = None,
 ) -> dict[str, object]:
-    job_id = create_job_run("refresh_macro")
-    rows_read = 0
-    rows_written = 0
     failed_series: list[str] = []
-    status = "success"
-    error_text: str | None = None
     definitions = {definition.code: definition for definition in MACRO_SERIES}
     selected_codes = series_codes or [definition.code for definition in MACRO_SERIES]
 
-    try:
+    with job_run_context("refresh_macro") as state:
         with session_scope() as session:
             for code in selected_codes:
                 definition = definitions.get(code)
@@ -308,8 +303,8 @@ def refresh_macro(
                             client=client,
                             data_column=data_column,
                         )
-                        rows_read += len(observations)
-                        rows_written += _upsert_observations(
+                        state.rows_read += len(observations)
+                        state.rows_written += _upsert_observations(
                             session, code, observations, provider="eia"
                         )
                     else:
@@ -320,8 +315,8 @@ def refresh_macro(
                             code,
                             client=client,
                         )
-                        rows_read += len(observations)
-                        rows_written += _upsert_observations(
+                        state.rows_read += len(observations)
+                        state.rows_written += _upsert_observations(
                             session, code, observations, provider="fred"
                         )
                 except Exception as exc:
@@ -329,30 +324,18 @@ def refresh_macro(
                     failed_series.append(code)
 
             if failed_series:
-                status = "partial_success" if rows_written else "failed"
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Macro refresh pipeline failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_macro",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text
-            or (
+                state.status = "partial_success" if state.rows_written else "failed"
+
+            state.error_text = state.error_text or (
                 f"Failed series: {', '.join(sorted(failed_series))}"
                 if failed_series
                 else None
-            ),
-        )
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_series": failed_series,
-        "error_text": error_text,
+        "error_text": state.error_text if state.status == "failed" else None,
     }

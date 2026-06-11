@@ -6,7 +6,7 @@ from sqlalchemy import delete
 
 from argus.core.db import session_scope
 from argus.core.models import Company, IndexDefinition, IndexValue, PriceBar
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.core.settings import settings
 from argus.analytics.index_builder import (
     calculate_weighted_index,
@@ -24,14 +24,7 @@ def _utc_now() -> datetime:
 
 def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
     """Calculate an index definition's values and persist them to the database."""
-    job_id = create_job_run("refresh_index")
-
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text = None
-
-    try:
+    with job_run_context("refresh_index") as state:
         with session_scope() as session:
             default_definition = ensure_default_index_definition(session)
             definition = (
@@ -45,7 +38,7 @@ def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
             weights = get_index_weights(session, definition.id)
             symbols = list(weights)
             if symbols:
-                rows_read = (
+                state.rows_read = (
                     session.query(PriceBar)
                     .join(Company, Company.id == PriceBar.company_id)
                     .filter(
@@ -80,33 +73,19 @@ def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
 
                 if values:
                     session.execute(IndexValue.__table__.insert(), values)
-                    rows_written = len(values)
+                    state.rows_written = len(values)
 
             logger.info(
                 "Successfully refreshed %d index value rows for %s",
-                rows_written,
+                state.rows_written,
                 definition.name,
             )
 
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Core Index calculation and refresh pipeline failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_index",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
-
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }
 
 

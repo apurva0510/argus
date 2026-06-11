@@ -20,7 +20,7 @@ from argus.analytics.relative_strength import relative_return
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, DailyMetric, PriceBar
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 
 logger = logging.getLogger(__name__)
 
@@ -215,14 +215,8 @@ def _supports_daily_metrics_unique_key(session) -> bool:
 
 
 def compute_daily_metrics() -> dict[str, object]:
-    job_id = create_job_run("compute_daily_metrics")
-    rows_read = 0
-    rows_written = 0
     failed_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
-
-    try:
+    with job_run_context("compute_daily_metrics") as state:
         with session_scope() as session:
             company_rows = session.query(Company).filter(Company.is_active.is_(True)).all()
             company_by_symbol = {company.symbol: company for company in company_rows}
@@ -252,46 +246,30 @@ def compute_daily_metrics() -> dict[str, object]:
             for company in company_rows:
                 try:
                     frame = _load_price_frame(session, company.id)
-                    rows_read += len(frame)
+                    state.rows_read += len(frame)
                     metrics_frame = _compute_company_metrics(frame, qqq_series, nvda_series)
                     if use_bulk_upsert:
-                        rows_written += _bulk_upsert_daily_metrics(
+                        state.rows_written += _bulk_upsert_daily_metrics(
                             session, company.id, metrics_frame
                         )
                     else:
-                        rows_written += _upsert_daily_metrics(session, company.id, metrics_frame)
+                        state.rows_written += _upsert_daily_metrics(session, company.id, metrics_frame)
                 except Exception:
                     logger.exception("Failed computing metrics for %s", company.symbol)
                     failed_symbols.append(company.symbol)
 
             if failed_symbols:
-                status = "partial_success"
+                state.status = "partial_success"
                 logger.warning(
                     "Metric computation failed for symbols: %s", ",".join(failed_symbols)
                 )
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Metric computation failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "compute_daily_metrics",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text
-            or (
-                f"Failed symbols: {', '.join(sorted(failed_symbols))}"
-                if failed_symbols
-                else None
-            ),
-        )
+                state.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_symbols": failed_symbols,
-        "error_text": error_text,
+        "error_text": state.error_text,
     }
+

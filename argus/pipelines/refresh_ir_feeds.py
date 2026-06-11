@@ -11,7 +11,7 @@ from sqlalchemy import select
 from argus.core.db import session_scope
 from argus.core.models import Company
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
@@ -114,14 +114,10 @@ def fetch_ir_feed(symbol: str, url: str) -> list[dict]:
 
 
 def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
-    job_id = create_job_run("refresh_ir_feeds")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
     errors: list[str] = []
     provider_outcomes: dict[str, str] = {}
 
-    try:
+    with job_run_context("refresh_ir_feeds") as state:
         with session_scope() as session:
             now = _utc_now()
             companies = session.scalars(
@@ -177,7 +173,7 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                         provider_outcomes["ir_feed"] = "failure"
                     continue
 
-                rows_read += len(articles)
+                state.rows_read += len(articles)
                 for article in articles:
                     mentions = detect_mentions_and_keywords(
                         article["title"],
@@ -193,37 +189,26 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                                 "matched_keywords": company.symbol,
                             }
                         )
-                    rows_written += _upsert_news_item(session, article, mentions)
+                    state.rows_written += _upsert_news_item(session, article, mentions)
 
             if errors:
                 has_provider_cooldown = any(
                     "disabled until tomorrow due to rate limit" in error for error in errors
                 )
-                status = (
+                state.status = (
                     "partial_success"
-                    if has_provider_cooldown or rows_read or rows_written
+                    if has_provider_cooldown or state.rows_read or state.rows_written
                     else "failed"
                 )
-    except Exception as exc:
-        status = "failed"
-        errors.append(str(exc))
-        logger.exception("IR feed refresh failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_ir_feeds",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=_job_error_text(
+
+            state.error_text = _job_error_text(
                 provider_outcomes=provider_outcomes,
                 error_text="; ".join(dict.fromkeys(errors)) if errors else None,
-            ),
-        )
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": "; ".join(dict.fromkeys(errors)) if errors else None,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }

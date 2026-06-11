@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
+import logging
 
 from argus.core.db import session_scope
 from argus.core.models import JobRun
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -38,3 +42,34 @@ def finish_job_run(
         job.rows_read = rows_read
         job.rows_written = rows_written
         job.error_text = error_text
+
+
+class JobRunState:
+    def __init__(self, job_id: int):
+        self.job_id = job_id
+        self.rows_read = 0
+        self.rows_written = 0
+        self.status = "success"
+        self.error_text = None
+
+
+@contextmanager
+def job_run_context(job_name: str):
+    job_id = create_job_run(job_name)
+    state = JobRunState(job_id)
+    try:
+        yield state
+    except Exception as exc:
+        state.status = "failed"
+        state.error_text = str(exc)
+        logger.exception("Job %s failed", job_name)
+    finally:
+        finish_job_run(
+            state.job_id,
+            job_name,
+            status=state.status,
+            rows_read=state.rows_read,
+            rows_written=state.rows_written,
+            error_text=state.error_text,
+        )
+

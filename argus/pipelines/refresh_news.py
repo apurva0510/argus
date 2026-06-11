@@ -11,19 +11,41 @@ from argus.analytics.news_signals import score_news_article
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, NewsItem, NewsMention
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
     get_provider_health,
     execute_provider_request,
 )
-from argus.sources.gdelt_client import fetch_gdelt_news_query
-from argus.sources.news_rss_client import NewsProviderRateLimitError, fetch_rss_news_query
+from argus.sources.base import BaseNewsProvider
+from argus.sources.gdelt_client import GdeltNewsProvider, fetch_gdelt_news_query
+from argus.sources.news_rss_client import (
+    NewsProviderRateLimitError,
+    YahooRssNewsProvider,
+    fetch_rss_news_query,
+)
 
 logger = logging.getLogger(__name__)
 fetch_rss_news = fetch_rss_news_query
 fetch_gdelt_news = fetch_gdelt_news_query
+
+
+class refresh_news_rss_provider(YahooRssNewsProvider):
+    def fetch_news(self, query: str) -> list[dict]:
+        return fetch_rss_news(query)
+
+
+class refresh_news_gdelt_provider(GdeltNewsProvider):
+    def fetch_news(self, query: str) -> list[dict]:
+        return fetch_gdelt_news(query, timespan="1d")
+
+
+NEWS_PROVIDERS: list[BaseNewsProvider] = [
+    refresh_news_rss_provider(),
+    refresh_news_gdelt_provider(),
+]
+
 
 NEWS_QUERIES = [
     "data center AI infrastructure power demand grid",
@@ -375,12 +397,8 @@ def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         return 1 if written > 0 else 0
 
 
-def _fetch_provider_query(provider: str, query: str) -> list[dict]:
-    if provider == "rss":
-        return fetch_rss_news(query)
-    if provider == "gdelt":
-        return fetch_gdelt_news(query, timespan="1d")
-    raise ValueError(f"Unknown news provider: {provider}")
+def _fetch_provider_query(provider: BaseNewsProvider, query: str) -> list[dict]:
+    return provider.fetch_news(query)
 
 
 def refresh_news(
@@ -394,18 +412,13 @@ def refresh_news(
 
     Detects mentions, maps keywords, and writes to database.
     """
-    job_id = create_job_run("refresh_news")
-    rows_written = 0
-    rows_read = 0
     failed_queries: list[str] = []
     failed_providers: list[str] = []
     disabled_providers: set[str] = set()
     provider_outcomes: dict[str, str] = {}
-    status = "success"
-    error_text: str | None = None
     health_messages: list[str] = []
 
-    try:
+    with job_run_context("refresh_news") as state:
         with session_scope() as session:
             now = _utc_now()
             if _should_skip_refresh(
@@ -413,53 +426,57 @@ def refresh_news(
                 force=force or bypass_recent_success,
                 now=now,
             ):
-                status = "skipped"
-                error_text = "Skipped refresh_news because the last successful run is recent."
+                state.status = "skipped"
+                state.error_text = "Skipped refresh_news because the last successful run is recent."
                 return {
-                    "status": status,
+                    "status": state.status,
                     "rows_read": 0,
                     "rows_written": 0,
                     "failed_queries": [],
                     "failed_providers": [],
-                    "error_text": error_text,
+                    "error_text": state.error_text,
                 }
 
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
 
-            for provider in ("rss", "gdelt"):
+            for provider in NEWS_PROVIDERS:
+                p_name = provider.name
                 if force:
-                    health = get_provider_health(session, provider)
+                    health = get_provider_health(session, p_name)
                     health.disabled_until = None
                     health.status = "healthy"
                     session.flush()
 
-                if not is_provider_available(session, provider, now):
-                    provider_outcomes[provider] = "cooldown"
+                if not is_provider_available(session, p_name, now):
+                    provider_outcomes[p_name] = "cooldown"
                 else:
-                    provider_outcomes[provider] = "success"
+                    provider_outcomes[p_name] = "success"
 
             global_unique_articles: dict[str, dict] = {}
-            if queries is not None:
-                rss_queries = list(queries)
-                gdelt_queries = list(queries)
-            else:
-                rss_queries = [c.symbol for c in companies if c.symbol]
-                gdelt_queries = list(NEWS_QUERIES)
-
-            if max_queries is not None:
-                rss_queries = rss_queries[: max(0, max_queries)]
-                gdelt_queries = gdelt_queries[: max(0, max_queries)]
 
             provider_queries = []
-            for query in rss_queries:
-                provider_queries.append(("rss", query))
-            for query in gdelt_queries:
-                provider_queries.append(("gdelt", query))
+            for provider in NEWS_PROVIDERS:
+                p_name = provider.name
+                if queries is not None:
+                    p_queries = list(queries)
+                elif p_name == "rss":
+                    p_queries = [c.symbol for c in companies if c.symbol]
+                elif p_name == "gdelt":
+                    p_queries = list(NEWS_QUERIES)
+                else:
+                    p_queries = []
+
+                if max_queries is not None:
+                    p_queries = p_queries[: max(0, max_queries)]
+
+                for q in p_queries:
+                    provider_queries.append((provider, q))
 
             for provider, query in provider_queries:
-                if provider in disabled_providers or provider_outcomes[provider] == "cooldown":
-                    failed_providers.append(provider)
-                    message = disabled_message(provider)
+                p_name = provider.name
+                if p_name in disabled_providers or provider_outcomes[p_name] == "cooldown":
+                    failed_providers.append(p_name)
+                    message = disabled_message(p_name)
                     if message not in health_messages:
                         health_messages.append(message)
                         logger.warning(message)
@@ -468,77 +485,67 @@ def refresh_news(
                 try:
                     fetched_articles = execute_provider_request(
                         session,
-                        provider,
+                        p_name,
                         _fetch_provider_query,
                         provider,
                         query,
                     )
                 except NewsProviderRateLimitError as exc:
-                    disabled_providers.add(provider)
-                    provider_outcomes[provider] = "429"
-                    message = disabled_message(provider)
+                    disabled_providers.add(p_name)
+                    provider_outcomes[p_name] = "429"
+                    message = disabled_message(p_name)
                     logger.warning("%s: %s", message, exc)
                     if message not in health_messages:
                         health_messages.append(message)
                     failed_queries.append(query)
-                    failed_providers.append(provider)
+                    failed_providers.append(p_name)
                     continue
                 except Exception:
-                    logger.exception("Failed to fetch %s news for query: %s", provider, query)
+                    logger.exception("Failed to fetch %s news for query: %s", p_name, query)
                     failed_queries.append(query)
-                    failed_providers.append(provider)
-                    if provider_outcomes[provider] != "429":
-                        provider_outcomes[provider] = "failure"
+                    failed_providers.append(p_name)
+                    if provider_outcomes[p_name] != "429":
+                        provider_outcomes[p_name] = "failure"
                     continue
 
-                rows_read += len(fetched_articles)
+                state.rows_read += len(fetched_articles)
                 for article in fetched_articles:
-                    article["provider"] = provider
+                    article["provider"] = p_name
                     global_unique_articles[stable_article_key(article)] = article
+
 
             # Process globally unique articles
             for art in global_unique_articles.values():
                 # Check mentions across ALL active companies in DB
                 mentions = detect_mentions_and_keywords(art["title"], art["summary"], companies)
                 if mentions:
-                    rows_written += _upsert_news_item(session, art, mentions)
+                    state.rows_written += _upsert_news_item(session, art, mentions)
 
             if failed_queries or failed_providers:
                 if health_messages:
-                    status = "partial_success"
+                    state.status = "partial_success"
                 else:
-                    status = "partial_success" if rows_written > 0 or rows_read > 0 else "failed"
+                    state.status = "partial_success" if state.rows_written > 0 or state.rows_read > 0 else "failed"
                 logger.warning(
                     "News refresh experienced failures for providers=%s queries=%s",
                     ",".join(sorted(set(failed_providers))),
                     ",".join(sorted(set(failed_queries))),
                 )
                 if health_messages:
-                    error_text = "; ".join(health_messages)
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("News refresh failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_news",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=_job_error_text(
+                    state.error_text = "; ".join(health_messages)
+
+            state.error_text = _job_error_text(
                 failed_queries=failed_queries,
                 failed_providers=failed_providers,
                 provider_outcomes=provider_outcomes,
-                error_text=error_text,
-            ),
-        )
+                error_text=state.error_text,
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_queries": failed_queries,
         "failed_providers": failed_providers,
-        "error_text": error_text,
+        "error_text": state.error_text if state.status == "failed" else ("; ".join(health_messages) if health_messages else None),
     }

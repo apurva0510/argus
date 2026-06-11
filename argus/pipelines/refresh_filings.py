@@ -5,7 +5,7 @@ from sqlalchemy import select
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, SecFiling
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.sources.sec_client import (
     SecSubmissionNotFoundError,
     fetch_filings,
@@ -75,9 +75,6 @@ def refresh_filings() -> dict[str, object]:
     This function coordinates fetching, filtering, and inserting filings.
     It registers a JobRun and reports status.
     """
-    job_id = create_job_run("refresh_filings")
-    rows_written = 0
-    rows_read = 0
     failed_symbols: list[str] = []
     operational_failed_symbols: list[str] = []
     not_found_symbols: list[str] = []
@@ -85,22 +82,12 @@ def refresh_filings() -> dict[str, object]:
     identity_conflicts: list[str] = []
     remapped_symbols: list[str] = []
     successful_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
 
     # Check settings first
     user_agent = settings.sec_user_agent
     if not user_agent or not user_agent.strip():
         error_msg = "SEC_USER_AGENT is not configured. Ingestion aborted."
         logger.error(error_msg)
-        finish_job_run(
-            job_id,
-            "refresh_filings",
-            status="failed",
-            rows_read=0,
-            rows_written=0,
-            error_text=error_msg,
-        )
         return {
             "status": "failed",
             "rows_read": 0,
@@ -114,7 +101,7 @@ def refresh_filings() -> dict[str, object]:
             "error_text": error_msg,
         }
 
-    try:
+    with job_run_context("refresh_filings") as state:
         with session_scope() as session:
             companies = [
                 {
@@ -218,53 +205,40 @@ def refresh_filings() -> dict[str, object]:
                 operational_failed_symbols.append(symbol)
                 continue
 
-            rows_read += len(filings)
-            rows_written += _persist_company_filings(int(company["id"]), str(company_cik), filings)
+            state.rows_read += len(filings)
+            state.rows_written += _persist_company_filings(int(company["id"]), str(company_cik), filings)
             successful_symbols.append(symbol)
 
         if not_found_symbols:
-            status = "partial_success"
+            state.status = "partial_success"
         elif operational_failed_symbols and not successful_symbols:
-            status = "failed"
+            state.status = "failed"
         elif operational_failed_symbols or missing_cik_symbols:
-            status = "partial_success"
+            state.status = "partial_success"
         if failed_symbols or missing_cik_symbols:
             logger.warning(
                 "Filing refresh incomplete for symbols: %s",
                 ",".join(failed_symbols + missing_cik_symbols),
             )
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Filing refresh failed")
-    finally:
-        if error_text is None:
-            details = []
-            if failed_symbols:
-                details.append(f"Failed symbols: {', '.join(sorted(failed_symbols))}")
-            if not_found_symbols:
-                details.append(f"SEC submission 404s: {', '.join(sorted(not_found_symbols))}")
-            if missing_cik_symbols:
-                details.append(f"Missing CIKs: {', '.join(sorted(missing_cik_symbols))}")
-            error_text = "; ".join(details) or None
-        finish_job_run(
-            job_id,
-            "refresh_filings",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+
+        details = []
+        if failed_symbols:
+            details.append(f"Failed symbols: {', '.join(sorted(failed_symbols))}")
+        if not_found_symbols:
+            details.append(f"SEC submission 404s: {', '.join(sorted(not_found_symbols))}")
+        if missing_cik_symbols:
+            details.append(f"Missing CIKs: {', '.join(sorted(missing_cik_symbols))}")
+        state.error_text = "; ".join(details) or None
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_symbols": failed_symbols,
         "operational_failed_symbols": operational_failed_symbols,
         "not_found_symbols": not_found_symbols,
         "missing_cik_symbols": missing_cik_symbols,
         "identity_conflicts": identity_conflicts,
         "remapped_symbols": remapped_symbols,
-        "error_text": error_text,
+        "error_text": state.error_text,
     }

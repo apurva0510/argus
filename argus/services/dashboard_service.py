@@ -7,18 +7,7 @@ import pandas as pd
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
 
-from argus.core.db import session_scope
 from argus.core.settings import settings
-from argus.core.models import (
-    Company,
-    CompanyThemeExposure,
-    DailyMetric,
-    NewsItem,
-    PriceBar,
-    SecFiling,
-    Theme,
-    WatchlistItem,
-)
 from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS, AI_INFRA_CORE_INDEX_SYMBOLS
 from argus.analytics.market_hours import filter_regular_market_hours, market_session_date
 from argus.services.macro_capex_service import load_macro_capex_context_from_engine
@@ -547,26 +536,3 @@ def _mean_or_none(metrics_df: pd.DataFrame, column: str) -> float | None:
         return None
     return float(value)
 
-
-def get_dashboard_overview() -> dict[str, int]:
-    with session_scope() as session:
-        return {
-            "tracked_companies": session.query(Company)
-            .filter(
-                Company.is_active.is_(True),
-                Company.symbol.notin_(DASHBOARD_EXCLUDED_SYMBOLS),
-            )
-            .count(),
-            "high_priority_count": session.query(WatchlistItem)
-            .filter(WatchlistItem.watch_status == "high_priority")
-            .count(),
-            "owned_count": session.query(WatchlistItem)
-            .filter(WatchlistItem.watch_status == "owned")
-            .count(),
-            "theme_count": session.query(Theme).count(),
-            "theme_exposure_count": session.query(CompanyThemeExposure).count(),
-            "price_bar_count": session.query(PriceBar).count(),
-            "metrics_count": session.query(DailyMetric).count(),
-            "news_count": session.query(NewsItem).count(),
-            "filings_count": session.query(SecFiling).count(),
-        }

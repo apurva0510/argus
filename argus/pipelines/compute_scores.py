@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, UTC
 import logging
 
 from sqlalchemy import text
@@ -8,27 +7,17 @@ from sqlalchemy import text
 from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
 from argus.core.db import session_scope
 from argus.core.models import DailyMetric
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
+from argus.services.scoring_service import load_scoring_inputs_for_active_companies
 
 logger = logging.getLogger(__name__)
 
 
 def _load_score_inputs(session) -> list[dict]:
-    # Calculate dates in Python to remain DB-agnostic
-    now = datetime.now(UTC).replace(tzinfo=None)
-    news_start_date = now - timedelta(days=7)
-    filing_start_date = (now - timedelta(days=30)).date()
-    current_date = now.date()
-
-    dialect_name = session.bind.dialect.name
-    if dialect_name == "postgresql":
-        earnings_expr = "MIN(ee.event_date - :current_date)"
-    else:
-        earnings_expr = "MIN(JULIANDAY(ee.event_date) - JULIANDAY(:current_date))"
-
-    query_str = f"""
+    query_str = """
             SELECT
                 dm.id AS daily_metric_id,
+                c.id AS company_id,
                 c.symbol AS symbol,
                 c.sector AS sector,
                 (
@@ -48,31 +37,7 @@ def _load_score_inputs(session) -> list[dict]:
                 dm.rsi_14 AS rsi_14,
                 dm.distance_from_200dma AS distance_from_200dma,
                 dm.relative_return_vs_qqq_3m AS relative_return_vs_qqq_3m,
-                dm.return_1w AS return_1w,
-                (
-                    SELECT MAX(cte.exposure_score)
-                    FROM company_theme_exposure cte
-                    WHERE cte.company_id = c.id
-                ) AS theme_exposure_score,
-                (
-                    SELECT COUNT(*)
-                    FROM news_mentions nm
-                    JOIN news_items ni ON ni.id = nm.news_id
-                    WHERE nm.company_id = c.id
-                        AND ni.published_at >= :news_start_date
-                ) AS recent_news_count,
-                (
-                    SELECT COUNT(*)
-                    FROM sec_filings sf
-                    WHERE sf.company_id = c.id
-                        AND sf.filing_date >= :filing_start_date
-                ) AS recent_filing_count,
-                (
-                    SELECT {earnings_expr}
-                    FROM earnings_events ee
-                    WHERE ee.company_id = c.id
-                        AND ee.event_date >= :current_date
-                ) AS upcoming_earnings_days
+                dm.return_1w AS return_1w
             FROM daily_metrics dm
             JOIN companies c ON c.id = dm.company_id
             WHERE c.is_active = TRUE
@@ -83,26 +48,25 @@ def _load_score_inputs(session) -> list[dict]:
                 )
     """
 
-    rows = session.execute(
-        text(query_str),
-        {
-            "news_start_date": news_start_date,
-            "filing_start_date": filing_start_date,
-            "current_date": current_date,
-        },
-    ).mappings()
+    rows = session.execute(text(query_str)).mappings()
+    inputs = load_scoring_inputs_for_active_companies(session)
 
-    return [dict(row) for row in rows]
+    results = []
+    for row in rows:
+        row_dict = dict(row)
+        company_id = row_dict["company_id"]
+        comp_inputs = inputs.get(company_id, {})
+        row_dict["theme_exposure_score"] = comp_inputs.get("theme_exposure_score")
+        row_dict["recent_news_count"] = comp_inputs.get("recent_news_count", 0)
+        row_dict["recent_filing_count"] = comp_inputs.get("recent_filing_count", 0)
+        row_dict["upcoming_earnings_days"] = comp_inputs.get("upcoming_earnings_days")
+        results.append(row_dict)
+
+    return results
 
 
 def compute_opportunity_scores() -> dict[str, object]:
-    job_id = create_job_run("compute_opportunity_scores")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text: str | None = None
-
-    try:
+    with job_run_context("compute_opportunity_scores") as state:
         with session_scope() as session:
             from argus.services.macro_capex_service import load_macro_capex_context_from_engine
 
@@ -113,7 +77,7 @@ def compute_opportunity_scores() -> dict[str, object]:
                 pressure_level = 0
 
             rows = _load_score_inputs(session)
-            rows_read = len(rows)
+            state.rows_read = len(rows)
 
             for row in rows:
                 earnings_days = row.get("upcoming_earnings_days")
@@ -147,26 +111,13 @@ def compute_opportunity_scores() -> dict[str, object]:
                     continue
 
                 metric.opportunity_score = breakdown.opportunity_score
-                rows_written += 1
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Opportunity score computation failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "compute_opportunity_scores",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+                state.rows_written += 1
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }
 
 

@@ -5,6 +5,8 @@ from urllib.parse import quote_plus
 import feedparser
 import httpx
 
+from argus.sources.base import BaseNewsProvider
+
 from argus.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,16 @@ def _get_with_retries(url: str, *, query: str, timeout: float = 10.0) -> httpx.R
 
 
 def fetch_rss_news(ticker: str) -> list[dict]:
-    return fetch_rss_news_query(ticker)
+    return YahooRssNewsProvider().fetch_news(ticker)
+
+
+class YahooRssNewsProvider(BaseNewsProvider):
+    @property
+    def name(self) -> str:
+        return "rss"
+
+    def fetch_news(self, query: str) -> list[dict]:
+        return fetch_rss_news_query(query)
 
 
 def fetch_rss_news_query(query: str) -> list[dict]:

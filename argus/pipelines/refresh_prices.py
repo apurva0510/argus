@@ -9,7 +9,7 @@ from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, PriceBar
 from argus.sources.factory import get_market_data_provider
 from argus.sources.yfinance_client import YFinanceProvider
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import execute_provider_request
 
 
@@ -118,13 +118,8 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
         raise ValueError("refresh_prices supports interval='1d' or interval='15m'")
     period = period or _default_period_for_interval(interval)
     _validate_period_for_interval(period, interval)
-    job_id = create_job_run("refresh_prices")
-    rows_written = 0
-    rows_read = 0
+    
     failed_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
-
     provider = get_market_data_provider()
     if interval == "15m" and not provider.supports_intraday_batch:
         logger.warning(
@@ -133,7 +128,7 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
         )
         provider = YFinanceProvider()
 
-    try:
+    with job_run_context("refresh_prices") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             if interval == "15m":
@@ -160,8 +155,8 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                         continue
 
                     records = frame.to_dict(orient="records")
-                    rows_read += len(records)
-                    rows_written += _upsert_price_bar_rows(
+                    state.rows_read += len(records)
+                    state.rows_written += _upsert_price_bar_rows(
                         session,
                         companies_by_symbol[symbol].id,
                         records,
@@ -170,14 +165,18 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                     )
 
                 if failed_symbols:
-                    status = "partial_success"
+                    state.status = "partial_success"
                     logger.warning("Price refresh failed for symbols: %s", ",".join(failed_symbols))
+                state.error_text = _job_error_text(
+                    failed_symbols=failed_symbols,
+                    error_text=state.error_text,
+                )
                 return {
-                    "status": status,
-                    "rows_read": rows_read,
-                    "rows_written": rows_written,
+                    "status": state.status,
+                    "rows_read": state.rows_read,
+                    "rows_written": state.rows_written,
                     "failed_symbols": failed_symbols,
-                    "error_text": error_text,
+                    "error_text": state.error_text if state.status == "failed" else None,
                 }
 
             for company in companies:
@@ -200,8 +199,8 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                     continue
 
                 records = frame.to_dict(orient="records")
-                rows_read += len(records)
-                rows_written += _upsert_price_bar_rows(
+                state.rows_read += len(records)
+                state.rows_written += _upsert_price_bar_rows(
                     session,
                     company.id,
                     records,
@@ -210,29 +209,18 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                 )
 
             if failed_symbols:
-                status = "partial_success"
+                state.status = "partial_success"
                 logger.warning("Price refresh failed for symbols: %s", ",".join(failed_symbols))
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Price refresh failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_prices",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=_job_error_text(
+
+            state.error_text = _job_error_text(
                 failed_symbols=failed_symbols,
-                error_text=error_text,
-            ),
-        )
+                error_text=state.error_text,
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_symbols": failed_symbols,
-        "error_text": error_text,
+        "error_text": state.error_text if state.status == "failed" else None,
     }

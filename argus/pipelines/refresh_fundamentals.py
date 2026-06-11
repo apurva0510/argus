@@ -6,7 +6,7 @@ import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, FundamentalsSnapshot
-from argus.pipelines.job_runs import create_job_run, finish_job_run, utc_now
+from argus.pipelines.job_runs import job_run_context, utc_now
 from argus.pipelines.provider_health import execute_provider_request
 
 logger = logging.getLogger(__name__)
@@ -37,15 +37,10 @@ def _upsert_fundamentals_snapshot(session, company_id: int, snapshot: dict) -> i
 
 def refresh_fundamentals() -> dict[str, object]:
     """Refresh company key fundamentals metrics from yfinance for active companies."""
-    job_id = create_job_run("refresh_fundamentals")
-    rows_read = 0
-    rows_written = 0
     failed_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
     today = utc_now().date()
 
-    try:
+    with job_run_context("refresh_fundamentals") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             for company in companies:
@@ -78,8 +73,8 @@ def refresh_fundamentals() -> dict[str, object]:
                         "provider": "yfinance",
                     }
 
-                    rows_read += 1
-                    rows_written += _upsert_fundamentals_snapshot(session, company.id, snapshot)
+                    state.rows_read += 1
+                    state.rows_written += _upsert_fundamentals_snapshot(session, company.id, snapshot)
 
                 except Exception as exc:
                     logger.warning("Failed to fetch fundamentals for %s: %s", company.symbol, exc)
@@ -87,34 +82,21 @@ def refresh_fundamentals() -> dict[str, object]:
                     continue
 
             if failed_symbols:
-                status = "partial_success"
+                state.status = "partial_success"
                 logger.warning(
                     "Fundamentals refresh failed for symbols: %s", ",".join(failed_symbols)
                 )
 
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Fundamentals refresh pipeline failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_fundamentals",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text
-            or (
+            state.error_text = state.error_text or (
                 f"Failed symbols: {', '.join(sorted(failed_symbols))}"
                 if failed_symbols
                 else None
-            ),
-        )
+            )
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "failed_symbols": failed_symbols,
-        "error_text": error_text,
+        "error_text": state.error_text if state.status == "failed" else None,
     }

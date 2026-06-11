@@ -55,6 +55,7 @@ try:
             ("DATABASE_PASSWORD", "database_password"),
             ("SEC_USER_AGENT", "sec_user_agent"),
             ("EMAIL_HOST", "email_host"),
+            ("EMAIL_PORT", "email_port"),
             ("EMAIL_USERNAME", "email_username"),
             ("EMAIL_PASSWORD", "email_password"),
             ("EMAIL_FROM", "email_from"),
@@ -63,7 +64,13 @@ try:
             ("EIA_API_KEY", "eia_api_key"),
         ):
             if secret_key in st.secrets:
-                setattr(settings, setting_name, st.secrets[secret_key])
+                val = st.secrets[secret_key]
+                if setting_name == "email_port":
+                    try:
+                        val = int(val)
+                    except (ValueError, TypeError):
+                        continue
+                setattr(settings, setting_name, val)
 except Exception:
     pass
 

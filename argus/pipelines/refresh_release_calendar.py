@@ -8,7 +8,7 @@ import httpx
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import MacroReleaseEvent, MacroSeries
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +71,9 @@ def refresh_release_calendar(
             "error_text": "FRED_API_KEY not configured",
         }
 
-    job_id = create_job_run("refresh_release_calendar")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text: str | None = None
     failed_releases: list[int] = []
 
-    try:
+    with job_run_context("refresh_release_calendar") as state:
         with session_scope() as session:
             # Ensure macro_series exist for all tracked codes
             existing_codes = {row.code for row in session.query(MacroSeries.code).all()}
@@ -86,7 +81,7 @@ def refresh_release_calendar(
             for release_id, series_codes in FRED_RELEASE_SERIES_MAP.items():
                 try:
                     dates = fetch_fred_release_dates(release_id, client=client)
-                    rows_read += len(dates)
+                    state.rows_read += len(dates)
 
                     release_name = FRED_RELEASE_NAMES.get(release_id, f"Release {release_id}")
 
@@ -119,7 +114,7 @@ def refresh_release_calendar(
                                 },
                             )
                             session.execute(stmt)
-                            rows_written += 1
+                            state.rows_written += 1
 
                 except Exception as exc:
                     logger.warning(
@@ -128,24 +123,11 @@ def refresh_release_calendar(
                     failed_releases.append(release_id)
 
         if failed_releases:
-            status = "partial_success" if rows_written else "failed"
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Release calendar refresh failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "refresh_release_calendar",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+            state.status = "partial_success" if state.rows_written else "failed"
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }

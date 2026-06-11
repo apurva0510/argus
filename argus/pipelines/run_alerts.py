@@ -10,7 +10,7 @@ from argus.core.models import (
     Company,
     WatchlistItem,
 )
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.alerts.rules import evaluate_alert_for_company
 from argus.alerts.formatting import format_alert_email
 from argus.alerts.email_delivery import is_smtp_configured, send_email
@@ -31,13 +31,7 @@ def run_alerts() -> dict[str, object]:
     Reads active alerts, resolves targets, evaluates rules, checks deduplication
     keys, updates database, and sends email notifications.
     """
-    job_id = create_job_run("run_alerts")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text: str | None = None
-
-    try:
+    with job_run_context("run_alerts") as state:
         smtp_ok = is_smtp_configured()
         if not smtp_ok:
             logger.info(
@@ -69,7 +63,7 @@ def run_alerts() -> dict[str, object]:
 
                 # Evaluate for each company
                 for company in companies_to_check:
-                    rows_read += 1
+                    state.rows_read += 1
                     triggers = evaluate_alert_for_company(session, alert, company)
                     if not triggers:
                         continue
@@ -135,25 +129,11 @@ def run_alerts() -> dict[str, object]:
 
                         # Update alert trigger timestamp
                         alert.last_triggered_at = _utc_now()
-                        rows_written += 1
-
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Alert pipeline runner failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "run_alerts",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+                        state.rows_written += 1
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }

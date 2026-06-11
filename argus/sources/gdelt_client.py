@@ -4,10 +4,21 @@ from datetime import UTC, datetime
 import httpx
 
 from argus.core.settings import settings
+from argus.sources.base import BaseNewsProvider
 from argus.sources.news_rss_client import NewsProviderRateLimitError
 
 logger = logging.getLogger(__name__)
 _last_gdelt_request_at = 0.0
+
+
+class GdeltNewsProvider(BaseNewsProvider):
+    @property
+    def name(self) -> str:
+        return "gdelt"
+
+    def fetch_news(self, query: str) -> list[dict]:
+        return fetch_gdelt_news_query(query)
+
 
 
 def parse_gdelt_date(date_str: str | None) -> datetime:

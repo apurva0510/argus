@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import CapexObservation, Company
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import execute_provider_request
 from argus.sources.sec_client import fetch_company_facts, parse_capex_facts
 
@@ -21,14 +21,9 @@ def refresh_capex() -> dict[str, object]:
     Automated observations use source='sec_companyfacts'.
     Manually entered observations (source='manual') are never overwritten.
     """
-    job_id = create_job_run("refresh_capex")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text: str | None = None
     failed_symbols: list[str] = []
 
-    try:
+    with job_run_context("refresh_capex") as state:
         with session_scope() as session:
             companies = (
                 session.execute(
@@ -58,7 +53,7 @@ def refresh_capex() -> dict[str, object]:
                         company.cik,
                     )
                     capex_entries = parse_capex_facts(facts)
-                    rows_read += len(capex_entries)
+                    state.rows_read += len(capex_entries)
 
                     for entry in capex_entries:
                         # Check if a manual observation exists for this period
@@ -101,7 +96,7 @@ def refresh_capex() -> dict[str, object]:
                             },
                         )
                         session.execute(stmt)
-                        rows_written += 1
+                        state.rows_written += 1
 
                     logger.info(
                         "Ingested %d capex observations for %s",
@@ -117,27 +112,15 @@ def refresh_capex() -> dict[str, object]:
                     )
                     failed_symbols.append(company.symbol)
 
-        if failed_symbols:
-            status = "partial_success" if rows_written else "failed"
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Capex refresh pipeline failed")
-    finally:
-        if error_text is None and failed_symbols:
-            error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
-        finish_job_run(
-            job_id,
-            "refresh_capex",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+            if failed_symbols:
+                state.status = "partial_success" if state.rows_written else "failed"
+
+            if state.error_text is None and failed_symbols:
+                state.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }

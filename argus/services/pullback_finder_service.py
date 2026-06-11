@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, UTC
 from typing import Any
 
 import pandas as pd
@@ -10,24 +9,14 @@ from sqlalchemy.engine import Engine
 from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
 from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
+from argus.services.scoring_service import load_scoring_inputs_for_active_companies
 
 
 def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
     with engine.connect() as conn:
-        dialect_name = engine.dialect.name
-        now = datetime.now(UTC).replace(tzinfo=None)
-        news_start_date = now - timedelta(days=7)
-        filing_start_date = (now - timedelta(days=30)).date()
-        current_date = now.date()
-
-        if dialect_name == "postgresql":
-            earnings_expr = "MIN(ee.event_date - :current_date)"
-        else:
-            earnings_expr = "MIN(JULIANDAY(ee.event_date) - JULIANDAY(:current_date))"
-
         df = pd.read_sql_query(
             text(
-                f"""
+                """
                 SELECT
                     c.id AS company_id,
                     c.symbol AS ticker,
@@ -60,31 +49,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     dm.distance_from_200dma AS distance_from_200dma,
                     dm.relative_return_vs_qqq_3m AS relative_return_vs_qqq_3m,
                     dm.return_1w AS return_1w,
-                    dm.opportunity_score AS stored_opportunity_score,
-                    (
-                        SELECT MAX(cte.exposure_score)
-                        FROM company_theme_exposure cte
-                        WHERE cte.company_id = c.id
-                    ) AS theme_exposure_score,
-                    (
-                        SELECT COUNT(*)
-                        FROM news_mentions nm
-                        JOIN news_items ni ON ni.id = nm.news_id
-                        WHERE nm.company_id = c.id
-                            AND ni.published_at >= :news_start_date
-                    ) AS recent_news_count,
-                    (
-                        SELECT COUNT(*)
-                        FROM sec_filings sf
-                        WHERE sf.company_id = c.id
-                            AND sf.filing_date >= :filing_start_date
-                    ) AS recent_filing_count,
-                    (
-                        SELECT {earnings_expr}
-                        FROM earnings_events ee
-                        WHERE ee.company_id = c.id
-                            AND ee.event_date >= :current_date
-                    ) AS upcoming_earnings_days
+                    dm.opportunity_score AS stored_opportunity_score
                 FROM companies c
                 JOIN watchlist_items wi ON wi.company_id = c.id
                 JOIN watchlists w ON w.id = wi.watchlist_id
@@ -110,11 +75,15 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
             conn,
             params={
                 "provider": settings.market_data_provider,
-                "news_start_date": news_start_date,
-                "filing_start_date": filing_start_date,
-                "current_date": current_date,
             },
         )
+
+        if not df.empty:
+            inputs = load_scoring_inputs_for_active_companies(conn)
+            df["theme_exposure_score"] = df["company_id"].map(lambda cid: inputs.get(cid, {}).get("theme_exposure_score"))
+            df["recent_news_count"] = df["company_id"].map(lambda cid: inputs.get(cid, {}).get("recent_news_count", 0))
+            df["recent_filing_count"] = df["company_id"].map(lambda cid: inputs.get(cid, {}).get("recent_filing_count", 0))
+            df["upcoming_earnings_days"] = df["company_id"].map(lambda cid: inputs.get(cid, {}).get("upcoming_earnings_days"))
 
     if df.empty:
         return df

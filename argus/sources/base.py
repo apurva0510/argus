@@ -58,3 +58,20 @@ def period_to_timestamps(period: str) -> tuple[int, int]:
         # default to 2 years
         start_ts = end_ts - 2 * 365 * 24 * 60 * 60
     return start_ts, end_ts
+
+
+class BaseNewsProvider(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Name of the news provider."""
+        pass
+
+    @abstractmethod
+    def fetch_news(self, query: str) -> list[dict]:
+        """Fetch news articles for the given query.
+
+        Returned list should contain dictionaries representing news items.
+        """
+        pass
+

@@ -11,6 +11,7 @@ from argus.analytics.indicators import (
     distance_from_ma,
     drawdown_from_rolling_high,
     moving_average,
+    calculate_power_signal,
 )
 from argus.analytics.relative_strength import relative_return
 
@@ -102,3 +103,46 @@ def test_distance_from_ma() -> None:
     ma = pd.Series([100.0, 100.0])
     distance = distance_from_ma(price, ma)
     assert distance.iloc[1] == pytest.approx(0.10)
+
+
+def test_calculate_power_signal() -> None:
+    # 1. Empty dataframes
+    assert calculate_power_signal(pd.DataFrame(), pd.DataFrame()) is None
+
+    # 2. Setup mock data
+    price_dates = pd.to_datetime(["2025-01-01", "2026-01-01"])
+    price_df = pd.DataFrame({
+        "observation_date": price_dates,
+        "value": [10.0, 11.0]
+    })
+
+    demand_dates = pd.to_datetime([
+        "2024-12-26", "2024-12-27", "2024-12-28", "2024-12-29", "2024-12-30", "2024-12-31", "2025-01-01",
+        "2025-12-26", "2025-12-27", "2025-12-28", "2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01"
+    ])
+    demand_df = pd.DataFrame({
+        "observation_date": demand_dates,
+        "value": [
+            100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+            120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0
+        ]
+    })
+
+    # Expected: price_yoy = 0.10, demand_yoy = 0.20, average = 0.15
+    res = calculate_power_signal(price_df, demand_df)
+    assert res == pytest.approx(0.15)
+
+    # Test failure cases - missing prior price data
+    price_df_no_prior = pd.DataFrame({
+        "observation_date": pd.to_datetime(["2026-01-01"]),
+        "value": [11.0]
+    })
+    assert calculate_power_signal(price_df_no_prior, demand_df) is None
+
+    # Test failure cases - not enough demand observations
+    demand_df_insufficient = pd.DataFrame({
+        "observation_date": pd.to_datetime(["2025-01-01", "2026-01-01"]),
+        "value": [100.0, 120.0]
+    })
+    assert calculate_power_signal(price_df, demand_df_insufficient) is None
+

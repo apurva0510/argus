@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
 import logging
 
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.core.settings import settings
 from argus.pipelines.compute_metrics import compute_daily_metrics
 from argus.pipelines.compute_scores import compute_opportunity_scores
@@ -25,12 +24,6 @@ from argus.pipelines.run_alerts import run_alerts
 logger = logging.getLogger(__name__)
 
 PipelineStep = tuple[str, Callable[[], dict[str, object]]]
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
 
 
 
@@ -100,14 +93,10 @@ def run_daily_refresh(
     steps: list[PipelineStep] | None = None,
 ) -> dict[str, object]:
     """Run the daily refresh workflow without requiring Streamlit page load jobs."""
-    job_id = create_job_run("run_daily_refresh")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
     errors: list[str] = []
     results: dict[str, dict[str, object]] = {}
 
-    try:
+    with job_run_context("run_daily_refresh") as state:
         for step_name, step_fn in steps or build_daily_refresh_steps(
             period=period,
             include_news=include_news,
@@ -124,36 +113,23 @@ def run_daily_refresh(
                 result = {"status": "failed", "error_text": str(exc)}
 
             results[step_name] = result
-            rows_read += int(result.get("rows_read") or 0)
-            rows_written += int(result.get("rows_written") or 0)
+            state.rows_read += int(result.get("rows_read") or 0)
+            state.rows_written += int(result.get("rows_written") or 0)
 
             step_status = str(result.get("status") or "unknown")
             if step_status == "failed":
                 errors.append(f"{step_name}: {result.get('error_text') or 'failed'}")
             elif step_status not in {"success", "skipped"}:
-                status = "partial_success"
+                state.status = "partial_success"
 
         if errors:
-            status = "failed" if len(errors) == len(results) else "partial_success"
-    except Exception as exc:
-        status = "failed"
-        errors.append(str(exc))
-        logger.exception("Daily refresh orchestrator failed")
-    finally:
-        error_text = "; ".join(errors) if errors else None
-        finish_job_run(
-            job_id,
-            "run_daily_refresh",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+            state.status = "failed" if len(errors) == len(results) else "partial_success"
+            state.error_text = "; ".join(errors)
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "results": results,
-        "error_text": "; ".join(errors) if errors else None,
+        "error_text": state.error_text,
     }

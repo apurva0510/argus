@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import select
 
+from argus.analytics.indicators import calculate_power_signal
 from argus.analytics.news_signals import mention_relevance, recency_weight, score_news_article
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import (
@@ -20,7 +21,7 @@ from argus.core.models import (
     SignalDaily,
 )
 from argus.core.settings import settings
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 
 logger = logging.getLogger(__name__)
 
@@ -37,79 +38,53 @@ SIGNAL_COLUMNS = [
 
 
 def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
-    job_id = create_job_run("compute_signals")
-    rows_read = 0
-    rows_written = 0
-    status = "success"
-    error_text: str | None = None
-
-    try:
+    with job_run_context("compute_signals") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
-            rows_read = len(companies)
+            state.rows_read = len(companies)
             if not companies:
-                return {"status": status, "rows_read": 0, "rows_written": 0, "error_text": None}
+                pass  # nothing to do, state defaults are correct
+            else:
+                prices = _load_daily_prices(session)
+                if not prices.empty:
+                    signal_date = as_of_date or prices["date"].max().date()
+                    returns = _build_return_frame(prices, signal_date)
+                    nvda_returns = returns.get("NVDA")
+                    hyperscaler_returns = _hyperscaler_basket_returns(returns)
+                    capex_signal = _latest_capex_signal(session)
+                    power_signal = _compute_power_signal(session)
+                    earnings_events = _load_reference_earnings_events(session, signal_date)
+                    signal_rows = []
 
-            prices = _load_daily_prices(session)
-            if prices.empty:
-                return {
-                    "status": status,
-                    "rows_read": rows_read,
-                    "rows_written": 0,
-                    "error_text": None,
-                }
+                    for company in companies:
+                        symbol = company.symbol.upper()
+                        company_returns = returns.get(symbol)
+                        company_prices = _price_series_for_symbol(prices, symbol, signal_date)
+                        news_scores = _company_news_scores(session, company.id, signal_date)
+                        row = {
+                            "company_id": company.id,
+                            "date": signal_date,
+                            "sentiment_proxy_7d": news_scores["sentiment_proxy_7d"],
+                            "news_relevance_7d": news_scores["news_relevance_7d"],
+                            "corr_nvda_60d": _rolling_corr(company_returns, nvda_returns, window=60),
+                            "corr_hyperscaler_60d": _rolling_corr(
+                                company_returns,
+                                hyperscaler_returns,
+                                window=60,
+                            ),
+                            "earnings_sensitivity": _earnings_sensitivity(company_prices, earnings_events),
+                            "power_signal": power_signal,
+                            "capex_signal": capex_signal,
+                        }
+                        signal_rows.append(_clean_row(row))
 
-            signal_date = as_of_date or prices["date"].max().date()
-            returns = _build_return_frame(prices, signal_date)
-            nvda_returns = returns.get("NVDA")
-            hyperscaler_returns = _hyperscaler_basket_returns(returns)
-            capex_signal = _latest_capex_signal(session)
-            power_signal = _compute_power_signal(session)
-            earnings_events = _load_reference_earnings_events(session, signal_date)
-            signal_rows = []
-
-            for company in companies:
-                symbol = company.symbol.upper()
-                company_returns = returns.get(symbol)
-                company_prices = _price_series_for_symbol(prices, symbol, signal_date)
-                news_scores = _company_news_scores(session, company.id, signal_date)
-                row = {
-                    "company_id": company.id,
-                    "date": signal_date,
-                    "sentiment_proxy_7d": news_scores["sentiment_proxy_7d"],
-                    "news_relevance_7d": news_scores["news_relevance_7d"],
-                    "corr_nvda_60d": _rolling_corr(company_returns, nvda_returns, window=60),
-                    "corr_hyperscaler_60d": _rolling_corr(
-                        company_returns,
-                        hyperscaler_returns,
-                        window=60,
-                    ),
-                    "earnings_sensitivity": _earnings_sensitivity(company_prices, earnings_events),
-                    "power_signal": power_signal,
-                    "capex_signal": capex_signal,
-                }
-                signal_rows.append(_clean_row(row))
-
-            rows_written = _upsert_signal_rows(session, signal_rows)
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("Signal computation failed")
-    finally:
-        finish_job_run(
-            job_id,
-            "compute_signals",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+                    state.rows_written = _upsert_signal_rows(session, signal_rows)
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "error_text": error_text,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
+        "error_text": state.error_text,
     }
 
 
@@ -330,55 +305,7 @@ def _compute_power_signal(session) -> float | None:
     price_df = df[df["series_code"] == "EIA_ELEC_PRICE"].sort_values("observation_date")
     demand_df = df[df["series_code"] == "EIA_ELEC_DEMAND"].sort_values("observation_date")
 
-    if price_df.empty or demand_df.empty:
-        return None
-
-    # Compute price YoY
-    latest_price_row = price_df.iloc[-1]
-    latest_price_date = latest_price_row["observation_date"]
-    latest_price_val = latest_price_row["value"]
-
-    prior_price_df = price_df[
-        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380))
-        & (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
-    ]
-    if prior_price_df.empty:
-        return None
-
-    prior_price_df = prior_price_df.copy()
-    prior_price_df["diff"] = (
-        prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))
-    ).abs()
-    prior_price_val = prior_price_df.sort_values("diff").iloc[0]["value"]
-    if prior_price_val == 0:
-        return None
-    price_yoy = (latest_price_val / prior_price_val) - 1.0
-
-    # Compute demand YoY using 7-day average to smooth day-of-week fluctuations
-    latest_demand_row = demand_df.iloc[-1]
-    latest_demand_date = latest_demand_row["observation_date"]
-
-    latest_demand_7d = demand_df[
-        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6))
-        & (demand_df["observation_date"] <= latest_demand_date)
-    ]
-    if len(latest_demand_7d) < 5:
-        return None
-    latest_demand_val = latest_demand_7d["value"].mean()
-
-    prior_demand_date = latest_demand_date - pd.Timedelta(days=365)
-    prior_demand_7d = demand_df[
-        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6))
-        & (demand_df["observation_date"] <= prior_demand_date)
-    ]
-    if len(prior_demand_7d) < 5:
-        return None
-    prior_demand_val = prior_demand_7d["value"].mean()
-    if prior_demand_val == 0:
-        return None
-    demand_yoy = (latest_demand_val / prior_demand_val) - 1.0
-
-    return float((price_yoy + demand_yoy) / 2.0)
+    return calculate_power_signal(price_df, demand_df)
 
 
 def _upsert_signal_rows(session, rows: list[dict]) -> int:

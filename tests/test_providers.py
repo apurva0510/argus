@@ -613,3 +613,55 @@ def test_period_to_timestamps_ranges() -> None:
     start_def, end_def = period_to_timestamps("invalid_period")
     assert abs((end_def - start_def) - (2 * 365 * 24 * 60 * 60)) < 2
 
+
+def test_news_providers_satisfy_contract() -> None:
+    from argus.sources.base import BaseNewsProvider
+    from argus.sources.news_rss_client import YahooRssNewsProvider
+    from argus.sources.gdelt_client import GdeltNewsProvider
+
+    providers = [YahooRssNewsProvider(), GdeltNewsProvider()]
+    for p in providers:
+        assert isinstance(p, BaseNewsProvider)
+        assert p.name in ("rss", "gdelt")
+
+
+def test_yahoo_rss_news_provider_fetch(monkeypatch) -> None:
+    from argus.sources.news_rss_client import YahooRssNewsProvider
+
+    mocked_news = [
+        {
+            "title": "Test RSS article",
+            "summary": "content",
+            "url": "http://rss.test",
+            "source_name": "Test Source",
+            "published_at": None,
+        }
+    ]
+    monkeypatch.setattr("argus.sources.news_rss_client.fetch_rss_news_query", lambda q: mocked_news)
+
+    provider = YahooRssNewsProvider()
+    results = provider.fetch_news("test query")
+    assert results == mocked_news
+
+
+def test_gdelt_news_provider_fetch(monkeypatch) -> None:
+    from argus.sources.gdelt_client import GdeltNewsProvider
+
+    mocked_news = [
+        {
+            "title": "Test GDELT article",
+            "summary": None,
+            "url": "http://gdelt.test",
+            "source_name": "Test Source",
+            "published_at": None,
+        }
+    ]
+    monkeypatch.setattr(
+        "argus.sources.gdelt_client.fetch_gdelt_news_query", lambda q, timespan="1d": mocked_news
+    )
+
+    provider = GdeltNewsProvider()
+    results = provider.fetch_news("test query")
+    assert results == mocked_news
+
+

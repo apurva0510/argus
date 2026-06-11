@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from argus.core.db import session_scope
 from argus.core.models import Company
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import job_run_context
 from argus.sources.sec_client import fetch_ticker_identities, sec_identity_matches_company
 
 logger = logging.getLogger(__name__)
@@ -19,24 +19,18 @@ def _utc_now() -> datetime:
 
 def refresh_ciks() -> dict[str, object]:
     """Synchronize active-company CIKs from the official SEC ticker mapping."""
-    job_id = create_job_run("refresh_ciks")
-
-    rows_read = 0
-    rows_written = 0
     missing_symbols: list[str] = []
     identity_conflicts: list[str] = []
     updated_symbols: list[str] = []
-    status = "success"
-    error_text: str | None = None
 
-    try:
+    with job_run_context("refresh_ciks") as state:
         identities = fetch_ticker_identities()
         if not isinstance(identities, dict):
             raise TypeError(f"SEC ticker identities mapping is not a dictionary: got {type(identities)}")
         if not identities:
             raise ValueError("SEC ticker identities mapping is empty")
 
-        rows_read = len(identities)
+        state.rows_read = len(identities)
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             for company in companies:
@@ -58,37 +52,24 @@ def refresh_ciks() -> dict[str, object]:
                 if company.cik != identity.cik:
                     company.cik = identity.cik
                     updated_symbols.append(company.symbol)
-                    rows_written += 1
+                    state.rows_written += 1
             if identity_conflicts:
-                status = "partial_success"
-    except Exception as exc:
-        status = "failed"
-        error_text = str(exc)
-        logger.exception("SEC ticker-to-CIK synchronization failed")
-    finally:
-        if error_text is None:
+                state.status = "partial_success"
+
+        if state.error_text is None:
             details = []
             if missing_symbols:
                 details.append(f"Unmatched active symbols: {', '.join(sorted(missing_symbols))}")
             if identity_conflicts:
                 details.append(f"Identity conflicts: {', '.join(sorted(identity_conflicts))}")
-            error_text = "; ".join(details) or None
-
-        finish_job_run(
-            job_id,
-            "refresh_ciks",
-            status=status,
-            rows_read=rows_read,
-            rows_written=rows_written,
-            error_text=error_text,
-        )
+            state.error_text = "; ".join(details) or None
 
     return {
-        "status": status,
-        "rows_read": rows_read,
-        "rows_written": rows_written,
+        "status": state.status,
+        "rows_read": state.rows_read,
+        "rows_written": state.rows_written,
         "updated_symbols": updated_symbols,
         "missing_symbols": missing_symbols,
         "identity_conflicts": identity_conflicts,
-        "error_text": error_text,
+        "error_text": state.error_text,
     }
