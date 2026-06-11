@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from sqlalchemy import delete
 
 from argus.core.db import session_scope
-from argus.core.models import Company, JobRun, IndexDefinition, IndexValue, PriceBar
+from argus.core.models import Company, IndexDefinition, IndexValue, PriceBar
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.core.settings import settings
 from argus.analytics.index_builder import (
     calculate_weighted_index,
@@ -23,11 +24,7 @@ def _utc_now() -> datetime:
 
 def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
     """Calculate an index definition's values and persist them to the database."""
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_index", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        job_id = job.id
+    job_id = create_job_run("refresh_index")
 
     rows_read = 0
     rows_written = 0
@@ -96,14 +93,14 @@ def refresh_index(index_definition_id: int | None = None) -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Core Index calculation and refresh pipeline failed")
     finally:
-        with session_scope() as session:
-            job = session.get(JobRun, job_id)
-            if job is not None:
-                job.finished_at = _utc_now()
-                job.status = status
-                job.rows_read = rows_read
-                job.rows_written = rows_written
-                job.error_text = error_text
+        finish_job_run(
+            job_id,
+            "refresh_index",
+            status=status,
+            rows_read=rows_read,
+            rows_written=rows_written,
+            error_text=error_text,
+        )
 
     return {
         "status": status,
