@@ -3,10 +3,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.auth_links import company_detail_url
 import os
 from app.components.charts import apply_intraday_xaxis
 from app.components import formatting as fmt
+from app.components.links import (
+    link_ticker_series,
+    ticker_link_column_config,
+    ticker_markdown,
+)
 from app.components.metrics import (
     render_metric_card,
     render_plain_metric_card,
@@ -69,15 +73,15 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
 
 
 def _ticker_link_column_config() -> dict[str, object]:
-    return {"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
+    return ticker_link_column_config()
 
 
 def _link_ticker_series(series: pd.Series) -> pd.Series:
-    return series.apply(lambda ticker: company_detail_url(ticker) if ticker else "")
+    return link_ticker_series(series)
 
 
 def _ticker_markdown(ticker: str) -> str:
-    return f"[{ticker}]({company_detail_url(ticker)})"
+    return ticker_markdown(ticker)
 
 
 def _split_tickers(value: object) -> list[str]:

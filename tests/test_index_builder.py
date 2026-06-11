@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
@@ -6,6 +6,9 @@ from argus.core.models import Company, CompanyThemeExposure, IndexDefinition, Pr
 from argus.analytics.index_builder import (
     INDEX_MODE_EXPOSURE,
     INDEX_MODE_MANUAL,
+    _calculate_equal_weight_returns,
+    _calculate_weighted_returns,
+    _load_price_matrix,
     get_default_index_symbols,
     calculate_equal_weight_index,
     calculate_relative_performance,
@@ -582,3 +585,84 @@ def test_ensure_default_index_definition_syncs_new_seeded_constituents(
         "ETN": pytest.approx(0.5),
         "MCHP": pytest.approx(0.5),
     }
+
+
+def test_load_price_matrix_returns_empty_for_missing_prices(db_session: Session) -> None:
+    company = Company(symbol="A", name="A", is_active=True)
+    db_session.add(company)
+    db_session.flush()
+
+    matrix = _load_price_matrix(db_session, ["A"], interval="1d")
+
+    assert matrix.empty
+
+
+def test_calculate_weighted_returns_reweights_partial_constituent_history() -> None:
+    price_matrix = pd.DataFrame(
+        {
+            "A": [100.0, 110.0, 121.0],
+            "B": [float("nan"), 200.0, 220.0],
+        },
+        index=pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"]),
+        dtype="float",
+    )
+
+    returns = _calculate_weighted_returns(price_matrix, {"A": 0.5, "B": 0.5})
+
+    assert returns.iloc[0] == pytest.approx(0.0)
+    assert returns.iloc[1] == pytest.approx(0.10)
+    assert returns.iloc[2] == pytest.approx(0.10)
+
+
+def test_calculate_equal_weight_returns_ignores_missing_returns() -> None:
+    price_matrix = pd.DataFrame(
+        {
+            "A": [100.0, 110.0, 121.0],
+            "B": [float("nan"), 200.0, 240.0],
+        },
+        index=pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"]),
+        dtype="float",
+    )
+
+    returns = _calculate_equal_weight_returns(price_matrix)
+
+    assert returns.iloc[0] == pytest.approx(0.0)
+    assert returns.iloc[1] == pytest.approx(0.10)
+    assert returns.iloc[2] == pytest.approx(0.15)
+
+
+def test_load_price_matrix_forward_fills_intraday_prices(db_session: Session) -> None:
+    company_a = Company(symbol="A", name="A", is_active=True)
+    company_b = Company(symbol="B", name="B", is_active=True)
+    db_session.add_all([company_a, company_b])
+    db_session.flush()
+
+    session_date = date(2026, 1, 5)
+    bars = [
+        (company_a.id, datetime(2026, 1, 5, 14, 30), 100.0),
+        (company_b.id, datetime(2026, 1, 5, 14, 30), 200.0),
+        (company_b.id, datetime(2026, 1, 5, 14, 45), 202.0),
+    ]
+    for company_id, bar_time, price in bars:
+        db_session.add(
+            PriceBar(
+                company_id=company_id,
+                date=session_date,
+                bar_time=bar_time,
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                adj_close=price,
+                volume=1000,
+                provider="yfinance",
+                interval="15m",
+            )
+        )
+    db_session.flush()
+
+    matrix = _load_price_matrix(db_session, ["A", "B"], interval="15m")
+
+    assert list(matrix.columns) == ["A", "B"]
+    assert matrix.loc[pd.Timestamp("2026-01-05 14:45:00"), "A"] == pytest.approx(100.0)
+    assert matrix.loc[pd.Timestamp("2026-01-05 14:45:00"), "B"] == pytest.approx(202.0)

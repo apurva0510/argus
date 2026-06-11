@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy.orm import sessionmaker
 
-from app.auth_links import company_detail_url
+from app.components.links import link_ticker_series, ticker_link_column_config
 from app.components.metrics import render_plain_metric_card, render_plain_metric_card_parts
 from app.components.sidebar import render_sidebar_navigation
 from app.components.tables import style_positive_green_negative_red
@@ -64,11 +64,11 @@ def _mode_label(mode: str) -> str:
 
 
 def _ticker_link_column_config() -> dict[str, object]:
-    return {"Ticker": st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")}
+    return ticker_link_column_config()
 
 
 def _link_ticker_series(series: pd.Series) -> pd.Series:
-    return series.apply(lambda ticker: company_detail_url(ticker) if ticker else "")
+    return link_ticker_series(series)
 
 
 def _render_performance_chart(rel_df: pd.DataFrame, title: str) -> None:

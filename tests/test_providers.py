@@ -44,6 +44,21 @@ def test_alphavantage_provider_availability() -> None:
     assert p2.is_available() is True
 
 
+def test_market_data_providers_expose_batch_capability_contract() -> None:
+    yfinance_provider = YFinanceProvider()
+    optional_providers = [
+        FinnhubProvider(api_key="dummy_key"),
+        TwelveDataProvider(api_key="dummy_key"),
+        AlphaVantageProvider(api_key="dummy_key"),
+    ]
+
+    assert yfinance_provider.supports_intraday_batch is True
+    for provider in optional_providers:
+        assert provider.supports_intraday_batch is False
+        with pytest.raises(NotImplementedError, match=provider.name):
+            provider.fetch_ohlcv_batch(["AAPL"], period="5d", interval="15m")
+
+
 def test_finnhub_provider_fetch(monkeypatch) -> None:
     provider = FinnhubProvider(api_key="dummy")
 

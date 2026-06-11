@@ -428,14 +428,17 @@ def test_intraday_chart_helpers_compress_non_market_time() -> None:
 
 
 def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_label() -> None:
+    component_source = (
+        Path(__file__).resolve().parents[1] / "app" / "components" / "links.py"
+    ).read_text(encoding="utf-8")
     dashboard_source = (
         Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
     ).read_text(encoding="utf-8")
 
-    assert "company_detail_url" in dashboard_source
-    assert (
-        'st.column_config.LinkColumn("Ticker", display_text=r"ticker=([^&]+)")' in dashboard_source
-    )
+    assert "ticker_link_column_config" in dashboard_source
+    assert "company_detail_url" in component_source
+    assert "st.column_config.LinkColumn(" in component_source
+    assert 'display_text=r"ticker=([^&]+)"' in component_source
     assert "**Missing/Stale 30m Tickers**" in dashboard_source
     assert "**Missing/Stale 15m Tickers**" not in dashboard_source
 
