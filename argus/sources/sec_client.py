@@ -185,10 +185,6 @@ def fetch_ticker_identities() -> dict[str, SecTickerIdentity]:
     raise RuntimeError(f"Unable to load SEC ticker mappings: {last_error}")
 
 
-def fetch_ticker_cik_mapping() -> dict[str, str]:
-    """Fetch the SEC's official ticker-to-CIK mapping with a legacy-shape fallback."""
-    return {ticker: identity.cik for ticker, identity in fetch_ticker_identities().items()}
-
 
 def parse_sec_date(date_str: str | None) -> date | None:
     if not date_str:
