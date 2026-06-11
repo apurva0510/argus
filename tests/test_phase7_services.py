@@ -121,8 +121,13 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
     monkeypatch.setattr("argus.core.settings.settings.database_url", str(sqlite_engine.url))
     monkeypatch.setattr("app.pages.7_Admin_Data_Health.get_db_engine", lambda: sqlite_engine)
 
+    from argus.services.data_health_service import load_data_health_info
     today = date(2026, 6, 4)
-    data = _load_health_data(today)
+    data = load_data_health_info(sqlite_engine, today)
+
+    # Verify compatibility wrapper also works
+    wrapper_data = _load_health_data(today)
+    assert len(wrapper_data["cik_integrity"]) == 2
 
     cik_df = data["cik_integrity"]
     assert len(cik_df) == 2
