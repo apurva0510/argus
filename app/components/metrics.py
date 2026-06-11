@@ -80,11 +80,6 @@ def render_plain_metric_card(
     return _metric_card_shell(label, val_html, value_font_size=value_font_size)
 
 
-def render_plain_metric_card_html(label: str, value_html: str) -> str:
-    """Render a plain metric card when the value HTML is built from controlled markup."""
-    return _metric_card_shell(label, value_html)
-
-
 def render_plain_metric_card_parts(
     label: str,
     primary: str,

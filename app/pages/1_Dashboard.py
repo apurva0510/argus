@@ -26,6 +26,7 @@ from app.components.metrics import (
     render_plain_metric_card,
     render_plain_metric_card_parts,
 )
+from app.components.charts import apply_intraday_xaxis
 from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 
 
@@ -238,53 +239,6 @@ def load_index_data(tf: str, index_definition_id: int | None = None) -> dict:
             "interval": interval,
             "daily_close_levels": daily_close_levels,
         }
-
-
-def apply_intraday_xaxis(fig, df_or_interval, tf: str | None = None) -> None:
-    # Support old signature: apply_intraday_xaxis(fig, interval)
-    if tf is None:
-        if df_or_interval == "15m":
-            fig.update_xaxes(type="category")
-        return
-
-    # Only apply category axis formatting to intraday 1D/5D timeframes
-    if tf not in ("1D", "5D"):
-        return
-
-    df = df_or_interval
-    if df.empty:
-        return
-
-    # dates are already in US Eastern Time (New York) naive format
-    dates_ny = pd.to_datetime(df["date"])
-    tick_value_column = "date_label" if "date_label" in df.columns else "date"
-
-    tickvals = []
-    ticktext = []
-
-    if tf == "1D":
-        _1d_ticks = {"09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"}
-        for i, dt in enumerate(dates_ny):
-            if dt.strftime("%H:%M") in _1d_ticks:
-                tickvals.append(df.iloc[i][tick_value_column])
-                ticktext.append(dt.strftime("%I:%M %p").lstrip("0"))
-    elif tf == "5D":
-        last_date = None
-        for i, dt in enumerate(dates_ny):
-            day_str = dt.strftime("%b %d")
-            if last_date != day_str:
-                tickvals.append(df.iloc[i][tick_value_column])
-                ticktext.append(day_str)
-                last_date = day_str
-
-    if tickvals:
-        fig.update_xaxes(
-            type="category",
-            tickmode="array",
-            tickvals=tickvals,
-            ticktext=ticktext,
-            tickangle=0,
-        )
 
 
 def _format_dt_et(val) -> str:

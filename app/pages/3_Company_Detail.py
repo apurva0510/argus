@@ -29,6 +29,7 @@ from argus.services.company_service import (
     get_watchlist_notes,
 )
 from app.components.metrics import render_metric_card, render_plain_metric_card
+from app.components.charts import apply_intraday_xaxis
 from html import escape
 from textwrap import dedent
 from app.auth_links import company_detail_url
@@ -305,53 +306,6 @@ def _maybe_append_close_bar(
     close_row["adj_close"] = close_price
 
     return pd.concat([df_intraday, pd.DataFrame([close_row])], ignore_index=True)
-
-
-def apply_intraday_xaxis(fig: go.Figure, df_or_interval, tf: str | None = None) -> None:
-    # Support old signature: apply_intraday_xaxis(fig, interval)
-    if tf is None:
-        if df_or_interval == "15m":
-            fig.update_xaxes(type="category")
-        return
-
-    # Only apply category axis formatting to intraday 1D/5D timeframes
-    if tf not in ("1D", "5D"):
-        return
-
-    df = df_or_interval
-    if df.empty:
-        return
-
-    # dates are already in US Eastern Time (New York) naive format
-    dates_ny = pd.to_datetime(df["date"])
-    tick_value_column = "date_label" if "date_label" in df.columns else "date"
-
-    tickvals = []
-    ticktext = []
-
-    if tf == "1D":
-        _1d_ticks = {"09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"}
-        for i, dt in enumerate(dates_ny):
-            if dt.strftime("%H:%M") in _1d_ticks:
-                tickvals.append(df.iloc[i][tick_value_column])
-                ticktext.append(dt.strftime("%I:%M %p").lstrip("0"))
-    elif tf == "5D":
-        last_date = None
-        for i, dt in enumerate(dates_ny):
-            day_str = dt.strftime("%b %d")
-            if last_date != day_str:
-                tickvals.append(df.iloc[i][tick_value_column])
-                ticktext.append(day_str)
-                last_date = day_str
-
-    if tickvals:
-        fig.update_xaxes(
-            type="category",
-            tickmode="array",
-            tickvals=tickvals,
-            ticktext=ticktext,
-            tickangle=0,
-        )
 
 
 def _latest_price_from_history(daily_prices: pd.DataFrame, intraday_prices: pd.DataFrame):
