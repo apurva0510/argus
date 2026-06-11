@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from io import StringIO
 import logging
 
@@ -9,7 +8,8 @@ import httpx
 import pandas as pd
 
 from argus.core.db import get_insert_statement_producer, session_scope
-from argus.core.models import JobRun, MacroObservation, MacroSeries
+from argus.core.models import MacroObservation, MacroSeries
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.pipelines.provider_health import execute_provider_request
 from argus.sources.eia_client import fetch_eia_series, is_eia_available
 
@@ -87,43 +87,6 @@ MACRO_SERIES: tuple[MacroSeriesDefinition, ...] = (
         source="eia",
     ),
 )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_macro", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    failed_series: list[str],
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(id=job_id, job_name="refresh_macro", started_at=_utc_now(), status=status)
-            session.add(job)
-
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        if error_text:
-            job.error_text = error_text
-        elif failed_series:
-            job.error_text = f"Failed series: {', '.join(sorted(failed_series))}"
 
 
 def _upsert_macro_series(session, definition: MacroSeriesDefinition) -> None:
@@ -298,7 +261,7 @@ def refresh_macro(
     series_codes: list[str] | None = None,
     client: httpx.Client | None = None,
 ) -> dict[str, object]:
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_macro")
     rows_read = 0
     rows_written = 0
     failed_series: list[str] = []
@@ -372,13 +335,18 @@ def refresh_macro(
         error_text = str(exc)
         logger.exception("Macro refresh pipeline failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_macro",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_series=failed_series,
-            error_text=error_text,
+            error_text=error_text
+            or (
+                f"Failed series: {', '.join(sorted(failed_series))}"
+                if failed_series
+                else None
+            ),
         )
 
     return {

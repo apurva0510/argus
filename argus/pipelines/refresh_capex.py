@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import logging
 
 from sqlalchemy import select
 
 from argus.core.db import get_insert_statement_producer, session_scope
-from argus.core.models import CapexObservation, Company, JobRun
+from argus.core.models import CapexObservation, Company
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.pipelines.provider_health import execute_provider_request
 from argus.sources.sec_client import fetch_company_facts, parse_capex_facts
 
@@ -15,45 +15,13 @@ logger = logging.getLogger(__name__)
 HYPERSCALER_SYMBOLS = ("MSFT", "AMZN", "GOOGL", "META")
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_capex", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(id=job_id, job_name="refresh_capex", started_at=_utc_now(), status=status)
-            session.add(job)
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        job.error_text = error_text
-
-
 def refresh_capex() -> dict[str, object]:
     """Ingest capex observations from SEC CompanyFacts for hyperscaler companies.
 
     Automated observations use source='sec_companyfacts'.
     Manually entered observations (source='manual') are never overwritten.
     """
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_capex")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -158,8 +126,9 @@ def refresh_capex() -> dict[str, object]:
     finally:
         if error_text is None and failed_symbols:
             error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_capex",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,

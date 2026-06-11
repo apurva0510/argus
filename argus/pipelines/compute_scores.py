@@ -7,43 +7,10 @@ from sqlalchemy import text
 
 from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
 from argus.core.db import session_scope
-from argus.core.models import DailyMetric, JobRun, utc_now
+from argus.core.models import DailyMetric
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 
 logger = logging.getLogger(__name__)
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="compute_opportunity_scores", started_at=utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id,
-                job_name="compute_opportunity_scores",
-                started_at=utc_now(),
-                status=status,
-            )
-            session.add(job)
-
-        job.finished_at = utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        job.error_text = error_text
 
 
 def _load_score_inputs(session) -> list[dict]:
@@ -129,7 +96,7 @@ def _load_score_inputs(session) -> list[dict]:
 
 
 def compute_opportunity_scores() -> dict[str, object]:
-    job_id = _create_job_run()
+    job_id = create_job_run("compute_opportunity_scores")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -186,8 +153,9 @@ def compute_opportunity_scores() -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Opportunity score computation failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "compute_opportunity_scores",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,

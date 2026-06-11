@@ -13,15 +13,14 @@ from argus.core.models import (
     CapexObservation,
     Company,
     EarningsEvent,
-    JobRun,
     MacroObservation,
     NewsItem,
     NewsMention,
     PriceBar,
     SignalDaily,
-    utc_now,
 )
 from argus.core.settings import settings
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 
 logger = logging.getLogger(__name__)
 
@@ -37,36 +36,8 @@ SIGNAL_COLUMNS = [
 ]
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="compute_signals", started_at=utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(id=job_id, job_name="compute_signals", started_at=utc_now(), status=status)
-            session.add(job)
-        job.finished_at = utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        job.error_text = error_text
-
-
 def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
-    job_id = _create_job_run()
+    job_id = create_job_run("compute_signals")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -125,8 +96,9 @@ def compute_signals(*, as_of_date: date | None = None) -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Signal computation failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "compute_signals",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,

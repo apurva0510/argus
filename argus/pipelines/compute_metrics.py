@@ -18,8 +18,9 @@ from argus.analytics.indicators import (
 )
 from argus.analytics.relative_strength import relative_return
 from argus.core.db import session_scope, get_insert_statement_producer
-from argus.core.models import Company, DailyMetric, JobRun, PriceBar, utc_now
+from argus.core.models import Company, DailyMetric, PriceBar
 from argus.core.settings import settings
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 
 logger = logging.getLogger(__name__)
 
@@ -44,44 +45,6 @@ METRIC_COLUMNS = [
     "relative_return_vs_nvda_3m",
     "volatility_20d",
 ]
-
-
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="compute_daily_metrics", started_at=utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    failed_symbols: list[str],
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id,
-                job_name="compute_daily_metrics",
-                started_at=utc_now(),
-                status=status,
-            )
-            session.add(job)
-
-        job.finished_at = utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        if error_text:
-            job.error_text = error_text
-        elif failed_symbols:
-            job.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
 
 
 def _load_price_frame(session, company_id: int) -> pd.DataFrame:
@@ -252,7 +215,7 @@ def _supports_daily_metrics_unique_key(session) -> bool:
 
 
 def compute_daily_metrics() -> dict[str, object]:
-    job_id = _create_job_run()
+    job_id = create_job_run("compute_daily_metrics")
     rows_read = 0
     rows_written = 0
     failed_symbols: list[str] = []
@@ -311,13 +274,18 @@ def compute_daily_metrics() -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Metric computation failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "compute_daily_metrics",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_symbols=failed_symbols,
-            error_text=error_text,
+            error_text=error_text
+            or (
+                f"Failed symbols: {', '.join(sorted(failed_symbols))}"
+                if failed_symbols
+                else None
+            ),
         )
 
     return {
