@@ -24,6 +24,7 @@ INDEX_MODE_MANUAL = "manual"
 INDEX_MODES = {INDEX_MODE_EQUAL, INDEX_MODE_EXPOSURE, INDEX_MODE_MANUAL}
 
 
+# ── Index Definitions & Constituent Administration ────────────────────────────
 def get_default_index_symbols(session: Session) -> list[str]:
     """
     Get the default constituent symbols for the AI Infra Core Index.
@@ -36,6 +37,7 @@ def get_default_index_symbols(session: Session) -> list[str]:
     return [c.symbol for c in companies if c.symbol not in AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS]
 
 
+# ── Weight Normalization & Validation Helpers ─────────────────────────────────
 def _normalize_weights(raw_weights: dict[str, float]) -> dict[str, float]:
     weights = {symbol: max(0.0, float(weight)) for symbol, weight in raw_weights.items()}
     total = sum(weights.values())
@@ -70,6 +72,7 @@ def _default_constituent_weights(session: Session) -> dict[str, float]:
     return {symbol: equal_weight for symbol in symbols}
 
 
+# ── Index Definition Synchronization & Access ─────────────────────────────────
 def _sync_default_index_constituents(session: Session, definition: IndexDefinition) -> bool:
     if definition.name != DEFAULT_INDEX_NAME or definition.mode != INDEX_MODE_EQUAL:
         return False
@@ -209,6 +212,7 @@ def get_index_definition(session: Session, definition_id: int | None = None) -> 
     return definition
 
 
+# ── Weight & Constituent Accessors ────────────────────────────────────────────
 def _included_constituents(
     session: Session, definition: IndexDefinition
 ) -> list[tuple[Company, float]]:
@@ -363,6 +367,7 @@ def clone_index_definition(
     )
 
 
+# ── Index Calculation Helpers & Calculators ───────────────────────────────────
 def _load_price_matrix(
     session: Session,
     symbols: list[str],
