@@ -6,9 +6,10 @@ import logging
 import pandas as pd
 from sqlalchemy import select
 from argus.core.db import session_scope, get_insert_statement_producer
-from argus.core.models import Company, JobRun, PriceBar
+from argus.core.models import Company, PriceBar
 from argus.sources.factory import get_market_data_provider
 from argus.sources.yfinance_client import YFinanceProvider
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.pipelines.provider_health import execute_provider_request
 
 
@@ -24,37 +25,15 @@ def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_prices", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
+def _job_error_text(
     failed_symbols: list[str],
     error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(id=job_id, job_name="refresh_prices", started_at=_utc_now(), status=status)
-            session.add(job)
-
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        if error_text:
-            job.error_text = error_text
-        elif failed_symbols:
-            job.error_text = f"Failed symbols: {', '.join(sorted(failed_symbols))}"
+) -> str | None:
+    if error_text:
+        return error_text
+    if failed_symbols:
+        return f"Failed symbols: {', '.join(sorted(failed_symbols))}"
+    return None
 
 
 def _row_bar_time(row: dict) -> datetime:
@@ -139,7 +118,7 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
         raise ValueError("refresh_prices supports interval='1d' or interval='15m'")
     period = period or _default_period_for_interval(interval)
     _validate_period_for_interval(period, interval)
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_prices")
     rows_written = 0
     rows_read = 0
     failed_symbols: list[str] = []
@@ -238,13 +217,16 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
         error_text = str(exc)
         logger.exception("Price refresh failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_prices",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_symbols=failed_symbols,
-            error_text=error_text,
+            error_text=_job_error_text(
+                failed_symbols=failed_symbols,
+                error_text=error_text,
+            ),
         )
 
     return {
