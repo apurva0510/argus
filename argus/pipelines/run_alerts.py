@@ -8,9 +8,9 @@ from argus.core.models import (
     Alert,
     AlertEvent,
     Company,
-    JobRun,
     WatchlistItem,
 )
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.alerts.rules import evaluate_alert_for_company
 from argus.alerts.formatting import format_alert_email
 from argus.alerts.email_delivery import is_smtp_configured, send_email
@@ -22,39 +22,7 @@ def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="run_alerts", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
 
-
-def _finish_job_run(
-    job_id: int,
-    *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
-    error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(
-                id=job_id,
-                job_name="run_alerts",
-                started_at=_utc_now(),
-                status=status,
-            )
-            session.add(job)
-
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
-        if error_text:
-            job.error_text = error_text
 
 
 def run_alerts() -> dict[str, object]:
@@ -63,7 +31,7 @@ def run_alerts() -> dict[str, object]:
     Reads active alerts, resolves targets, evaluates rules, checks deduplication
     keys, updates database, and sends email notifications.
     """
-    job_id = _create_job_run()
+    job_id = create_job_run("run_alerts")
     rows_read = 0
     rows_written = 0
     status = "success"
@@ -174,8 +142,9 @@ def run_alerts() -> dict[str, object]:
         error_text = str(exc)
         logger.exception("Alert pipeline runner failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "run_alerts",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
