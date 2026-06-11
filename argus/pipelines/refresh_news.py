@@ -11,6 +11,7 @@ from argus.analytics.news_signals import score_news_article
 from argus.core.db import session_scope
 from argus.core.models import Company, JobRun, NewsItem, NewsMention
 from argus.core.settings import settings
+from argus.pipelines.job_runs import create_job_run, finish_job_run
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
@@ -47,55 +48,32 @@ def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _create_job_run() -> int:
-    with session_scope() as session:
-        job = JobRun(job_name="refresh_news", started_at=_utc_now(), status="running")
-        session.add(job)
-        session.flush()
-        return job.id
-
-
-def _finish_job_run(
-    job_id: int,
+def _job_error_text(
     *,
-    status: str,
-    rows_read: int,
-    rows_written: int,
     failed_queries: list[str],
     failed_providers: list[str],
     provider_outcomes: dict[str, str] | None = None,
     error_text: str | None = None,
-) -> None:
-    with session_scope() as session:
-        job = session.get(JobRun, job_id)
-        if job is None:
-            job = JobRun(id=job_id, job_name="refresh_news", started_at=_utc_now(), status=status)
-            session.add(job)
+) -> str | None:
+    parts = []
+    if provider_outcomes:
+        outcome_parts = [
+            f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
+        ]
+        parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
 
-        job.finished_at = _utc_now()
-        job.status = status
-        job.rows_read = rows_read
-        job.rows_written = rows_written
+    if error_text:
+        parts.append(error_text)
+    else:
+        sub_parts = []
+        if failed_queries:
+            sub_parts.append(f"failed_queries={', '.join(sorted(set(failed_queries)))}")
+        if failed_providers:
+            sub_parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
+        if sub_parts:
+            parts.append("; ".join(sub_parts))
 
-        parts = []
-        if provider_outcomes:
-            outcome_parts = [
-                f"{p}={status_val}" for p, status_val in sorted(provider_outcomes.items())
-            ]
-            parts.append(f"provider_outcomes: {', '.join(outcome_parts)}")
-
-        if error_text:
-            parts.append(error_text)
-        else:
-            sub_parts = []
-            if failed_queries:
-                sub_parts.append(f"failed_queries={', '.join(sorted(set(failed_queries)))}")
-            if failed_providers:
-                sub_parts.append(f"failed_providers={', '.join(sorted(set(failed_providers)))}")
-            if sub_parts:
-                parts.append("; ".join(sub_parts))
-
-        job.error_text = "; ".join(parts) if parts else None
+    return "; ".join(parts) if parts else None
 
 
 def _last_successful_refresh_at(session) -> datetime | None:
@@ -416,7 +394,7 @@ def refresh_news(
 
     Detects mentions, maps keywords, and writes to database.
     """
-    job_id = _create_job_run()
+    job_id = create_job_run("refresh_news")
     rows_written = 0
     rows_read = 0
     failed_queries: list[str] = []
@@ -542,15 +520,18 @@ def refresh_news(
         error_text = str(exc)
         logger.exception("News refresh failed")
     finally:
-        _finish_job_run(
+        finish_job_run(
             job_id,
+            "refresh_news",
             status=status,
             rows_read=rows_read,
             rows_written=rows_written,
-            failed_queries=failed_queries,
-            failed_providers=failed_providers,
-            provider_outcomes=provider_outcomes,
-            error_text=error_text,
+            error_text=_job_error_text(
+                failed_queries=failed_queries,
+                failed_providers=failed_providers,
+                provider_outcomes=provider_outcomes,
+                error_text=error_text,
+            ),
         )
 
     return {
