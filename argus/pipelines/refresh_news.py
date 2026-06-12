@@ -16,25 +16,14 @@ from argus.pipelines.provider_health import (
     get_provider_health,
     execute_provider_request,
 )
-from argus.sources.base import BaseNewsProvider
 from argus.sources.news_rss_client import (
     NewsProviderRateLimitError,
-    YahooRssNewsProvider,
     fetch_rss_news_query,
 )
 
 logger = logging.getLogger(__name__)
+RSS_PROVIDER = "rss"
 fetch_rss_news = fetch_rss_news_query
-
-
-class RefreshNewsRssProvider(YahooRssNewsProvider):
-    def fetch_news(self, query: str) -> list[dict]:
-        return fetch_rss_news(query)
-
-
-NEWS_PROVIDERS: list[BaseNewsProvider] = [
-    RefreshNewsRssProvider(),
-]
 
 
 def _utc_now() -> datetime:
@@ -239,8 +228,8 @@ def detect_mentions_and_keywords(
     return unique_mentions
 
 
-def _fetch_provider_query(provider: BaseNewsProvider, query: str) -> list[dict]:
-    return provider.fetch_news(query)
+def _fetch_rss_query(query: str) -> list[dict]:
+    return fetch_rss_news(query)
 
 
 def refresh_news(
@@ -281,42 +270,32 @@ def refresh_news(
 
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
 
-            for provider in NEWS_PROVIDERS:
-                p_name = provider.name
-                if force:
-                    health = get_provider_health(session, p_name)
-                    health.disabled_until = None
-                    health.status = "healthy"
-                    session.flush()
+            if force:
+                health = get_provider_health(session, RSS_PROVIDER)
+                health.disabled_until = None
+                health.status = "healthy"
+                session.flush()
 
-                if not is_provider_available(session, p_name, now):
-                    provider_outcomes[p_name] = "cooldown"
-                else:
-                    provider_outcomes[p_name] = "success"
+            if not is_provider_available(session, RSS_PROVIDER, now):
+                provider_outcomes[RSS_PROVIDER] = "cooldown"
+            else:
+                provider_outcomes[RSS_PROVIDER] = "success"
 
             global_unique_articles: dict[str, dict] = {}
 
-            provider_queries = []
-            for provider in NEWS_PROVIDERS:
-                p_name = provider.name
-                if queries is not None:
-                    p_queries = list(queries)
-                elif p_name == "rss":
-                    p_queries = [c.symbol for c in companies if c.symbol]
-                else:
-                    p_queries = []
+            rss_queries = list(queries) if queries is not None else [
+                c.symbol for c in companies if c.symbol
+            ]
+            if max_queries is not None:
+                rss_queries = rss_queries[: max(0, max_queries)]
 
-                if max_queries is not None:
-                    p_queries = p_queries[: max(0, max_queries)]
-
-                for q in p_queries:
-                    provider_queries.append((provider, q))
-
-            for provider, query in provider_queries:
-                p_name = provider.name
-                if p_name in disabled_providers or provider_outcomes[p_name] == "cooldown":
-                    failed_providers.append(p_name)
-                    message = disabled_message(p_name)
+            for query in rss_queries:
+                if (
+                    RSS_PROVIDER in disabled_providers
+                    or provider_outcomes[RSS_PROVIDER] == "cooldown"
+                ):
+                    failed_providers.append(RSS_PROVIDER)
+                    message = disabled_message(RSS_PROVIDER)
                     if message not in health_messages:
                         health_messages.append(message)
                         logger.warning(message)
@@ -325,34 +304,32 @@ def refresh_news(
                 try:
                     fetched_articles = execute_provider_request(
                         session,
-                        p_name,
-                        _fetch_provider_query,
-                        provider,
+                        RSS_PROVIDER,
+                        _fetch_rss_query,
                         query,
                     )
                 except NewsProviderRateLimitError as exc:
-                    disabled_providers.add(p_name)
-                    provider_outcomes[p_name] = "429"
-                    message = disabled_message(p_name)
+                    disabled_providers.add(RSS_PROVIDER)
+                    provider_outcomes[RSS_PROVIDER] = "429"
+                    message = disabled_message(RSS_PROVIDER)
                     logger.warning("%s: %s", message, exc)
                     if message not in health_messages:
                         health_messages.append(message)
                     failed_queries.append(query)
-                    failed_providers.append(p_name)
+                    failed_providers.append(RSS_PROVIDER)
                     continue
                 except Exception:
-                    logger.exception("Failed to fetch %s news for query: %s", p_name, query)
+                    logger.exception("Failed to fetch %s news for query: %s", RSS_PROVIDER, query)
                     failed_queries.append(query)
-                    failed_providers.append(p_name)
-                    if provider_outcomes[p_name] != "429":
-                        provider_outcomes[p_name] = "failure"
+                    failed_providers.append(RSS_PROVIDER)
+                    if provider_outcomes[RSS_PROVIDER] != "429":
+                        provider_outcomes[RSS_PROVIDER] = "failure"
                     continue
 
                 state.rows_read += len(fetched_articles)
                 for article in fetched_articles:
-                    article["provider"] = p_name
+                    article["provider"] = RSS_PROVIDER
                     global_unique_articles[stable_article_key(article)] = article
-
 
             # Process globally unique articles
             for art in global_unique_articles.values():
@@ -365,7 +342,10 @@ def refresh_news(
                 if health_messages:
                     state.status = "partial_success"
                 else:
-                    state.status = "partial_success" if state.rows_written > 0 or state.rows_read > 0 else "failed"
+                    state.status = (
+                        "partial_success" if state.rows_written > 0 or state.rows_read > 0
+                        else "failed"
+                    )
                 logger.warning(
                     "News refresh experienced failures for providers=%s queries=%s",
                     ",".join(sorted(set(failed_providers))),
@@ -387,5 +367,9 @@ def refresh_news(
         "rows_written": state.rows_written,
         "failed_queries": failed_queries,
         "failed_providers": failed_providers,
-        "error_text": state.error_text if state.status == "failed" else ("; ".join(health_messages) if health_messages else None),
+        "error_text": (
+            state.error_text
+            if state.status == "failed"
+            else ("; ".join(health_messages) if health_messages else None)
+        ),
     }
