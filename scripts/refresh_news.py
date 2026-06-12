@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     run_migrations(get_engine())
-    print("Starting news refresh job (RSS & GDELT)...")
+    print("Starting news refresh job (RSS)...")
     result = refresh_news(
         force=args.force,
         bypass_recent_success=args.bypass_refresh_throttle,

@@ -14,7 +14,6 @@ from argus.core.models import (
 from argus.pipelines.news_items import upsert_news_item
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
-from argus.sources.gdelt_client import parse_gdelt_date
 from argus.sources.sec_client import (
     SecSubmissionNotFoundError,
     SecTickerIdentity,
@@ -35,13 +34,6 @@ def test_parse_sec_datetime() -> None:
     assert parse_sec_datetime("2024-03-20T16:15:00.000Z") == expected
     assert parse_sec_datetime("") is None
     assert parse_sec_datetime("invalid") is None
-
-
-def test_parse_gdelt_date() -> None:
-    expected = datetime(2025, 5, 30, 23, 30, 0)
-    assert parse_gdelt_date("20250530T233000Z") == expected
-    assert parse_gdelt_date("20250530233000") == expected
-    assert parse_gdelt_date("") is not None  # defaults to now
 
 
 # Mention detection logic tests
@@ -161,12 +153,7 @@ def test_refresh_news_pipeline(sqlite_engine, monkeypatch) -> None:
             ]
         return []
 
-    # Mock GDELT
-    def mock_fetch_gdelt(ticker: str, timespan: str) -> list[dict]:
-        return []
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -244,81 +231,6 @@ def test_fetch_rss_news_raises_on_first_429(monkeypatch) -> None:
         fetch_rss_news("AAPL")
 
     assert call_count == 1
-
-
-def test_fetch_gdelt_news_raises_on_first_429(monkeypatch) -> None:
-    from argus.sources.gdelt_client import fetch_gdelt_news
-    from argus.sources.news_rss_client import NewsProviderRateLimitError
-    import httpx
-
-    call_count = 0
-
-    def mock_get(url, *args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return httpx.Response(status_code=429, request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(httpx, "get", mock_get)
-
-    with pytest.raises(NewsProviderRateLimitError):
-        fetch_gdelt_news("AAPL")
-
-    assert call_count == 1
-
-
-def test_fetch_gdelt_news_timeout_raises_429(monkeypatch) -> None:
-    from argus.sources.gdelt_client import fetch_gdelt_news
-    from argus.sources.news_rss_client import NewsProviderRateLimitError
-    import httpx
-
-    def mock_get(url, *args, **kwargs):
-        raise httpx.TimeoutException("Handshake timeout")
-
-    monkeypatch.setattr(httpx, "get", mock_get)
-
-    with pytest.raises(NewsProviderRateLimitError):
-        fetch_gdelt_news("AAPL")
-
-
-def test_fetch_gdelt_news_invalid_json_raises_429(monkeypatch) -> None:
-    from argus.sources.gdelt_client import fetch_gdelt_news
-    from argus.sources.news_rss_client import NewsProviderRateLimitError
-    import httpx
-
-    def mock_get(url, *args, **kwargs):
-        # Return 200 but HTML error page instead of JSON
-        return httpx.Response(
-            status_code=200, content=b"An error occurred", request=httpx.Request("GET", url)
-        )
-
-    monkeypatch.setattr(httpx, "get", mock_get)
-
-    with pytest.raises(NewsProviderRateLimitError):
-        fetch_gdelt_news("AAPL")
-
-
-def test_fetch_gdelt_news_persistent_http_error_raises_429(monkeypatch) -> None:
-    from argus.sources.gdelt_client import fetch_gdelt_news
-    from argus.sources.news_rss_client import NewsProviderRateLimitError
-    import httpx
-    import time
-
-    call_count = 0
-
-    def mock_get(url, *args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return httpx.Response(status_code=503, request=httpx.Request("GET", url))
-
-    # Disable sleeping to speed up the test
-    monkeypatch.setattr(time, "sleep", lambda x: None)
-    monkeypatch.setattr(httpx, "get", mock_get)
-
-    with pytest.raises(NewsProviderRateLimitError):
-        fetch_gdelt_news("AAPL")
-
-    # Should try 3 times (1 initial + 2 retries) before raising
-    assert call_count == 3
 
 
 # SEC User-Agent requirement test
@@ -747,44 +659,6 @@ def test_fetch_rss_news_parsing(monkeypatch, rss_feed_xml) -> None:
     assert isinstance(items[0]["published_at"], datetime)
 
 
-# GDELT JSON payload fixture
-@pytest.fixture
-def gdelt_json_payload() -> dict:
-    return {
-        "articles": [
-            {
-                "title": "NVIDIA GPU Advanced Cooling",
-                "url": "https://gdelt.org/nvda-cooling",
-                "domain": "coolingnews.com",
-                "seendate": "20260530T153000Z",
-            }
-        ]
-    }
-
-
-# GDELT news parsing test
-def test_fetch_gdelt_news_parsing(monkeypatch, gdelt_json_payload) -> None:
-    from argus.sources.gdelt_client import fetch_gdelt_news
-    import httpx
-    import json
-
-    def mock_get(url, *args, **kwargs):
-        return httpx.Response(
-            200,
-            content=json.dumps(gdelt_json_payload).encode("utf-8"),
-            request=httpx.Request("GET", url),
-        )
-
-    monkeypatch.setattr(httpx, "get", mock_get)
-
-    items = fetch_gdelt_news("NVDA")
-    assert len(items) == 1
-    assert items[0]["title"] == "NVIDIA GPU Advanced Cooling"
-    assert items[0]["url"] == "https://gdelt.org/nvda-cooling"
-    assert items[0]["source_name"] == "coolingnews.com"
-    assert items[0]["published_at"] == datetime(2026, 5, 30, 15, 30, 0)
-
-
 # News URL deduplication test
 def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
@@ -798,11 +672,7 @@ def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
                 "url": "https://example.com/dup",
                 "source_name": "Source A",
                 "published_at": datetime(2026, 5, 30, 10, 0, 0),
-            }
-        ]
-
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        return [
+            },
             {
                 "title": "Duplicate Article about NVDA (Alternate)",
                 "summary": None,
@@ -813,7 +683,6 @@ def test_refresh_news_url_deduplication(sqlite_engine, monkeypatch) -> None:
         ]
 
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -920,11 +789,7 @@ def test_refresh_news_partial_failure(sqlite_engine, monkeypatch) -> None:
             }
         ]
 
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        return []
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -957,20 +822,13 @@ def test_refresh_news_429_marks_provider_unhealthy_and_skips_remaining_queries(
     from argus.sources.news_rss_client import NewsProviderRateLimitError
 
     rss_calls = 0
-    gdelt_calls = 0
 
     def mock_fetch_rss(query: str) -> list[dict]:
         nonlocal rss_calls
         rss_calls += 1
         raise NewsProviderRateLimitError("rss", query)
 
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        nonlocal gdelt_calls
-        gdelt_calls += 1
-        return []
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(news_module.settings, "provider_disable_hours", 24.0)
     monkeypatch.setattr(
         db_module,
@@ -985,7 +843,6 @@ def test_refresh_news_429_marks_provider_unhealthy_and_skips_remaining_queries(
 
     assert result["status"] == "partial_success"
     assert rss_calls == 1
-    assert gdelt_calls == 2
     assert "rss" in result["failed_providers"]
     assert "RSS disabled until tomorrow due to rate limit" in result["error_text"]
 
@@ -995,45 +852,6 @@ def test_refresh_news_429_marks_provider_unhealthy_and_skips_remaining_queries(
         assert health.failure_count == 1
         assert health.disabled_until is not None
         assert health.last_error == "RSS disabled until tomorrow due to rate limit"
-
-
-def test_refresh_news_skips_provider_disabled_from_previous_429(sqlite_engine, monkeypatch) -> None:
-    from argus.core import db as db_module
-    import argus.pipelines.refresh_news as news_module
-
-    calls = 0
-
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        nonlocal calls
-        calls += 1
-        return []
-
-    monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
-    monkeypatch.setattr(
-        db_module,
-        "SessionLocal",
-        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
-    )
-
-    with db_module.session_scope() as session:
-        session.add(Company(symbol="NVDA", name="NVIDIA Corporation", is_active=True))
-        session.add(
-            ProviderHealth(
-                provider="gdelt",
-                status="unhealthy",
-                failure_count=1,
-                disabled_until=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=23),
-                last_error="GDELT disabled until tomorrow due to rate limit",
-            )
-        )
-
-    result = refresh_news(force=False, queries=["data center AI"])
-
-    assert result["status"] == "partial_success"
-    assert calls == 0
-    assert "gdelt" in result["failed_providers"]
-    assert "GDELT disabled until tomorrow due to rate limit" in result["error_text"]
 
 
 def test_fetch_rss_news_429_does_not_retry(monkeypatch) -> None:
@@ -1074,19 +892,7 @@ def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -
             }
         ]
 
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        return [
-            {
-                "title": "NVIDIA AI data center story",
-                "summary": None,
-                "url": "https://example.com/story",
-                "source_name": "Source B",
-                "published_at": datetime(2026, 5, 30, 10, 0, 0),
-            }
-        ]
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -1099,7 +905,7 @@ def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -
     result = refresh_news(force=True, queries=["data center AI"])
 
     assert result["status"] == "success"
-    assert result["rows_read"] == 2
+    assert result["rows_read"] == 1
     assert result["rows_written"] == 1
     with db_module.session_scope() as session:
         item = session.query(NewsItem).one()
@@ -1214,7 +1020,6 @@ def test_refresh_news_skips_when_recent_success(sqlite_engine, monkeypatch) -> N
         return []
 
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
     monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
     monkeypatch.setattr(
         db_module,
@@ -1253,7 +1058,6 @@ def test_refresh_news_force_bypasses_refresh_throttle(sqlite_engine, monkeypatch
         return []
 
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
     monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
     monkeypatch.setattr(
         db_module,
@@ -1285,20 +1089,12 @@ def test_refresh_news_bypass_recent_success_respects_provider_cooldown(
     import argus.pipelines.refresh_news as news_module
 
     rss_calls = 0
-    gdelt_calls = 0
-
     def mock_fetch_rss(query: str) -> list[dict]:
         nonlocal rss_calls
         rss_calls += 1
         return []
 
-    def mock_fetch_gdelt(query: str, timespan: str) -> list[dict]:
-        nonlocal gdelt_calls
-        gdelt_calls += 1
-        return []
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(news_module.settings, "news_refresh_min_hours", 3.0)
     monkeypatch.setattr(
         db_module,
@@ -1333,7 +1129,6 @@ def test_refresh_news_bypass_recent_success_respects_provider_cooldown(
 
     assert result["status"] == "partial_success"
     assert rss_calls == 0
-    assert gdelt_calls == 1
     with db_module.session_scope() as session:
         health = session.query(ProviderHealth).filter_by(provider="rss").one()
         assert health.disabled_until == disabled_until
@@ -1358,7 +1153,6 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(
         ]
 
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda *a, **k: [])
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -1500,7 +1294,6 @@ def test_refresh_news_records_provider_outcomes_success(sqlite_engine, monkeypat
     import argus.pipelines.refresh_news as news_module
 
     monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -1516,7 +1309,7 @@ def test_refresh_news_records_provider_outcomes_success(sqlite_engine, monkeypat
     with db_module.session_scope() as session:
         job = session.query(JobRun).order_by(JobRun.id.desc()).first()
         assert job.status == "success"
-        assert "provider_outcomes: gdelt=success, rss=success" in job.error_text
+        assert "provider_outcomes: rss=success" in job.error_text
 
 
 def test_refresh_news_records_provider_outcomes_cooldown(sqlite_engine, monkeypatch) -> None:
@@ -1524,7 +1317,6 @@ def test_refresh_news_records_provider_outcomes_cooldown(sqlite_engine, monkeypa
     import argus.pipelines.refresh_news as news_module
 
     monkeypatch.setattr(news_module, "fetch_rss_news", lambda query: [])
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", lambda query, timespan: [])
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -1548,7 +1340,7 @@ def test_refresh_news_records_provider_outcomes_cooldown(sqlite_engine, monkeypa
 
     with db_module.session_scope() as session:
         job = session.query(JobRun).order_by(JobRun.id.desc()).first()
-        assert "provider_outcomes: gdelt=success, rss=cooldown" in job.error_text
+        assert "provider_outcomes: rss=cooldown" in job.error_text
 
 
 def test_refresh_ir_feeds_records_provider_outcomes_success(sqlite_engine, monkeypatch) -> None:
@@ -1583,21 +1375,14 @@ def test_refresh_ir_feeds_records_provider_outcomes_success(sqlite_engine, monke
 def test_refresh_news_default_queries_split(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_news as news_module
-    from argus.pipelines.refresh_news import refresh_news, NEWS_QUERIES
 
     rss_calls = []
-    gdelt_calls = []
 
     def mock_fetch_rss(query: str) -> list[dict]:
         rss_calls.append(query)
         return []
 
-    def mock_fetch_gdelt(query: str, timespan: str = "1d") -> list[dict]:
-        gdelt_calls.append(query)
-        return []
-
     monkeypatch.setattr(news_module, "fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr(news_module, "fetch_gdelt_news", mock_fetch_gdelt)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
@@ -1614,5 +1399,3 @@ def test_refresh_news_default_queries_split(sqlite_engine, monkeypatch) -> None:
     assert result["status"] == "success"
     # RSS should query active tickers NVDA and MSFT
     assert set(rss_calls) == {"NVDA", "MSFT"}
-    # GDELT should query the default NEWS_QUERIES
-    assert gdelt_calls == NEWS_QUERIES

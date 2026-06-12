@@ -29,7 +29,7 @@ def test_get_filtered_news_relevance_and_sentiment(sqlite_engine, monkeypatch) -
             title="Nvidia surges on chip demand",
             url="https://example.com/1",
             source_name="TechCrunch",
-            provider="gdelt",
+            provider="rss",
             published_at=datetime(2026, 6, 1, 10, 0),
             sentiment_score=0.4,
             relevance_score=0.9,
@@ -47,7 +47,7 @@ def test_get_filtered_news_relevance_and_sentiment(sqlite_engine, monkeypatch) -
             title="Nvidia board meeting",
             url="https://example.com/3",
             source_name="TechCrunch",
-            provider="gdelt",
+            provider="rss",
             published_at=datetime(2026, 6, 1, 12, 0),
             sentiment_score=0.0,
             relevance_score=0.7,
@@ -102,7 +102,7 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
 
         session.add(
             ProviderHealth(
-                provider="gdelt",
+                provider="rss",
                 status="unhealthy",
                 disabled_until=datetime(2026, 6, 4, 12, 0),
                 failure_count=2,
@@ -139,5 +139,5 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
 
     ph_df = data["provider_health"]
     assert len(ph_df) == 1
-    assert ph_df.iloc[0]["provider"] == "gdelt"
+    assert ph_df.iloc[0]["provider"] == "rss"
     assert ph_df.iloc[0]["status"] == "unhealthy"

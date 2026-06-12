@@ -13,7 +13,7 @@ from argus.pipelines.run_daily_refresh import run_daily_refresh
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Argus daily refresh workflow.")
     parser.add_argument("--period", default="2y", help="yfinance period for price refresh")
-    parser.add_argument("--skip-news", action="store_true", help="Skip RSS/GDELT news refresh")
+    parser.add_argument("--skip-news", action="store_true", help="Skip RSS news refresh")
     parser.add_argument("--skip-filings", action="store_true", help="Skip SEC filings refresh")
     parser.add_argument("--skip-alerts", action="store_true", help="Skip alert evaluation")
     parser.add_argument("--skip-macro", action="store_true", help="Skip FRED macro refresh")

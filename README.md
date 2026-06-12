@@ -100,7 +100,7 @@ python scripts/compute_signals.py
 
 ### 3. (Optional) Ingest News, IR Feeds & SEC Filings
 
-Fetch news headlines and company filings from RSS/GDELT and SEC EDGAR:
+Fetch news headlines and company filings from RSS and SEC EDGAR:
 
 ```bash
 # Refresh broad market news articles (uses provider cooldown protection)
@@ -288,7 +288,7 @@ Argus includes five workflow files for production scheduling:
   - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → daily index refresh → alerts
 - `.github/workflows/news-refresh.yml`
   - Every 2 hours, every day
-  - Runs: broad RSS/GDELT news refresh with 24-hour provider cooldown after HTTP 429
+  - Runs: RSS news refresh with 24-hour provider cooldown after HTTP 429
 - `.github/workflows/filings-refresh.yml`
   - Every 3 hours, every day
   - Runs: official SEC ticker-to-CIK synchronization followed by SEC filings refresh

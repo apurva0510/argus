@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 def provider_label(provider: str) -> str:
     labels = {
-        "gdelt": "GDELT",
         "rss": "RSS",
         "ir_feed": "IR feeds",
     }

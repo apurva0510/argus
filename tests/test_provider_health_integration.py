@@ -75,16 +75,11 @@ def test_refresh_news_provider_health_failure(sqlite_engine, monkeypatch) -> Non
     def mock_fetch_rss(query):
         raise ValueError("RSS feed socket error")
 
-    def mock_fetch_gdelt(query, timespan):
-        raise ValueError("GDELT API server down")
-
     monkeypatch.setattr("argus.pipelines.refresh_news.fetch_rss_news", mock_fetch_rss)
-    monkeypatch.setattr("argus.pipelines.refresh_news.fetch_gdelt_news", mock_fetch_gdelt)
 
     # Run news refresh
     result = refresh_news(force=True, queries=["NVDA"])
     assert "rss" in result["failed_providers"]
-    assert "gdelt" in result["failed_providers"]
 
     # Verify ProviderHealth in DB
     with Session(sqlite_engine) as session:
@@ -92,11 +87,6 @@ def test_refresh_news_provider_health_failure(sqlite_engine, monkeypatch) -> Non
         assert rss_health.status == "unhealthy"
         assert rss_health.failure_count == 1
         assert "RSS feed socket error" in (rss_health.last_error or "")
-
-        gdelt_health = session.query(ProviderHealth).filter_by(provider="gdelt").one()
-        assert gdelt_health.status == "unhealthy"
-        assert gdelt_health.failure_count == 1
-        assert "GDELT API server down" in (gdelt_health.last_error or "")
 
 
 def test_refresh_macro_provider_health_failure(sqlite_engine, monkeypatch) -> None:

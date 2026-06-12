@@ -17,7 +17,6 @@ from argus.pipelines.provider_health import (
     execute_provider_request,
 )
 from argus.sources.base import BaseNewsProvider
-from argus.sources.gdelt_client import GdeltNewsProvider, fetch_gdelt_news_query
 from argus.sources.news_rss_client import (
     NewsProviderRateLimitError,
     YahooRssNewsProvider,
@@ -26,33 +25,17 @@ from argus.sources.news_rss_client import (
 
 logger = logging.getLogger(__name__)
 fetch_rss_news = fetch_rss_news_query
-fetch_gdelt_news = fetch_gdelt_news_query
 
 
-class refresh_news_rss_provider(YahooRssNewsProvider):
+class RefreshNewsRssProvider(YahooRssNewsProvider):
     def fetch_news(self, query: str) -> list[dict]:
         return fetch_rss_news(query)
 
 
-class refresh_news_gdelt_provider(GdeltNewsProvider):
-    def fetch_news(self, query: str) -> list[dict]:
-        return fetch_gdelt_news(query, timespan="1d")
-
-
 NEWS_PROVIDERS: list[BaseNewsProvider] = [
-    refresh_news_rss_provider(),
-    refresh_news_gdelt_provider(),
+    RefreshNewsRssProvider(),
 ]
 
-
-NEWS_QUERIES = [
-    "data center AI infrastructure power demand grid",
-    "liquid cooling data center AI servers",
-    "optical networking data center AI",
-    "semiconductor equipment AI capex",
-    "nuclear power data center electricity",
-    "hyperscaler capex AI infrastructure",
-]
 
 def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -267,7 +250,7 @@ def refresh_news(
     max_queries: int | None = None,
     queries: list[str] | None = None,
 ) -> dict[str, object]:
-    """Fetch and process theme-level news articles from RSS and GDELT.
+    """Fetch and process news articles from RSS.
 
     Detects mentions, maps keywords, and writes to database.
     """
@@ -320,8 +303,6 @@ def refresh_news(
                     p_queries = list(queries)
                 elif p_name == "rss":
                     p_queries = [c.symbol for c in companies if c.symbol]
-                elif p_name == "gdelt":
-                    p_queries = list(NEWS_QUERIES)
                 else:
                     p_queries = []
 
