@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 import pandas as pd
 import streamlit as st
 
+from app.components.data_health import build_freshness_summary, render_freshness_card_html
 from app.components.sidebar import render_sidebar_navigation
 from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
@@ -21,37 +22,11 @@ def _load_health_data(today: date) -> dict[str, pd.DataFrame]:
     return load_data_health_info(engine, today)
 
 
-def _safe_get_val(df, col="val"):
-    if df is None or df.empty or len(df) == 0:
-        return None
-    return df.at[0, col]
-
-
-def _parse_date(val) -> date | None:
-    if val is None or pd.isna(val):
-        return None
-    return pd.to_datetime(val).date()
-
-
 def _format_dt(val) -> str:
     if val is None or pd.isna(val):
         return "N/A"
     formatted = format_et_datetime(val)
     return formatted if formatted != "Never" else str(val)
-
-
-def _format_freshness_val(val, is_datetime: bool = False) -> str:
-    if val is None or pd.isna(val):
-        return "N/A"
-    if is_datetime:
-        formatted = format_et_datetime(val)
-        return formatted if formatted != "Never" else str(val)
-    else:
-        try:
-            dt = pd.to_datetime(val)
-            return dt.strftime("%Y-%m-%d")
-        except Exception:
-            return str(val)
 
 
 def render_page() -> None:
@@ -77,117 +52,15 @@ def render_page() -> None:
     # 1. Overview Tab
     with tab_overview:
         st.subheader("Data Freshness Audits")
+        freshness_summary = build_freshness_summary(health_data, today)
 
-        price_val = _safe_get_val(health_data["latest_prices"])
-        metrics_val = _safe_get_val(health_data["latest_metrics"])
-        macro_val = _safe_get_val(health_data["latest_macro"])
-        news_val = _safe_get_val(health_data["latest_news"])
-        filings_val = _safe_get_val(health_data["latest_filings"])
-        signals_val = _safe_get_val(health_data["latest_signals"])
-
-        price_date = _parse_date(price_val)
-        metrics_date = _parse_date(metrics_val)
-        macro_date = _parse_date(macro_val)
-        news_date = _parse_date(news_val)
-        filings_date = _parse_date(filings_val)
-        signals_date = _parse_date(signals_val)
-
-        stale_threshold = today - timedelta(days=3)
-
-        stale_items = []
-        fresh_items = []
-
-        datasets = [
-            ("Price Bars", price_date, "python scripts/run_daily_refresh.py"),
-            ("Daily Metrics", metrics_date, "python scripts/compute_metrics.py"),
-            ("Macro Observations", macro_date, "python scripts/refresh_macro.py"),
-            ("News Items", news_date, "python scripts/refresh_news.py"),
-            ("SEC Filings", filings_date, "python scripts/refresh_filings.py"),
-            ("Daily Signals", signals_date, "python scripts/compute_signals.py"),
-        ]
-
-        for name, l_date, cmd in datasets:
-            if l_date is None:
-                stale_items.append((name, "No data present", cmd))
-            elif l_date < stale_threshold:
-                stale_items.append(
-                    (name, f"Stale since {l_date.isoformat()} (Older than 3 days)", cmd)
-                )
-            else:
-                fresh_items.append((name, f"Fresh (latest: {l_date.isoformat()})"))
-
-        if stale_items:
+        if freshness_summary.stale_items:
             st.error("🚨 Stale Datasets Detected!")
-            for name, reason, cmd in stale_items:
-                st.markdown(f"**{name}**: {reason}")
-                st.code(cmd, language="bash")
+            for item in freshness_summary.stale_items:
+                st.markdown(f"**{item.name}**: {item.reason}")
+                st.code(item.command, language="bash")
         else:
             st.success("✅ All core datasets are fresh (updated within the last 3 days).")
-
-        # Prepare display values
-        price_display = "N/A"
-        if not health_data["latest_prices"].empty:
-            row = health_data["latest_prices"].iloc[0]
-            is_dt = row.get("interval") == "15m"
-            price_display = _format_freshness_val(row["val"], is_datetime=is_dt)
-
-        news_display = "N/A"
-        if not health_data["latest_news"].empty:
-            news_display = _format_freshness_val(
-                health_data["latest_news"].at[0, "val"], is_datetime=True
-            )
-
-        metrics_display = _format_freshness_val(metrics_val, is_datetime=False)
-
-        filings_display = "N/A"
-        if not health_data["latest_filings"].empty:
-            row = health_data["latest_filings"].iloc[0]
-            is_dt = bool(row.get("has_time"))
-            filings_display = _format_freshness_val(row["val"], is_datetime=is_dt)
-
-        signals_display = _format_freshness_val(signals_val, is_datetime=False)
-        macro_display = _format_freshness_val(macro_val, is_datetime=False)
-
-        # Compute individual statuses based on the 3-day freshness threshold
-        price_status = "stale" if price_date is None or price_date < stale_threshold else "fresh"
-        metrics_status = (
-            "stale" if metrics_date is None or metrics_date < stale_threshold else "fresh"
-        )
-        signals_status = (
-            "stale" if signals_date is None or signals_date < stale_threshold else "fresh"
-        )
-        news_status = "stale" if news_date is None or news_date < stale_threshold else "fresh"
-        filings_status = (
-            "stale" if filings_date is None or filings_date < stale_threshold else "fresh"
-        )
-        macro_status = "stale" if macro_date is None or macro_date < stale_threshold else "fresh"
-
-        def _render_card_html(title: str, display_val: str, status: str) -> str:
-            if not display_val or display_val == "N/A":
-                value_html = '<span class="freshness-val-na">N/A</span>'
-            else:
-                parts = display_val.split(" ", 1)
-                if len(parts) == 2:
-                    date_part, time_part = parts
-                    value_html = f'<span class="freshness-val-date">{date_part}</span><span class="freshness-val-time">{time_part}</span>'
-                else:
-                    value_html = f'<span class="freshness-val-date">{display_val}</span>'
-
-            status_label = "Fresh" if status == "fresh" else "Stale"
-            return f"""
-            <div class="freshness-card {status}">
-                <div class="freshness-card-header">
-                    <span class="freshness-title">{title}</span>
-                    <span class="status-indicator {status}">
-                        <span class="status-dot"></span>
-                        {status_label}
-                    </span>
-                </div>
-                <div class="freshness-value">
-                    {value_html}
-                </div>
-            </div>
-            """
 
         st.divider()
         st.subheader("Freshness Summary")
@@ -298,12 +171,7 @@ def render_page() -> None:
         st.markdown(
             f"""
             <div class="freshness-grid">
-                {_render_card_html("Latest Prices", price_display, price_status)}
-                {_render_card_html("Latest Metrics", metrics_display, metrics_status)}
-                {_render_card_html("Latest Signals", signals_display, signals_status)}
-                {_render_card_html("Latest News", news_display, news_status)}
-                {_render_card_html("Latest Filings", filings_display, filings_status)}
-                {_render_card_html("Latest Macro", macro_display, macro_status)}
+                {"".join(render_freshness_card_html(card) for card in freshness_summary.cards)}
             </div>
             """,
             unsafe_allow_html=True,
