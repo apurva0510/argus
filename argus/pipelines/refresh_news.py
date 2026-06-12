@@ -3,15 +3,13 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import select
 
-from argus.analytics.news_signals import score_news_article
 from argus.core.db import session_scope
-from argus.core.models import Company, JobRun, NewsItem, NewsMention
+from argus.core.models import Company, JobRun
 from argus.core.settings import settings
 from argus.pipelines.job_runs import job_run_context
+from argus.pipelines.news_items import stable_article_key, upsert_news_item as _upsert_news_item
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
@@ -55,16 +53,6 @@ NEWS_QUERIES = [
     "nuclear power data center electricity",
     "hyperscaler capex AI infrastructure",
 ]
-
-TRACKING_QUERY_PARAMS = {
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-    "guccounter",
-}
-
 
 def _utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -266,135 +254,6 @@ def detect_mentions_and_keywords(
             unique_mentions.append(m)
 
     return unique_mentions
-
-
-def normalize_news_url(url: str | None) -> str:
-    if not url:
-        return ""
-    parsed = urlsplit(url.strip())
-    query = urlencode(
-        [
-            (key, value)
-            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-            if key.lower() not in TRACKING_QUERY_PARAMS
-        ],
-        doseq=True,
-    )
-    path = parsed.path.rstrip("/") or parsed.path
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))
-
-
-def stable_article_key(article: dict) -> str:
-    normalized_url = normalize_news_url(article.get("url"))
-    if normalized_url:
-        return normalized_url
-    published = article.get("published_at")
-    published_key = (
-        published.date().isoformat() if hasattr(published, "date") else str(published or "")
-    )
-    raw = f"{article.get('title', '').strip().lower()}|{published_key}"
-    return "urn:argus-news:" + sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _mention_dict(mention) -> dict:
-    if isinstance(mention, dict):
-        return {
-            "is_primary_match": mention.get("is_primary_match"),
-            "matched_keywords": mention.get("matched_keywords"),
-        }
-    return {
-        "is_primary_match": mention.is_primary_match,
-        "matched_keywords": mention.matched_keywords,
-    }
-
-
-def _upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
-    """Inserts a news item and its mentions if it doesn't exist.
-
-    If it exists, adds any new company mentions not previously recorded.
-    """
-    # Check if URL already exists
-    stable_key = stable_article_key(art)
-    existing_item = session.query(NewsItem).filter(NewsItem.url == stable_key).one_or_none()
-
-    # Deduplicate input mentions by company_id to prevent database UNIQUE constraint violations
-    seen_company_ids = set()
-    unique_mentions = []
-    for m in mentions:
-        if m["company_id"] not in seen_company_ids:
-            seen_company_ids.add(m["company_id"])
-            unique_mentions.append(m)
-    mentions = unique_mentions
-    sentiment_score, relevance_score = score_news_article(
-        art["title"],
-        art.get("summary"),
-        mentions,
-    )
-
-    if existing_item is None:
-        # Create news item
-        item = NewsItem(
-            title=art["title"][:512],
-            summary=art["summary"][:2000] if art["summary"] else None,
-            url=stable_key[:1024],
-            source_name=art["source_name"][:128] if art["source_name"] else None,
-            provider=art["provider"],
-            published_at=art["published_at"],
-            sentiment_score=sentiment_score,
-            relevance_score=relevance_score,
-        )
-        session.add(item)
-        session.flush()
-
-        # Insert mentions
-        for m in mentions:
-            mention = NewsMention(
-                news_id=item.id,
-                company_id=m["company_id"],
-                ticker=m["ticker"],
-                is_primary_match=m["is_primary_match"],
-                matched_keywords=m["matched_keywords"],
-            )
-            session.add(mention)
-        session.flush()
-        return 1
-
-    else:
-        # Update details if needed
-        existing_item.title = art["title"][:512]
-        if art["summary"] and not existing_item.summary:
-            existing_item.summary = art["summary"][:2000]
-        existing_item.sentiment_score = sentiment_score
-        existing_item.relevance_score = relevance_score
-
-        # Check existing mentions
-        existing_mentions = (
-            session.query(NewsMention).filter(NewsMention.news_id == existing_item.id).all()
-        )
-        existing_company_ids = {m.company_id for m in existing_mentions}
-
-        written = 0
-        for m in mentions:
-            if m["company_id"] not in existing_company_ids:
-                mention = NewsMention(
-                    news_id=existing_item.id,
-                    company_id=m["company_id"],
-                    ticker=m["ticker"],
-                    is_primary_match=m["is_primary_match"],
-                    matched_keywords=m["matched_keywords"],
-                )
-                session.add(mention)
-                existing_company_ids.add(
-                    m["company_id"]
-                )  # Prevent duplicates within the same batch in case they were not fully filtered
-                existing_mentions.append(mention)
-                written += 1
-        existing_item.sentiment_score, existing_item.relevance_score = score_news_article(
-            existing_item.title,
-            existing_item.summary,
-            [_mention_dict(mention) for mention in existing_mentions],
-        )
-        return 1 if written > 0 else 0
 
 
 def _fetch_provider_query(provider: BaseNewsProvider, query: str) -> list[dict]:

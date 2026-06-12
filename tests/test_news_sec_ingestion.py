@@ -11,6 +11,7 @@ from argus.core.models import (
     SecFiling,
     UserNote,
 )
+from argus.pipelines.news_items import upsert_news_item
 from argus.pipelines.refresh_filings import refresh_filings
 from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
 from argus.sources.gdelt_client import parse_gdelt_date
@@ -869,8 +870,6 @@ def test_detect_mentions_no_copyright_storage_and_precision() -> None:
         "published_at": datetime.now(),
     }
 
-    from argus.pipelines.refresh_news import _upsert_news_item
-
     class DummySession:
         def __init__(self):
             self.added = []
@@ -892,7 +891,7 @@ def test_detect_mentions_no_copyright_storage_and_precision() -> None:
             pass
 
     sess = DummySession()
-    _upsert_news_item(
+    upsert_news_item(
         sess,
         mock_art,
         [{"company_id": 1, "ticker": "NVDA", "is_primary_match": True, "matched_keywords": "ai"}],
@@ -1109,7 +1108,6 @@ def test_refresh_news_normalized_url_deduplication(sqlite_engine, monkeypatch) -
 
 def test_upsert_news_item_populates_transparent_scores(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
-    import argus.pipelines.refresh_news as news_module
 
     monkeypatch.setattr(
         db_module,
@@ -1121,7 +1119,7 @@ def test_upsert_news_item_populates_transparent_scores(sqlite_engine, monkeypatc
         company = Company(symbol="ETN", name="Eaton", is_active=True)
         session.add(company)
         session.flush()
-        rows = news_module._upsert_news_item(
+        rows = upsert_news_item(
             session,
             {
                 "title": "Eaton wins data center power contract",
@@ -1154,7 +1152,6 @@ def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
     monkeypatch,
 ) -> None:
     from argus.core import db as db_module
-    import argus.pipelines.refresh_news as news_module
 
     monkeypatch.setattr(
         db_module,
@@ -1175,7 +1172,7 @@ def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
             "provider": "rss",
             "published_at": datetime(2026, 3, 10, 12, 0),
         }
-        news_module._upsert_news_item(
+        upsert_news_item(
             session,
             article,
             [
@@ -1187,7 +1184,7 @@ def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
                 }
             ],
         )
-        news_module._upsert_news_item(
+        upsert_news_item(
             session,
             article,
             [
@@ -1400,7 +1397,7 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(
         ]
 
         # Run upsert
-        res_first = news_module._upsert_news_item(
+        res_first = upsert_news_item(
             session,
             {
                 "title": "NVIDIA leads the way",

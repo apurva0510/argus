@@ -18,7 +18,8 @@ from argus.pipelines.provider_health import (
     get_provider_health,
     execute_provider_request,
 )
-from argus.pipelines.refresh_news import detect_mentions_and_keywords, _upsert_news_item
+from argus.pipelines.news_items import upsert_news_item
+from argus.pipelines.refresh_news import detect_mentions_and_keywords
 from argus.sources.news_rss_client import NewsProviderRateLimitError
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
                                 "matched_keywords": company.symbol,
                             }
                         )
-                    state.rows_written += _upsert_news_item(session, article, mentions)
+                    state.rows_written += upsert_news_item(session, article, mentions)
 
             if errors:
                 has_provider_cooldown = any(
