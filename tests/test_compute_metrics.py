@@ -43,7 +43,7 @@ def _seed_prices(session: Session, company_id: int, start_price: float, days: in
 
 
 @pytest.fixture
-def phase4_price_fixture() -> dict[str, object]:
+def windowed_metric_price_fixture() -> dict[str, object]:
     start = date(2025, 7, 1)
     days = 300
     return {
@@ -140,14 +140,14 @@ def test_compute_metrics_is_idempotent_and_stores_expected_values(
         )
 
 
-def test_compute_metrics_populates_phase4_windowed_metrics(
-    sqlite_engine, monkeypatch, phase4_price_fixture
+def test_compute_metrics_populates_windowed_metrics(
+    sqlite_engine, monkeypatch, windowed_metric_price_fixture
 ) -> None:
     db_module = _patch_session(sqlite_engine, monkeypatch)
-    start = phase4_price_fixture["start"]
-    abc_prices = phase4_price_fixture["abc_prices"]
-    qqq_prices = phase4_price_fixture["qqq_prices"]
-    nvda_prices = phase4_price_fixture["nvda_prices"]
+    start = windowed_metric_price_fixture["start"]
+    abc_prices = windowed_metric_price_fixture["abc_prices"]
+    qqq_prices = windowed_metric_price_fixture["qqq_prices"]
+    nvda_prices = windowed_metric_price_fixture["nvda_prices"]
 
     with db_module.session_scope() as session:
         abc = Company(symbol="ABC", name="ABC", is_active=True)

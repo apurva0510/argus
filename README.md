@@ -6,7 +6,7 @@ Argus is designed for a simple, two-user family workflow (research and decision 
 
 ---
 
-## 🚀 Quick Start & Installation
+## Quick Start & Installation
 
 Follow these steps to set up Argus on your local machine.
 
@@ -58,7 +58,7 @@ Open `.env` in a text editor to configure settings. Key configurations include:
 
 ---
 
-## 💾 Database and Data Ingestion Pipeline
+## Database and Data Ingestion Pipeline
 
 Argus uses a local SQLite database at `data/app.db` by default, or PostgreSQL if `DATABASE_URL` is configured. Run these commands sequentially to prepare the database and backfill market data:
 
@@ -142,7 +142,7 @@ python scripts/run_alerts.py
 
 ### 6. Orchestrated Daily Refresh
 
-Instead of running individual scripts, use the daily orchestrator to sync prices, compute metrics/scores, retrieve filings, and evaluate alerts in one command. Scheduled production news refreshes run separately at market open and market close to avoid rate limits:
+Instead of running individual scripts, use the daily orchestrator to sync daily prices, macro data, metrics/scores, index values, and alerts in one command. Scheduled production jobs handle news, IR feeds, intraday prices, and SEC filings separately through GitHub Actions:
 
 ```bash
 # Run the complete refresh workflow
@@ -170,7 +170,7 @@ The application will be accessible at [http://localhost:8501](http://localhost:8
 
 ---
 
-## 🧪 Testing and Quality Control
+## Testing and Quality Control
 
 ### Run Tests
 
@@ -192,7 +192,7 @@ ruff check .
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### 1. `ModuleNotFoundError: No module named 'app'` or `'argus'`
 
@@ -220,7 +220,7 @@ Alternative API providers on free tiers have strict limits (e.g., 5 calls per mi
 
 ---
 
-## ☁️ Deployment with Supabase Postgres
+## Deployment with Supabase Postgres
 
 Argus supports both **local SQLite** (default) and **Supabase Postgres** for production deployment. When `DATABASE_URL` is set, all pipelines and the Streamlit app will use that connection instead of the local SQLite file.
 
@@ -288,15 +288,15 @@ Argus includes five workflow files for production scheduling:
   - Runs: yfinance 15-minute prices (`--period 5d --interval 15m`) → metrics → daily index refresh → alerts
 - `.github/workflows/news-refresh.yml`
   - Every 2 hours, every day
-  - Runs: RSS news refresh with 24-hour provider cooldown after HTTP 429
+  - Runs: RSS news refresh with 24-hour provider cooldown after HTTP 429 → signals → alerts
 - `.github/workflows/filings-refresh.yml`
   - Every 3 hours, every day
-  - Runs: official SEC ticker-to-CIK synchronization followed by SEC filings refresh
+  - Runs: official SEC ticker-to-CIK synchronization → SEC filings refresh → alerts
 - `.github/workflows/ir-feeds-refresh.yml`
-  - Once daily between 5:00–6:00 PM ET, targeting 5:22 PM ET
-  - Runs: selected investor-relations feed refresh for cybersecurity and optical/networking names
+  - Every 6 hours, every day, at minute 22 UTC (`22 */6 * * *`)
+  - Runs: selected investor-relations feed refresh → signals → alerts
 - `.github/workflows/daily-refresh.yml`
-  - Once after US market close on weekdays between 4:30–5:30 PM ET, targeting 4:41 PM ET
+  - Once after US market close on weekdays during the 4:00–7:00 PM ET gated window
   - Runs: daily bars, macro indicators, metrics, scores, index, and alerts (`run_daily_refresh.py --period 2y --skip-news --skip-filings`)
 
 **Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
@@ -327,7 +327,7 @@ For a persistent SQLite deployment (no Postgres), deploy to a VPS or PaaS with v
 
 ---
 
-## 📈 AI Infra Core Index Methodology
+## AI Infra Core Index Methodology
 
 The custom **AI Infra Core Index** is built to monitor the collective performance of AI infrastructure and data-center supplier stocks.
 
@@ -338,7 +338,7 @@ The custom **AI Infra Core Index** is built to monitor the collective performanc
 
 ---
 
-## 🧪 Custom Index Lab
+## Custom Index Lab
 
 Argus includes an interactive **Index Lab** page (`app/pages/8_Index_Lab.py`) that allows users to define, backtest, and analyze custom index definitions:
 

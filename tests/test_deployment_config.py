@@ -38,18 +38,18 @@ def test_intraday_workflow_runs_every_30_minutes_during_market_hours_et() -> Non
     )
 
 
-def test_daily_close_workflow_runs_at_441pm_et_with_manual_override() -> None:
+def test_daily_close_workflow_runs_until_7pm_et_with_manual_override() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "daily-refresh.yml").read_text(
         encoding="utf-8"
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "requested 4:00-6:00 PM ET" in workflow
-    assert 'cron: "17,47 20-22 * * 1-5"' in workflow
+    assert "requested 4:00-7:00 PM ET" in workflow
+    assert 'cron: "17,47 20-23 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
     assert 'os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"' in workflow
     assert "start = time(16, 0)" in workflow
-    assert "end = time(18, 0)" in workflow
+    assert "end = time(19, 0)" in workflow
     assert "is_manual or in_window" in workflow
     assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
     assert "python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings" in workflow
@@ -119,7 +119,7 @@ def test_news_workflow_has_no_github_actions_skip_gate() -> None:
     assert "--force" not in workflow
 
 
-def test_ir_feeds_workflow_runs_once_daily_at_522pm_et() -> None:
+def test_ir_feeds_workflow_runs_every_6_hours() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "ir-feeds-refresh.yml").read_text(
         encoding="utf-8"
     )

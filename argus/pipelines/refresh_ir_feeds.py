@@ -18,8 +18,7 @@ from argus.pipelines.provider_health import (
     get_provider_health,
     execute_provider_request,
 )
-from argus.pipelines.news_items import upsert_news_item
-from argus.pipelines.refresh_news import detect_mentions_and_keywords
+from argus.pipelines.news_items import detect_mentions_and_keywords, upsert_news_item
 from argus.sources.news_rss_client import NewsProviderRateLimitError
 
 logger = logging.getLogger(__name__)

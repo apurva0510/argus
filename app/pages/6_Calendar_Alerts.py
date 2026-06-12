@@ -155,7 +155,7 @@ def _render_alert_rule_card(
 
 
 def _render_create_alert_form() -> None:
-    st.markdown("### ➕ Create New Alert")
+    st.markdown("### Create New Alert")
     col_a, col_b = st.columns(2)
     with col_a:
         alert_name = st.text_input("Alert Name", placeholder="e.g., NVDA price drop alert")
@@ -247,7 +247,7 @@ def _render_create_alert_form() -> None:
 
 
 def _render_active_alerts() -> None:
-    st.markdown("### 📋 Active Alert Rules")
+    st.markdown("### Active Alert Rules")
     alerts_df = load_alerts()
     if alerts_df.empty:
         st.info("No alert rules defined yet. Use the form below to create one.")
@@ -322,7 +322,7 @@ def _render_active_alerts() -> None:
 
 
 def _render_alert_history() -> None:
-    st.markdown("### 📜 Alert Trigger History")
+    st.markdown("### Alert Trigger History")
     history_df = load_alert_history(limit=50)
     if history_df.empty:
         st.info(
@@ -367,7 +367,7 @@ def _render_alert_history() -> None:
 
 def render_page() -> None:
     render_sidebar_navigation()
-    st.title("🗓️ Calendar & Alerts")
+    st.title("Calendar & Alerts")
     st.markdown("View upcoming events and manage custom automated alert triggers.")
 
     today = datetime.now(UTC).date()
@@ -376,10 +376,10 @@ def render_page() -> None:
 
     tab_earnings, tab_macro, tab_alert_rules, tab_alert_logs = st.tabs(
         [
-            "📅 Earnings Calendar",
-            "🌍 Macro Release Calendar",
-            "🔔 Alerts Manager",
-            "📜 Delivery Logs",
+            "Earnings Calendar",
+            "Macro Release Calendar",
+            "Alerts Manager",
+            "Delivery Logs",
         ]
     )
 

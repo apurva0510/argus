@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 
@@ -9,7 +8,11 @@ from argus.core.db import session_scope
 from argus.core.models import Company, JobRun
 from argus.core.settings import settings
 from argus.pipelines.job_runs import job_run_context
-from argus.pipelines.news_items import stable_article_key, upsert_news_item as _upsert_news_item
+from argus.pipelines.news_items import (
+    detect_mentions_and_keywords,
+    stable_article_key,
+    upsert_news_item,
+)
 from argus.pipelines.provider_health import (
     disabled_message,
     is_provider_available,
@@ -76,156 +79,6 @@ def _should_skip_refresh(session, *, force: bool, now: datetime) -> bool:
         return False
     min_age = timedelta(hours=max(0.0, float(settings.news_refresh_min_hours)))
     return now - last_success < min_age
-
-
-def clean_company_name(name: str) -> str:
-    """Removes common business suffixes from company name for keyword matching."""
-    clean = name.lower()
-    suffixes = [
-        " corporation",
-        " corp.",
-        " corp",
-        " inc.",
-        " inc",
-        " plc",
-        " co.",
-        " co",
-        " holding",
-        " holdings",
-        " ltd.",
-        " ltd",
-    ]
-    for suffix in suffixes:
-        if clean.endswith(suffix):
-            clean = clean[: -len(suffix)].strip()
-            break
-    return clean
-
-
-def _company_aliases(company: Company) -> list[str]:
-    aliases = []
-    clean_name = clean_company_name(company.name)
-    if clean_name:
-        aliases.append(clean_name)
-
-    static_aliases = {
-        "NVDA": ["nvidia"],
-        "GOOGL": ["alphabet", "google"],
-        "META": ["meta"],
-        "MSFT": ["microsoft"],
-        "AMZN": ["amazon", "aws"],
-        "VRT": ["vertiv"],
-        "GEV": ["ge vernova"],
-        "ETN": ["eaton"],
-        "PWR": ["quanta services"],
-        "ANET": ["arista networks"],
-        "AVGO": ["broadcom"],
-        "MRVL": ["marvell"],
-        "MU": ["micron"],
-        "MCHP": ["microchip"],
-    }
-    aliases.extend(static_aliases.get(company.symbol.upper(), []))
-    return sorted({alias.strip().lower() for alias in aliases if len(alias.strip()) > 3})
-
-
-def detect_mentions_and_keywords(
-    title: str, summary: str | None, companies: list[Company]
-) -> list[dict]:
-    """Detects company mentions and AI infrastructure keywords in news article text.
-
-    Returns a list of mention configurations with company_id, ticker,
-    is_primary_match, and matched_keywords.
-    """
-    text = f"{title} {summary or ''}".lower()
-    original_text = f"{title} {summary or ''}"
-    mentions = []
-
-    # AI infra keywords to match
-    infra_keywords = [
-        "ai",
-        "gpu",
-        "data center",
-        "datacenter",
-        "liquid cooling",
-        "semiconductor",
-        "hbm",
-        "advanced packaging",
-        "power grid",
-        "nuclear energy",
-        "electricity",
-        "nuclear",
-        "utility",
-        "fiber",
-        "optical",
-        "networking",
-    ]
-
-    matched_infra = [kw for kw in infra_keywords if re.search(r"\b" + re.escape(kw) + r"\b", text)]
-
-    for comp in companies:
-        symbol = comp.symbol.strip().upper()
-        ticker_lower = symbol.lower()
-
-        # Match exact ticker as a word.
-        # Short tickers (length <= 3) must match case-sensitively in the original text.
-        # Long tickers (length >= 4) match case-insensitively.
-        if len(symbol) <= 3:
-            ticker_match = re.search(r"\b" + re.escape(symbol) + r"\b", original_text)
-        else:
-            ticker_match = re.search(r"\b" + re.escape(ticker_lower) + r"\b", text)
-
-        # Match clean company name and common aliases.
-        name_match = False
-        matched_alias = None
-        for alias in _company_aliases(comp):
-            if re.search(r"\b" + re.escape(alias) + r"\b", text):
-                name_match = True
-                matched_alias = alias
-                break
-
-        if ticker_match or name_match:
-            matched_comp_kws = []
-            if ticker_match:
-                matched_comp_kws.append(comp.symbol)
-            if matched_alias:
-                matched_comp_kws.append(matched_alias.upper())
-
-            all_kws = matched_comp_kws + matched_infra
-
-            # Primary match if ticker or company name is found in the title
-            if len(symbol) <= 3:
-                ticker_in_title = bool(re.search(r"\b" + re.escape(symbol) + r"\b", title))
-            else:
-                ticker_in_title = bool(
-                    re.search(r"\b" + re.escape(ticker_lower) + r"\b", title.lower())
-                )
-
-            name_in_title = False
-            for alias in _company_aliases(comp):
-                if re.search(r"\b" + re.escape(alias) + r"\b", title.lower()):
-                    name_in_title = True
-                    break
-
-            is_primary = ticker_in_title or name_in_title
-
-            mentions.append(
-                {
-                    "company_id": comp.id,
-                    "ticker": comp.symbol,
-                    "is_primary_match": is_primary,
-                    "matched_keywords": ", ".join(all_kws) if all_kws else None,
-                }
-            )
-
-    # Deduplicate mentions by company_id before returning
-    seen_company_ids = set()
-    unique_mentions = []
-    for m in mentions:
-        if m["company_id"] not in seen_company_ids:
-            seen_company_ids.add(m["company_id"])
-            unique_mentions.append(m)
-
-    return unique_mentions
 
 
 def _fetch_rss_query(query: str) -> list[dict]:
@@ -336,7 +189,7 @@ def refresh_news(
                 # Check mentions across ALL active companies in DB
                 mentions = detect_mentions_and_keywords(art["title"], art["summary"], companies)
                 if mentions:
-                    state.rows_written += _upsert_news_item(session, art, mentions)
+                    state.rows_written += upsert_news_item(session, art, mentions)
 
             if failed_queries or failed_providers:
                 if health_messages:

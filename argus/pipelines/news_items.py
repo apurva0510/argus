@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from argus.analytics.news_signals import score_news_article
-from argus.core.models import NewsItem, NewsMention
+from argus.core.models import Company, NewsItem, NewsMention
 
 
 TRACKING_QUERY_PARAMS = {
@@ -43,6 +44,150 @@ def stable_article_key(article: dict) -> str:
     )
     raw = f"{article.get('title', '').strip().lower()}|{published_key}"
     return "urn:argus-news:" + sha256(raw.encode("utf-8")).hexdigest()
+
+
+def clean_company_name(name: str) -> str:
+    """Removes common business suffixes from company name for keyword matching."""
+    clean = name.lower()
+    suffixes = [
+        " corporation",
+        " corp.",
+        " corp",
+        " inc.",
+        " inc",
+        " plc",
+        " co.",
+        " co",
+        " holding",
+        " holdings",
+        " ltd.",
+        " ltd",
+    ]
+    for suffix in suffixes:
+        if clean.endswith(suffix):
+            clean = clean[: -len(suffix)].strip()
+            break
+    return clean
+
+
+def _company_aliases(company: Company) -> list[str]:
+    aliases = []
+    clean_name = clean_company_name(company.name)
+    if clean_name:
+        aliases.append(clean_name)
+
+    static_aliases = {
+        "NVDA": ["nvidia"],
+        "GOOGL": ["alphabet", "google"],
+        "META": ["meta"],
+        "MSFT": ["microsoft"],
+        "AMZN": ["amazon", "aws"],
+        "VRT": ["vertiv"],
+        "GEV": ["ge vernova"],
+        "ETN": ["eaton"],
+        "PWR": ["quanta services"],
+        "ANET": ["arista networks"],
+        "AVGO": ["broadcom"],
+        "MRVL": ["marvell"],
+        "MU": ["micron"],
+        "MCHP": ["microchip"],
+    }
+    aliases.extend(static_aliases.get(company.symbol.upper(), []))
+    return sorted({alias.strip().lower() for alias in aliases if len(alias.strip()) > 3})
+
+
+def detect_mentions_and_keywords(
+    title: str, summary: str | None, companies: list[Company]
+) -> list[dict]:
+    """Detects company mentions and AI infrastructure keywords in news article text.
+
+    Returns a list of mention configurations with company_id, ticker,
+    is_primary_match, and matched_keywords.
+    """
+    text = f"{title} {summary or ''}".lower()
+    original_text = f"{title} {summary or ''}"
+    mentions = []
+
+    infra_keywords = [
+        "ai",
+        "gpu",
+        "data center",
+        "datacenter",
+        "liquid cooling",
+        "semiconductor",
+        "hbm",
+        "advanced packaging",
+        "power grid",
+        "nuclear energy",
+        "electricity",
+        "nuclear",
+        "utility",
+        "fiber",
+        "optical",
+        "networking",
+    ]
+
+    matched_infra = [kw for kw in infra_keywords if re.search(r"\b" + re.escape(kw) + r"\b", text)]
+
+    for comp in companies:
+        symbol = comp.symbol.strip().upper()
+        ticker_lower = symbol.lower()
+
+        # Match exact ticker as a word.
+        # Short tickers (length <= 3) must match case-sensitively in the original text.
+        # Long tickers (length >= 4) match case-insensitively.
+        if len(symbol) <= 3:
+            ticker_match = re.search(r"\b" + re.escape(symbol) + r"\b", original_text)
+        else:
+            ticker_match = re.search(r"\b" + re.escape(ticker_lower) + r"\b", text)
+
+        name_match = False
+        matched_alias = None
+        for alias in _company_aliases(comp):
+            if re.search(r"\b" + re.escape(alias) + r"\b", text):
+                name_match = True
+                matched_alias = alias
+                break
+
+        if ticker_match or name_match:
+            matched_comp_kws = []
+            if ticker_match:
+                matched_comp_kws.append(comp.symbol)
+            if matched_alias:
+                matched_comp_kws.append(matched_alias.upper())
+
+            all_kws = matched_comp_kws + matched_infra
+
+            if len(symbol) <= 3:
+                ticker_in_title = bool(re.search(r"\b" + re.escape(symbol) + r"\b", title))
+            else:
+                ticker_in_title = bool(
+                    re.search(r"\b" + re.escape(ticker_lower) + r"\b", title.lower())
+                )
+
+            name_in_title = False
+            for alias in _company_aliases(comp):
+                if re.search(r"\b" + re.escape(alias) + r"\b", title.lower()):
+                    name_in_title = True
+                    break
+
+            mentions.append(
+                {
+                    "company_id": comp.id,
+                    "ticker": comp.symbol,
+                    "is_primary_match": ticker_in_title or name_in_title,
+                    "matched_keywords": ", ".join(all_kws) if all_kws else None,
+                }
+            )
+
+    seen_company_ids = set()
+    unique_mentions = []
+    for mention in mentions:
+        if mention["company_id"] not in seen_company_ids:
+            seen_company_ids.add(mention["company_id"])
+            unique_mentions.append(mention)
+
+    return unique_mentions
 
 
 def upsert_news_item(session, art: dict, mentions: list[dict]) -> int:

@@ -254,7 +254,7 @@ def render_company_detail() -> None:
     st.set_page_config(page_title="Argus - Company Detail", layout="wide")
     render_sidebar_navigation()
 
-    st.title("🔍 Company Detail")
+    st.title("Company Detail")
 
     # Custom styling for unified card feed (matching news and filings page)
     st.markdown(

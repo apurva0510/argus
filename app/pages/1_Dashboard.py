@@ -40,9 +40,6 @@ _fmt_pct = fmt.format_pct
 _fmt_pct_colored = fmt.format_pct_colored
 _fmt_plain_pct = fmt.format_plain_pct
 _fmt_yield_obs = fmt.format_yield_observation
-_daily_close_levels_from_session_returns = (
-    index_view_service.daily_close_levels_from_session_returns
-)
 
 
 @st.cache_resource
@@ -394,7 +391,7 @@ def render_dashboard() -> None:
     left_col, right_col = st.columns([7, 3])
 
     with left_col:
-        st.subheader(f"📈 {selected_index_name} Performance")
+        st.subheader(f"{selected_index_name} Performance")
 
         # 1. Chart Timeframe selector placed right above the chart
         tf = st.radio(
@@ -556,7 +553,7 @@ def render_dashboard() -> None:
             st.plotly_chart(fig, width="stretch")
 
     with right_col:
-        st.subheader("📰 Catalyst Chronicle")
+        st.subheader("Catalyst Chronicle")
         right_tab1, right_tab2, right_tab3 = st.tabs(
             ["SEC Filings", "Market News", "Upcoming Earnings"]
         )
@@ -592,7 +589,7 @@ def render_dashboard() -> None:
 
     # 5. Constituent Action Center (Full Width)
     st.write("")
-    st.subheader("🏆 Constituent Action Center")
+    st.subheader("Constituent Action Center")
     left_tab1, left_tab2, left_tab3, left_tab4 = st.tabs(
         ["Opportunities", "Movers", "Contributors", "Theme Exposure"]
     )
@@ -859,7 +856,7 @@ def render_dashboard() -> None:
 
     # 4. Bottom Tab Drawer (Deep Dives)
     st.write("---")
-    st.subheader("🔍 Deep Research & Operational Health")
+    st.subheader("Deep Research & Operational Health")
     bottom_tab1, bottom_tab2 = st.tabs(["Macro & Capex Insights", "Rich Signals Matrix"])
 
     with bottom_tab1:

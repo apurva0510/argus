@@ -1,5 +1,4 @@
 from datetime import date, datetime
-import importlib
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -335,9 +334,6 @@ def test_get_watchlist_notes(sqlite_engine, db_session, monkeypatch) -> None:
 
 
 def test_get_relative_perf_df() -> None:
-    detail_page = importlib.import_module("app.pages.3_Company_Detail")
-    get_relative_perf_df = detail_page.get_relative_perf_df
-
     df_comp = pd.DataFrame(
         {
             "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
@@ -357,7 +353,7 @@ def test_get_relative_perf_df() -> None:
         }
     )
 
-    res = get_relative_perf_df(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
+    res = build_relative_performance_frame(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
 
     assert len(res) == 3
     assert list(res["comp_ret"]) == pytest.approx([0.0, 5.0, 10.0])
@@ -381,9 +377,6 @@ def test_get_relative_perf_df_missing_benchmark() -> None:
 
 
 def test_get_relative_perf_df_missing_dates() -> None:
-    detail_page = importlib.import_module("app.pages.3_Company_Detail")
-    get_relative_perf_df = detail_page.get_relative_perf_df
-
     df_comp = pd.DataFrame(
         {
             "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
@@ -399,7 +392,7 @@ def test_get_relative_perf_df_missing_dates() -> None:
         {"date": [date(2026, 1, 2), date(2026, 1, 3)], "adj_close": [50.0, 55.0]}
     )
 
-    res = get_relative_perf_df(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
+    res = build_relative_performance_frame(df_comp, df_qqq, df_nvda, date(2026, 1, 1))
 
     assert len(res) == 3
     # QQQ forward-fills a missing middle date. NVDA starts late and should not

@@ -78,7 +78,7 @@ def render_sidebar_navigation() -> None:
         return
 
     with st.sidebar:
-        st.subheader("🔍 Quick Ticker Detail")
+        st.subheader("Quick Ticker Detail")
         options = ["Select..."] + symbols
         selected_ticker = st.selectbox(
             "Go to Company Detail:", options, index=0, key="sidebar_ticker_selectbox"

@@ -6,7 +6,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 from sqlalchemy.orm import Session
+from app.components import formatting as fmt
 from argus.core.models import Company, PriceBar
+from argus.services import index_view_service
 
 
 def _seed_prices(session: Session, company_id: int, start_date: date, prices: list[float]) -> None:
@@ -180,7 +182,6 @@ def test_dashboard_short_index_ranges_exclude_non_market_intraday_bars(
 
 
 def test_dashboard_daily_close_level_uses_session_return_not_absolute_daily_scale() -> None:
-    dashboard_module = importlib.import_module("app.pages.1_Dashboard")
     intraday = pd.DataFrame(
         {
             "date": [
@@ -197,7 +198,7 @@ def test_dashboard_daily_close_level_uses_session_return_not_absolute_daily_scal
         }
     )
 
-    close_levels = dashboard_module._daily_close_levels_from_session_returns(
+    close_levels = index_view_service.daily_close_levels_from_session_returns(
         intraday,
         daily,
         daily_value_column="index_value",
@@ -453,10 +454,8 @@ def test_dashboard_links_all_visible_ticker_surfaces() -> None:
 
 
 def test_company_detail_52w_range_avoids_markdown_math_parsing() -> None:
-    detail_module = importlib.import_module("app.pages.3_Company_Detail")
-
-    assert detail_module._fmt_price_range(4.05, 16.85) == "&#36;4.05 - &#36;16.85"
-    assert detail_module._fmt_price_range(None, 16.85) == "n/a"
+    assert fmt.format_price_range(4.05, 16.85) == "&#36;4.05 - &#36;16.85"
+    assert fmt.format_price_range(None, 16.85) == "n/a"
 
 
 def test_company_detail_latest_price_ignores_stale_intraday_data() -> None:
@@ -469,10 +468,8 @@ def test_company_detail_latest_price_ignores_stale_intraday_data() -> None:
 
 
 def test_company_detail_as_of_date_formats_timestamp_in_et() -> None:
-    detail_module = importlib.import_module("app.pages.3_Company_Detail")
-
-    assert detail_module._fmt_as_of_date("2026-06-06T01:30:00Z") == "2026-06-05 09:30 PM ET"
-    assert detail_module._fmt_as_of_date(date(2026, 6, 5)) == "2026-06-05"
+    assert fmt.format_as_of_date("2026-06-06T01:30:00Z") == "2026-06-05 09:30 PM ET"
+    assert fmt.format_as_of_date(date(2026, 6, 5)) == "2026-06-05"
 
 
 def test_company_detail_latest_price_uses_current_intraday_data() -> None:
@@ -556,37 +553,30 @@ def test_dashboard_uses_separate_active_and_index_constituent_counts() -> None:
 
 
 def test_company_detail_formatters() -> None:
-    import importlib
-
-    detail_module = importlib.import_module("app.pages.3_Company_Detail")
-    _fmt_pct_colored = detail_module._fmt_pct_colored
-    _fmt_large_num = detail_module._fmt_large_num
-    _fmt_multiple = detail_module._fmt_multiple
-
     # Test _fmt_pct_colored
-    assert _fmt_pct_colored(None) == "n/a"
-    assert "color: #3fb950" in _fmt_pct_colored(0.1234)
-    assert "+12.34%" in _fmt_pct_colored(0.1234)
-    assert "color: #f85149" in _fmt_pct_colored(-0.0567)
-    assert "-5.67%" in _fmt_pct_colored(-0.0567)
-    assert "color: #8b949e" in _fmt_pct_colored(0.0)
-    assert "0.00%" in _fmt_pct_colored(0.0)
+    assert fmt.format_pct_colored(None) == "n/a"
+    assert "color: #3fb950" in fmt.format_pct_colored(0.1234)
+    assert "+12.34%" in fmt.format_pct_colored(0.1234)
+    assert "color: #f85149" in fmt.format_pct_colored(-0.0567)
+    assert "-5.67%" in fmt.format_pct_colored(-0.0567)
+    assert "color: #8b949e" in fmt.format_pct_colored(0.0)
+    assert "0.00%" in fmt.format_pct_colored(0.0)
 
     # Test _fmt_multiple
-    assert _fmt_multiple(None) == "n/a"
-    assert _fmt_multiple(15.234) == "15.23"
-    assert _fmt_multiple(-5.0) == "-5.00"
+    assert fmt.format_multiple(None) == "n/a"
+    assert fmt.format_multiple(15.234) == "15.23"
+    assert fmt.format_multiple(-5.0) == "-5.00"
 
     # Test _fmt_large_num
-    assert _fmt_large_num(None) == "n/a"
-    assert _fmt_large_num(1.5e12) == "$1.50T"
-    assert _fmt_large_num(2.75e9) == "$2.75B"
-    assert _fmt_large_num(300e6) == "$300.00M"
-    assert _fmt_large_num(12345.678) == "$12,345.68"
-    assert _fmt_large_num(-1.5e12) == "-$1.50T"
-    assert _fmt_large_num(-2.75e9) == "-$2.75B"
-    assert _fmt_large_num(-300e6) == "-$300.00M"
-    assert _fmt_large_num(-12345.678) == "-$12,345.68"
+    assert fmt.format_large_number(None) == "n/a"
+    assert fmt.format_large_number(1.5e12) == "$1.50T"
+    assert fmt.format_large_number(2.75e9) == "$2.75B"
+    assert fmt.format_large_number(300e6) == "$300.00M"
+    assert fmt.format_large_number(12345.678) == "$12,345.68"
+    assert fmt.format_large_number(-1.5e12) == "-$1.50T"
+    assert fmt.format_large_number(-2.75e9) == "-$2.75B"
+    assert fmt.format_large_number(-300e6) == "-$300.00M"
+    assert fmt.format_large_number(-12345.678) == "-$12,345.68"
 
 
 def test_dashboard_upcoming_earnings_none_filled(monkeypatch) -> None:

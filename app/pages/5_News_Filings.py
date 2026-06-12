@@ -219,7 +219,7 @@ def _sec_only_filters_active(item_type: str) -> bool:
 
 def render_page() -> None:
     render_sidebar_navigation()
-    st.title("📰 News & SEC Filings")
+    st.title("News & SEC Filings")
     st.markdown(
         "Stay informed with a combined real-time feed of company announcements, headlines, and official SEC filings."
     )
@@ -293,7 +293,7 @@ def render_page() -> None:
         unsafe_allow_html=True,
     )
 
-    with st.expander("🔍 Filter Options", expanded=True):
+    with st.expander("Filter Options", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
             item_type = st.selectbox(

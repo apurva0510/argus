@@ -11,9 +11,9 @@ from argus.core.models import (
     SecFiling,
     UserNote,
 )
-from argus.pipelines.news_items import upsert_news_item
+from argus.pipelines.news_items import detect_mentions_and_keywords, upsert_news_item
 from argus.pipelines.refresh_filings import refresh_filings
-from argus.pipelines.refresh_news import detect_mentions_and_keywords, refresh_news
+from argus.pipelines.refresh_news import refresh_news
 from argus.sources.sec_client import (
     SecSubmissionNotFoundError,
     SecTickerIdentity,
@@ -1174,7 +1174,7 @@ def test_refresh_news_deduplicates_duplicate_company_ids_defensively(
         )
         assert len(mentions) == 1
 
-        # Verify _upsert_news_item does not fail with UNIQUE constraint even if passed duplicates
+        # Verify upsert_news_item does not fail with UNIQUE constraint even if passed duplicates
         dup_mention_payload = [
             {
                 "company_id": companies[0].id,

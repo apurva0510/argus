@@ -1,4 +1,4 @@
-"""Tests for Phase 10: Alert rules, deduplication, and pipeline."""
+"""Tests for alert rules, deduplication, and pipeline behavior."""
 
 from __future__ import annotations
 

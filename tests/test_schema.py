@@ -75,7 +75,7 @@ def test_package_modules_import_without_side_effects() -> None:
         assert importlib.import_module(module_name)
 
 
-def test_sqlalchemy_metadata_contains_phase1_tables() -> None:
+def test_sqlalchemy_metadata_contains_required_tables() -> None:
     assert REQUIRED_TABLES.issubset(Base.metadata.tables)
     assert Base.metadata.tables["companies"].c.symbol.unique is True
     assert Base.metadata.tables["price_bars"].c.company_id.foreign_keys
@@ -96,7 +96,7 @@ def test_settings_load_defaults_without_secrets(monkeypatch) -> None:
     assert test_settings.database_url.endswith("data/app.db")
 
 
-def test_phase1_required_tables_create(sqlite_engine) -> None:
+def test_required_tables_create(sqlite_engine) -> None:
     engine = sqlite_engine
     table_names = set(inspect(engine).get_table_names())
     assert REQUIRED_TABLES.issubset(table_names)
@@ -227,7 +227,7 @@ def test_scripts_init_db_creates_test_sqlite_database(tmp_path) -> None:
     assert REQUIRED_TABLES.issubset({name for (name,) in rows})
 
 
-def test_phase1_unique_constraints_exist() -> None:
+def test_unique_constraints_exist() -> None:
     engine = create_database_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
@@ -257,7 +257,7 @@ def test_phase1_unique_constraints_exist() -> None:
         assert expected_names.issubset(constraint_names)
 
 
-def test_phase1_lookup_indexes_exist(sqlite_engine) -> None:
+def test_lookup_indexes_exist(sqlite_engine) -> None:
     inspector = inspect(sqlite_engine)
     expected_indexes = {
         "companies": {("symbol",)},
@@ -291,7 +291,7 @@ def test_phase1_lookup_indexes_exist(sqlite_engine) -> None:
         assert expected_columns.issubset(indexed_columns)
 
 
-def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
+def test_required_columns_are_not_nullable(sqlite_engine) -> None:
     inspector = inspect(sqlite_engine)
     expected_non_nullable_columns = {
         "companies": {"symbol", "name", "is_active", "is_benchmark", "is_hyperscaler"},
@@ -336,7 +336,7 @@ def test_phase1_required_columns_are_not_nullable(sqlite_engine) -> None:
         assert nullable_columns == set()
 
 
-def test_phase1_schema_keeps_required_column_contract(sqlite_engine) -> None:
+def test_schema_keeps_required_column_contract(sqlite_engine) -> None:
     inspector = inspect(sqlite_engine)
     expected_columns = {
         "companies": {

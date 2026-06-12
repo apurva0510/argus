@@ -35,7 +35,7 @@ def _format_dt(val) -> str:
 
 def render_page() -> None:
     render_sidebar_navigation()
-    st.title("🛡️ Admin & Data Health Dashboard")
+    st.title("Admin & Data Health Dashboard")
     st.markdown(
         "Monitor pipeline executions, rate-limits, provider configurations, and database freshness warnings."
     )
@@ -46,10 +46,10 @@ def render_page() -> None:
 
     tab_overview, tab_pipelines, tab_providers, tab_integrity = st.tabs(
         [
-            "🔍 System Overview & Freshness",
-            "⚙️ Pipeline Executions",
-            "🌐 Provider Health & Usage",
-            "⚠️ Data Integrity & Audits",
+            "System Overview & Freshness",
+            "Pipeline Executions",
+            "Provider Health & Usage",
+            "Data Integrity & Audits",
         ]
     )
 

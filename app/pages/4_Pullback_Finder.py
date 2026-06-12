@@ -58,7 +58,7 @@ def render_explanation_card(ticker: str, company: str, explanation: str, score: 
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(240, 246, 252, 0.1); padding-bottom: 8px;">
             <div style="font-size: 18px; font-weight: 600; color: #58a6ff;">
-                🔍 Candidate Detail: <span style="color: #f0f6fc;">{ticker}</span> <span style="font-size: 14px; font-weight: normal; color: #8b949e;">({company})</span>
+                Candidate Detail: <span style="color: #f0f6fc;">{ticker}</span> <span style="font-size: 14px; font-weight: normal; color: #8b949e;">({company})</span>
             </div>
             <div style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(56, 139, 253, 0.3);">
                 Score: {score:.1f}
