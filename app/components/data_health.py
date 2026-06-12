@@ -28,6 +28,106 @@ class FreshnessSummary:
     cards: list[FreshnessCard]
 
 
+FRESHNESS_CARD_CSS = """
+            <style>
+            .freshness-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+                margin-top: 12px;
+                margin-bottom: 20px;
+            }
+            .freshness-card {
+                background: linear-gradient(135deg, rgba(22, 27, 34, 0.4) 0%, rgba(17, 22, 29, 0.5) 100%);
+                border: 1px solid rgba(240, 246, 252, 0.1);
+                border-radius: 10px;
+                padding: 14px 16px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+            }
+            .freshness-card-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+            .freshness-title {
+                font-size: 11px;
+                color: #8b949e;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+            }
+            .status-indicator {
+                display: inline-flex;
+                align-items: center;
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 2px 8px;
+                border-radius: 12px;
+            }
+            .status-indicator.fresh {
+                color: #3fb950;
+                background: rgba(46, 160, 67, 0.12);
+                border: 1px solid rgba(46, 160, 67, 0.2);
+            }
+            .status-indicator.stale {
+                color: #f85149;
+                background: rgba(248, 81, 73, 0.12);
+                border: 1px solid rgba(248, 81, 73, 0.2);
+            }
+            .status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                margin-right: 5px;
+                display: inline-block;
+            }
+            .status-indicator.fresh .status-dot {
+                background-color: #3fb950;
+                box-shadow: 0 0 6px rgba(46, 160, 67, 0.8);
+            }
+            .status-indicator.stale .status-dot {
+                background-color: #f85149;
+                box-shadow: 0 0 6px rgba(248, 81, 73, 0.8);
+            }
+            .freshness-value {
+                display: flex;
+                align-items: baseline;
+                flex-wrap: wrap;
+                margin-top: 4px;
+            }
+            .freshness-val-date {
+                font-size: 14px;
+                font-weight: 600;
+                color: #f0f6fc;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            }
+            .freshness-val-time {
+                font-size: 12px;
+                color: #8b949e;
+                margin-left: 6px;
+                font-weight: 400;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            }
+            .freshness-val-na {
+                font-size: 14px;
+                font-weight: 600;
+                color: #484f58;
+            }
+            @media (max-width: 768px) {
+                .freshness-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            </style>
+            """
+
+
 def build_freshness_summary(
     health_data: dict[str, pd.DataFrame],
     today: date,
@@ -126,6 +226,14 @@ def render_freshness_card_html(card: FreshnessCard) -> str:
                 <div class="freshness-value">
                     {value_html}
                 </div>
+            </div>
+            """
+
+
+def render_freshness_grid_html(cards: list[FreshnessCard]) -> str:
+    return f"""
+            <div class="freshness-grid">
+                {"".join(render_freshness_card_html(card) for card in cards)}
             </div>
             """
 

@@ -5,9 +5,11 @@ from datetime import date
 import pandas as pd
 
 from app.components.data_health import (
+    FRESHNESS_CARD_CSS,
     FreshnessCard,
     build_freshness_summary,
     render_freshness_card_html,
+    render_freshness_grid_html,
 )
 
 
@@ -76,3 +78,20 @@ def test_render_freshness_card_html_handles_missing_values() -> None:
 
     assert 'class="freshness-card stale"' in html
     assert '<span class="freshness-val-na">N/A</span>' in html
+
+
+def test_render_freshness_grid_html_wraps_cards() -> None:
+    html = render_freshness_grid_html(
+        [
+            FreshnessCard("Latest Prices", "2026-06-10", "fresh"),
+            FreshnessCard("Latest Macro", "N/A", "stale"),
+        ]
+    )
+
+    assert 'class="freshness-grid"' in html
+    assert html.count('class="freshness-card fresh"') == 1
+    assert html.count('class="freshness-card stale"') == 1
+    assert "Latest Prices" in html
+    assert "Latest Macro" in html
+    assert ".freshness-grid" in FRESHNESS_CARD_CSS
+    assert "@media (max-width: 768px)" in FRESHNESS_CARD_CSS
