@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from argus.core.models import JobRun
-from argus.pipelines.job_runs import create_job_run, finish_job_run
+from argus.pipelines.job_runs import create_job_run, finish_job_run, job_run_context
 
 
 def test_create_and_finish_job_run(sqlite_engine) -> None:
@@ -44,3 +44,28 @@ def test_finish_job_run_recreates_missing_row(sqlite_engine) -> None:
     assert row["started_at"] is not None
     assert row["finished_at"] is not None
     assert row["error_text"] == "boom"
+
+
+def test_job_run_context_records_and_suppresses_exception(sqlite_engine) -> None:
+    with job_run_context("context_failure_job") as state:
+        state.rows_read = 7
+        state.rows_written = 3
+        raise RuntimeError("context boom")
+
+    assert state.status == "failed"
+    assert state.error_text == "context boom"
+
+    with sqlite_engine.connect() as conn:
+        row = (
+            conn.execute(
+                JobRun.__table__.select().where(JobRun.job_name == "context_failure_job")
+            )
+            .mappings()
+            .one()
+        )
+
+    assert row["status"] == "failed"
+    assert row["rows_read"] == 7
+    assert row["rows_written"] == 3
+    assert row["finished_at"] is not None
+    assert row["error_text"] == "context boom"

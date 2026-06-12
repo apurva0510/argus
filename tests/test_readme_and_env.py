@@ -1,5 +1,7 @@
 import re
 from pathlib import Path
+import subprocess
+import sys
 
 
 def test_package_import_from_install():
@@ -84,3 +86,16 @@ def test_readme_script_commands_exist():
         assert app_abs_path.exists(), (
             f"README references non-existent app entrypoint: {app_rel_path}"
         )
+
+
+def test_script_bootstrap_imports_from_non_repo_cwd(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, str(project_root / "scripts" / "_bootstrap.py")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

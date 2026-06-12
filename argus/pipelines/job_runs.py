@@ -55,6 +55,11 @@ class JobRunState:
 
 @contextmanager
 def job_run_context(job_name: str):
+    """Record a JobRun around pipeline work.
+
+    Exceptions are intentionally converted into failed JobRun state so pipeline
+    entrypoints can return their existing result dictionaries after the context.
+    """
     job_id = create_job_run(job_name)
     state = JobRunState(job_id)
     try:
@@ -72,4 +77,3 @@ def job_run_context(job_name: str):
             rows_written=state.rows_written,
             error_text=state.error_text,
         )
-
