@@ -6,8 +6,12 @@ import streamlit as st
 import plotly.graph_objects as go
 
 from app.components import formatting as fmt
-from app.auth_links import company_detail_url
 from app.components.charts import apply_intraday_xaxis
+from app.components.feed_cards import (
+    FEED_CARD_STYLES,
+    render_filing_feed_card,
+    render_news_feed_card,
+)
 from app.components.metrics import render_metric_card, render_plain_metric_card
 from app.components.sidebar import render_sidebar_navigation
 from argus.analytics.market_hours import (
@@ -37,8 +41,6 @@ from argus.services.index_view_service import (
     load_index_options_from_engine,
     load_index_relative_returns_from_engine,
 )
-from html import escape
-from textwrap import dedent
 
 get_relative_perf_df = build_relative_performance_frame
 _fmt_as_of_date = fmt.format_as_of_date
@@ -48,48 +50,6 @@ _fmt_price = fmt.format_price
 _fmt_price_range = fmt.format_price_range
 _fmt_multiple = fmt.format_multiple
 _fmt_large_num = fmt.format_large_number
-
-
-def _html(value: object) -> str:
-    return escape("" if value is None or pd.isna(value) else str(value), quote=True)
-
-
-def _html_block(markup: str) -> str:
-    return "\n".join(line for line in dedent(markup).splitlines() if line.strip()).strip()
-
-
-def _sentiment_badge(score: float | None) -> str:
-    if score is None:
-        return '<span style="background: rgba(139, 148, 158, 0.15); color: #8b949e; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Sentiment: N/A</span>'
-
-    if score > 0.05:
-        return f'<span style="background: rgba(63, 185, 80, 0.15); color: #3fb950; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Positive ({score:+.2f})</span>'
-    elif score < -0.05:
-        return f'<span style="background: rgba(248, 81, 73, 0.15); color: #f85149; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Negative ({score:.2f})</span>'
-    else:
-        return f'<span style="background: rgba(139, 148, 158, 0.15); color: #8b949e; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Neutral ({score:+.2f})</span>'
-
-
-def _relevance_badge(score: float | None) -> str:
-    if score is None:
-        return '<span style="background: rgba(139, 148, 158, 0.15); color: #8b949e; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Relevance: N/A</span>'
-    return f'<span style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">Relevance: {score * 100:.0f}%</span>'
-
-
-def _ticker_badges(tickers_str: str | None) -> str:
-    if not tickers_str:
-        return ""
-    badges = []
-    for t in sorted(tickers_str.split(",")):
-        t_clean = t.strip()
-        if t_clean:
-            ticker = escape(t_clean, quote=True)
-            url = company_detail_url(t_clean)
-            badges.append(
-                f'<a href="{url}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 4px;">{ticker}</a>'
-            )
-    return "".join(badges)
-
 
 def _to_et(val) -> datetime | None:
     if val is None or pd.isna(val):
@@ -256,74 +216,7 @@ def render_company_detail() -> None:
 
     st.title("Company Detail")
 
-    # Custom styling for unified card feed (matching news and filings page)
-    st.markdown(
-        """
-        <style>
-        .feed-card {
-            background: rgba(22, 27, 34, 0.4);
-            border: 1px solid rgba(240, 246, 252, 0.1);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 16px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            transition: transform 0.2s, border-color 0.2s;
-        }
-        .feed-card:hover {
-            border-color: rgba(56, 139, 253, 0.4);
-        }
-        .feed-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-            border-bottom: 1px solid rgba(240, 246, 252, 0.05);
-            padding-bottom: 8px;
-        }
-        .feed-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin: 0 0 8px 0;
-        }
-        .feed-meta {
-            font-size: 13px;
-            color: #8b949e;
-            margin-bottom: 10px;
-        }
-        .feed-summary {
-            font-size: 14px;
-            color: #c9d1d9;
-            margin-bottom: 12px;
-            line-height: 1.5;
-        }
-        .feed-badges {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        .type-badge-news {
-            background: rgba(56, 139, 253, 0.2);
-            color: #58a6ff;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        .type-badge-filing {
-            background: rgba(219, 109, 40, 0.2);
-            color: #f78166;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(FEED_CARD_STYLES, unsafe_allow_html=True)
 
     symbols = get_company_options()
     if not symbols:
@@ -818,36 +711,17 @@ def render_company_detail() -> None:
                     if published_at_et
                     else "Unknown time"
                 )
-                sentiment_html = _sentiment_badge(item.get("sentiment_score"))
-                relevance_html = _relevance_badge(item.get("relevance_score"))
-                tickers_html = _ticker_badges(item.get("tickers"))
-                title = _html(item["title"])
-                summary = _html(item["summary"])
-                source_name = _html(item["source_name"] or "Unknown")
-                provider = _html(item.get("provider") or "yfinance").upper()
-                url = _html(item["url"])
-
                 st.markdown(
-                    _html_block(
-                        f"""
-                    <div class="feed-card">
-                        <div class="feed-header">
-                            <div>
-                                <span class="type-badge-news">News</span>
-                                <span style="margin-left: 8px; font-weight: bold; color: #58a6ff;">{source_name}</span>
-                            </div>
-                            <span style="font-size: 13px; color: #8b949e;">{time_str}</span>
-                        </div>
-                        <div class="feed-title"><a href="{url}" target="_blank" style="color: #c9d1d9; text-decoration: none;">{title}</a></div>
-                        <div class="feed-summary">{summary}</div>
-                        <div class="feed-badges">
-                            {tickers_html}
-                            {sentiment_html}
-                            {relevance_html}
-                            <span style="font-size: 12px; color: #8b949e; margin-left: auto;">Provider: {provider}</span>
-                        </div>
-                    </div>
-                    """
+                    render_news_feed_card(
+                        time_str=time_str,
+                        title=item["title"],
+                        summary=item["summary"],
+                        url=item["url"],
+                        source_name=item["source_name"] or "Unknown",
+                        provider=item.get("provider") or "yfinance",
+                        tickers=item.get("tickers"),
+                        sentiment_score=item.get("sentiment_score"),
+                        relevance_score=item.get("relevance_score"),
                     ),
                     unsafe_allow_html=True,
                 )
@@ -879,48 +753,15 @@ def render_company_detail() -> None:
 
                 now_ny = pd.Timestamp.now(tz="America/New_York").to_pydatetime()
                 is_new = (now_ny - ts) <= pd.Timedelta(hours=24) if ts is not None else False
-                new_star = (
-                    "⭐ <span style='color: #f2c94c; font-weight: bold; font-size: 12px; margin-right: 8px;'>NEW</span>"
-                    if is_new
-                    else ""
-                )
-
-                ticker = _html(company["symbol"])
-                company_name = _html(company["name"])
-                form = _html(f["form"])
-                filing_detail_url = _html(f["filing_detail_url"] or "#")
-                primary_doc_url = _html(f["primary_doc_url"] or "#")
-                url = company_detail_url(company["symbol"])
-                ticker_badge = f'<a href="{url}" target="_self" style="text-decoration: none; background: rgba(188, 140, 255, 0.15); color: #bc8cff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px;">{ticker}</a>'
-                raw_document_link = (
-                    f'<a href="{primary_doc_url}" target="_blank" style="background: rgba(139, 148, 158, 0.15); color: #c9d1d9; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">Raw SEC Document</a>'
-                    if f["primary_doc_url"]
-                    else ""
-                )
-
                 st.markdown(
-                    _html_block(
-                        f"""
-                    <div class="feed-card">
-                        <div class="feed-header">
-                            <div>
-                                <span class="type-badge-filing">SEC Filing</span>
-                                <span style="margin-left: 8px; font-weight: bold; color: #f78166;">{form}</span>
-                            </div>
-                            <span style="font-size: 13px; color: #8b949e;">{time_str}</span>
-                        </div>
-                        <div class="feed-title" style="color: #c9d1d9;">
-                            {new_star}
-                            {ticker_badge}
-                            <strong>{company_name}</strong>
-                        </div>
-                        <div class="feed-summary">Official {form} filing submitted to the SEC.</div>
-                        <div class="feed-badges">
-                            <a href="{filing_detail_url}" target="_blank" style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; padding: 4px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; font-weight: 600;">SEC Filing Page</a>
-                            {raw_document_link}
-                        </div>
-                    </div>
-                    """
+                    render_filing_feed_card(
+                        time_str=time_str,
+                        ticker=company["symbol"],
+                        company_name=company["name"],
+                        form=f["form"],
+                        filing_detail_url=f["filing_detail_url"] or "#",
+                        primary_doc_url=f["primary_doc_url"],
+                        is_new=is_new,
                     ),
                     unsafe_allow_html=True,
                 )
