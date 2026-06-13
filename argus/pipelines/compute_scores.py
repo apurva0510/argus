@@ -4,11 +4,11 @@ import logging
 
 from sqlalchemy import text
 
-from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
+from argus.analytics.scoring import compute_opportunity_score
 from argus.core.db import session_scope
 from argus.core.models import DailyMetric
 from argus.pipelines.job_runs import job_run_context
-from argus.services.scoring_service import load_scoring_inputs_for_active_companies
+from argus.services.scoring_service import build_score_inputs, load_scoring_inputs_for_active_companies
 
 logger = logging.getLogger(__name__)
 
@@ -80,27 +80,8 @@ def compute_opportunity_scores() -> dict[str, object]:
             state.rows_read = len(rows)
 
             for row in rows:
-                earnings_days = row.get("upcoming_earnings_days")
-                if earnings_days is None:
-                    earnings_days_value = None
-                else:
-                    earnings_days_value = max(0, int(round(float(earnings_days))))
-
                 breakdown = compute_opportunity_score(
-                    ScoreInputs(
-                        theme_exposure_score=row.get("theme_exposure_score"),
-                        drawdown_52w=row.get("drawdown_52w"),
-                        rsi_14=row.get("rsi_14"),
-                        distance_from_200dma=row.get("distance_from_200dma"),
-                        relative_return_vs_qqq_3m=row.get("relative_return_vs_qqq_3m"),
-                        watch_status=row.get("watch_status"),
-                        recent_news_count=_safe_int(row.get("recent_news_count")),
-                        recent_filing_count=_safe_int(row.get("recent_filing_count")),
-                        upcoming_earnings_days=earnings_days_value,
-                        return_1w=row.get("return_1w"),
-                        macro_pressure_level=pressure_level,
-                        sector=row.get("sector"),
-                    )
+                    build_score_inputs(row, macro_pressure_level=pressure_level)
                 )
 
                 metric = session.get(DailyMetric, row["daily_metric_id"])
@@ -119,9 +100,3 @@ def compute_opportunity_scores() -> dict[str, object]:
         "rows_written": state.rows_written,
         "error_text": state.error_text,
     }
-
-
-def _safe_int(value) -> int | None:
-    if value is None:
-        return None
-    return int(value)

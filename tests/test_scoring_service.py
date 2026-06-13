@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, UTC
+
+import pandas as pd
 import pytest
 
 from argus.core.models import (
@@ -10,7 +12,7 @@ from argus.core.models import (
     SecFiling,
     EarningsEvent,
 )
-from argus.services.scoring_service import load_scoring_inputs_for_active_companies
+from argus.services.scoring_service import build_score_inputs, load_scoring_inputs_for_active_companies
 
 
 def test_load_scoring_inputs(sqlite_engine, db_session) -> None:
@@ -110,3 +112,44 @@ def test_load_scoring_inputs(sqlite_engine, db_session) -> None:
     assert googl_inputs["recent_news_count"] == 0
     assert googl_inputs["recent_filing_count"] == 0
     assert googl_inputs["upcoming_earnings_days"] is None
+
+
+def test_build_score_inputs_normalizes_shared_pipeline_and_ui_fields() -> None:
+    inputs = build_score_inputs(
+        {
+            "theme_exposure_score": 4.0,
+            "drawdown_52w": -0.2,
+            "rsi_14": 35.0,
+            "distance_from_200dma": 0.02,
+            "relative_return_vs_qqq_3m": 0.04,
+            "watch_status": "high_priority",
+            "recent_news_count": 2.0,
+            "recent_filing_count": 1.0,
+            "upcoming_earnings_days": 3.6,
+            "return_1w": -0.03,
+            "sector": "Power and Grid",
+        },
+        macro_pressure_level=2,
+    )
+
+    assert inputs.recent_news_count == 2
+    assert inputs.recent_filing_count == 1
+    assert inputs.upcoming_earnings_days == 4
+    assert inputs.macro_pressure_level == 2
+    assert inputs.sector == "Power and Grid"
+
+
+def test_build_score_inputs_handles_missing_and_negative_earnings_days() -> None:
+    missing_inputs = build_score_inputs(
+        {
+            "recent_news_count": pd.NA,
+            "recent_filing_count": None,
+            "upcoming_earnings_days": pd.NA,
+        }
+    )
+    negative_inputs = build_score_inputs({"upcoming_earnings_days": -2.4})
+
+    assert missing_inputs.recent_news_count is None
+    assert missing_inputs.recent_filing_count is None
+    assert missing_inputs.upcoming_earnings_days is None
+    assert negative_inputs.upcoming_earnings_days == 0

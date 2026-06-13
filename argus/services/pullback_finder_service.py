@@ -6,9 +6,9 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
+from argus.analytics.scoring import compute_opportunity_score
 from argus.core.settings import settings
-from argus.services.scoring_service import load_scoring_inputs_for_active_companies
+from argus.services.scoring_service import build_score_inputs, load_scoring_inputs_for_active_companies
 
 
 def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
@@ -113,27 +113,8 @@ def _dedupe_companies(df: pd.DataFrame) -> pd.DataFrame:
 def _score_candidates(df: pd.DataFrame, pressure_level: int = 0) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for record in df.to_dict(orient="records"):
-        earnings_days = record.get("upcoming_earnings_days")
-        if pd.isna(earnings_days):
-            earnings_days_value = None
-        else:
-            earnings_days_value = max(0, int(round(float(earnings_days))))
-
         breakdown = compute_opportunity_score(
-            ScoreInputs(
-                theme_exposure_score=record.get("theme_exposure_score"),
-                drawdown_52w=record.get("drawdown_52w"),
-                rsi_14=record.get("rsi_14"),
-                distance_from_200dma=record.get("distance_from_200dma"),
-                relative_return_vs_qqq_3m=record.get("relative_return_vs_qqq_3m"),
-                watch_status=record.get("watch_status"),
-                recent_news_count=_safe_int(record.get("recent_news_count")),
-                recent_filing_count=_safe_int(record.get("recent_filing_count")),
-                upcoming_earnings_days=earnings_days_value,
-                return_1w=record.get("return_1w"),
-                macro_pressure_level=pressure_level,
-                sector=record.get("sector"),
-            )
+            build_score_inputs(record, macro_pressure_level=pressure_level)
         )
         rows.append(
             {
@@ -236,9 +217,3 @@ def _drawdown_magnitude(value: Any) -> float:
     if value is None or pd.isna(value):
         return 0.0
     return abs(min(0.0, float(value)))
-
-
-def _safe_int(value: Any) -> int | None:
-    if value is None or pd.isna(value):
-        return None
-    return int(value)

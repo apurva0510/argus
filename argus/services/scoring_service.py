@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, UTC
 from typing import Any
+
+import pandas as pd
 from sqlalchemy import text
+
+from argus.analytics.scoring import ScoreInputs
 
 
 def load_scoring_inputs_for_active_companies(session_or_conn) -> dict[int, dict[str, Any]]:
@@ -76,3 +80,37 @@ def load_scoring_inputs_for_active_companies(session_or_conn) -> dict[int, dict[
         cid = row_dict.pop("company_id")
         result[cid] = row_dict
     return result
+
+
+def build_score_inputs(row: dict[str, Any], *, macro_pressure_level: int = 0) -> ScoreInputs:
+    earnings_days = _optional_non_negative_int(row.get("upcoming_earnings_days"))
+    return ScoreInputs(
+        theme_exposure_score=row.get("theme_exposure_score"),
+        drawdown_52w=row.get("drawdown_52w"),
+        rsi_14=row.get("rsi_14"),
+        distance_from_200dma=row.get("distance_from_200dma"),
+        relative_return_vs_qqq_3m=row.get("relative_return_vs_qqq_3m"),
+        watch_status=row.get("watch_status"),
+        recent_news_count=_optional_int(row.get("recent_news_count")),
+        recent_filing_count=_optional_int(row.get("recent_filing_count")),
+        upcoming_earnings_days=earnings_days,
+        return_1w=row.get("return_1w"),
+        macro_pressure_level=macro_pressure_level,
+        sector=row.get("sector"),
+    )
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or pd.isna(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if _is_missing(value):
+        return None
+    return int(value)
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    if _is_missing(value):
+        return None
+    return max(0, int(round(float(value))))
