@@ -12,6 +12,7 @@ from app.components.feed_cards import (
 )
 from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
+from argus.core.sql import date_cast
 from argus.core.timezones import ET, to_et
 from argus.services.news_filings_service import (
     get_filtered_filings,
@@ -62,13 +63,14 @@ def load_feed_filter_options(
     selected_ticker: str = "All",
 ) -> dict[str, list[str]]:
     engine = get_db_engine()
-    news_ticker_sql = """
+    published_date_expr = date_cast(engine.dialect.name, "ni.published_at")
+    news_ticker_sql = f"""
         SELECT DISTINCT c.symbol
         FROM news_items ni
         JOIN news_mentions nm ON nm.news_id = ni.id
         JOIN companies c ON c.id = nm.company_id
-        WHERE date(ni.published_at) >= :start_date
-          AND date(ni.published_at) <= :end_date
+        WHERE {published_date_expr} >= :start_date
+          AND {published_date_expr} <= :end_date
     """
     filing_ticker_sql = """
         SELECT DISTINCT c.symbol
@@ -84,14 +86,14 @@ def load_feed_filter_options(
         WHERE sf.filing_date >= :start_date
           AND sf.filing_date <= :end_date
     """
-    sources_sql = """
+    sources_sql = f"""
         SELECT DISTINCT ni.source_name
         FROM news_items ni
         LEFT JOIN news_mentions nm ON nm.news_id = ni.id
         LEFT JOIN companies c ON c.id = nm.company_id
         WHERE ni.source_name IS NOT NULL
-          AND date(ni.published_at) >= :start_date
-          AND date(ni.published_at) <= :end_date
+          AND {published_date_expr} >= :start_date
+          AND {published_date_expr} <= :end_date
     """
     params: dict[str, object] = {
         "start_date": start_date.isoformat(),

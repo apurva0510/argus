@@ -5,6 +5,8 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from argus.core.sql import date_cast, distinct_string_agg
+
 
 def get_filtered_news(
     engine: Engine,
@@ -22,14 +24,9 @@ def get_filtered_news(
     Returns a pandas DataFrame.
     """
     dialect_name = engine.dialect.name
-    if dialect_name == "postgresql":
-        tickers_agg = "string_agg(DISTINCT nm2.ticker, ',')"
-        keywords_agg = "string_agg(DISTINCT nm3.matched_keywords, ',')"
-        date_cast_published = "CAST(ni.published_at AS DATE)"
-    else:
-        tickers_agg = "group_concat(DISTINCT nm2.ticker)"
-        keywords_agg = "group_concat(DISTINCT nm3.matched_keywords)"
-        date_cast_published = "date(ni.published_at)"
+    tickers_agg = distinct_string_agg(dialect_name, "nm2.ticker")
+    keywords_agg = distinct_string_agg(dialect_name, "nm3.matched_keywords")
+    date_cast_published = date_cast(dialect_name, "ni.published_at")
 
     query = f"""
         SELECT DISTINCT
@@ -149,4 +146,3 @@ def get_filtered_filings(
 
     with engine.connect() as conn:
         return pd.read_sql_query(text(query), conn, params=params)
-

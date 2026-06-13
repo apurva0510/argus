@@ -9,6 +9,7 @@ from sqlalchemy.engine import Engine
 
 from argus.core.settings import settings
 from argus.core.seed import AI_INFRA_CORE_INDEX_EXCLUDED_SYMBOLS, AI_INFRA_CORE_INDEX_SYMBOLS
+from argus.core.sql import distinct_string_agg
 from argus.analytics.market_hours import filter_regular_market_hours, market_session_date
 from argus.services.macro_capex_service import load_macro_capex_context_from_engine
 
@@ -170,10 +171,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
             conn,
             params=_dashboard_params(),
         )
-        if dialect_name == "postgresql":
-            tickers_expr = "string_agg(DISTINCT nm2.ticker, ',')"
-        else:
-            tickers_expr = "group_concat(DISTINCT nm2.ticker)"
+        tickers_expr = distinct_string_agg(dialect_name, "nm2.ticker")
         recent_news = pd.read_sql_query(
             text(
                 f"""
@@ -535,4 +533,3 @@ def _mean_or_none(metrics_df: pd.DataFrame, column: str) -> float | None:
     if pd.isna(value):
         return None
     return float(value)
-
