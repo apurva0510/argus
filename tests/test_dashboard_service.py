@@ -17,6 +17,7 @@ from argus.core.models import (
     SignalDaily,
 )
 from argus.services.dashboard_service import (
+    build_provider_status,
     build_stale_reasons,
     calculate_intraday_core_return,
     calculate_intraday_core_return_from_engine,
@@ -30,6 +31,23 @@ from argus.services.dashboard_service import (
     summarize_core_returns,
 )
 from argus.core.timezones import format_et_datetime, to_et
+
+
+class ProviderSettings:
+    market_data_provider = "finnhub"
+    finnhub_api_key = "key"
+    twelve_data_api_key = ""
+    alpha_vantage_api_key = None
+
+
+def test_build_provider_status_from_settings_like_object() -> None:
+    assert build_provider_status(ProviderSettings) == {
+        "active_provider": "finnhub",
+        "yfinance_available": True,
+        "finnhub_available": True,
+        "twelvedata_available": False,
+        "alphavantage_available": False,
+    }
 
 
 def test_dashboard_rankings_are_sorted_and_limited() -> None:

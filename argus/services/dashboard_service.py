@@ -310,13 +310,7 @@ def load_dashboard_data_from_engine(engine: Engine) -> dict[str, object]:
         )
         failed_job = failed_job_df.iloc[0].to_dict() if not failed_job_df.empty else None
 
-        provider_status = {
-            "active_provider": settings.market_data_provider,
-            "yfinance_available": True,
-            "finnhub_available": bool(settings.finnhub_api_key),
-            "twelvedata_available": bool(settings.twelve_data_api_key),
-            "alphavantage_available": bool(settings.alpha_vantage_api_key),
-        }
+        provider_status = build_provider_status()
 
         latest_signals = pd.read_sql_query(
             text(
@@ -377,6 +371,16 @@ def parse_optional_datetime(value: Any) -> datetime | None:
         return None
     dt = pd.to_datetime(value).to_pydatetime()
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def build_provider_status(config=settings) -> dict[str, object]:
+    return {
+        "active_provider": config.market_data_provider,
+        "yfinance_available": True,
+        "finnhub_available": bool(config.finnhub_api_key),
+        "twelvedata_available": bool(config.twelve_data_api_key),
+        "alphavantage_available": bool(config.alpha_vantage_api_key),
+    }
 
 
 def build_stale_reasons(
