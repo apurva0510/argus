@@ -150,25 +150,3 @@ def get_filtered_filings(
     with engine.connect() as conn:
         return pd.read_sql_query(text(query), conn, params=params)
 
-
-def get_all_news_sources(engine: Engine) -> list[str]:
-    """Retrieves all unique source names from the news items table."""
-    query = "SELECT DISTINCT source_name FROM news_items WHERE source_name IS NOT NULL ORDER BY source_name"
-    with engine.connect() as conn:
-        df = pd.read_sql_query(text(query), conn)
-        return df["source_name"].tolist()
-
-
-def get_last_job_run(engine: Engine, job_name: str) -> dict[str, object] | None:
-    """Retrieves the details of the last execution for the specified job."""
-    query = """
-        SELECT started_at, finished_at, status, rows_read, rows_written, error_text
-        FROM job_runs
-        WHERE job_name = :job_name
-        ORDER BY id DESC LIMIT 1
-    """
-    with engine.connect() as conn:
-        df = pd.read_sql_query(text(query), conn, params={"job_name": job_name})
-        if df.empty:
-            return None
-        return df.iloc[0].to_dict()

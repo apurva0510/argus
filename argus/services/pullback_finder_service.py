@@ -7,7 +7,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from argus.analytics.scoring import ScoreInputs, compute_opportunity_score
-from argus.core.seed import WATCH_STATUSES
 from argus.core.settings import settings
 from argus.services.scoring_service import load_scoring_inputs_for_active_companies
 
@@ -243,7 +242,3 @@ def _safe_int(value: Any) -> int | None:
     if value is None or pd.isna(value):
         return None
     return int(value)
-
-
-def validate_watch_statuses(statuses: list[str]) -> list[str]:
-    return [status for status in statuses if status in WATCH_STATUSES]

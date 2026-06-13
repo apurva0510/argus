@@ -12,7 +12,6 @@ from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 from argus.core.timezones import ET, to_et
 from argus.services.news_filings_service import (
-    get_all_news_sources,
     get_filtered_filings,
     get_filtered_news,
 )
@@ -49,11 +48,6 @@ def load_filings(ticker, form, start_date, end_date) -> pd.DataFrame:
         start_date=start_date,
         end_date=end_date,
     )
-
-
-@st.cache_data(ttl=300)
-def load_sources() -> list[str]:
-    return get_all_news_sources(get_db_engine())
 
 
 @st.cache_data(ttl=60)
