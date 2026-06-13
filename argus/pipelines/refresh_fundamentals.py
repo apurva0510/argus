@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from sqlalchemy import select
-import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, FundamentalsSnapshot
 from argus.pipelines.job_runs import job_run_context, utc_now
 from argus.pipelines.provider_health import execute_provider_request
+from argus.sources.yfinance_client import YFinanceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +39,18 @@ def refresh_fundamentals() -> dict[str, object]:
     """Refresh company key fundamentals metrics from yfinance for active companies."""
     failed_symbols: list[str] = []
     today = utc_now().date()
+    provider = YFinanceProvider()
 
     with job_run_context("refresh_fundamentals") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             for company in companies:
                 try:
-                    ticker = yf.Ticker(company.symbol)
                     info = execute_provider_request(
                         session,
-                        "yfinance",
-                        lambda: ticker.info,
+                        provider.name,
+                        provider.fetch_fundamentals,
+                        company.symbol,
                     )
 
                     if not info or not isinstance(info, dict):
@@ -70,7 +71,7 @@ def refresh_fundamentals() -> dict[str, object]:
                         "gross_margin": info.get("grossMargins"),
                         "operating_margin": info.get("operatingMargins"),
                         "free_cash_flow": info.get("freeCashflow"),
-                        "provider": "yfinance",
+                        "provider": provider.name,
                     }
 
                     state.rows_read += 1

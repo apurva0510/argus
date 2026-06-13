@@ -3,7 +3,48 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from argus.sources.yfinance_client import fetch_daily_ohlcv, fetch_ohlcv_batch
+from argus.sources.yfinance_client import (
+    YFinanceProvider,
+    fetch_daily_ohlcv,
+    fetch_earnings_calendar,
+    fetch_fundamentals,
+    fetch_ohlcv_batch,
+)
+
+
+class FakeTicker:
+    def __init__(self, symbol: str) -> None:
+        self.symbol = symbol
+
+    @property
+    def info(self) -> dict:
+        return {"symbol": self.symbol, "marketCap": 123.0}
+
+    @property
+    def calendar(self) -> dict:
+        return {"Earnings Date": [date(2026, 7, 30)]}
+
+
+def test_fetch_fundamentals_delegates_to_yfinance_ticker(monkeypatch) -> None:
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.Ticker", FakeTicker)
+
+    assert fetch_fundamentals("AAPL") == {"symbol": "AAPL", "marketCap": 123.0}
+
+
+def test_fetch_earnings_calendar_delegates_to_yfinance_ticker(monkeypatch) -> None:
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.Ticker", FakeTicker)
+
+    assert fetch_earnings_calendar("AAPL") == {"Earnings Date": [date(2026, 7, 30)]}
+
+
+def test_yfinance_provider_exposes_company_data_methods(monkeypatch) -> None:
+    monkeypatch.setattr("argus.sources.yfinance_client.yf.Ticker", FakeTicker)
+    provider = YFinanceProvider()
+
+    assert provider.fetch_fundamentals("AAPL") == {"symbol": "AAPL", "marketCap": 123.0}
+    assert provider.fetch_earnings_calendar("AAPL") == {
+        "Earnings Date": [date(2026, 7, 30)]
+    }
 
 
 def test_fetch_daily_ohlcv_preserves_adjusted_close(monkeypatch) -> None:

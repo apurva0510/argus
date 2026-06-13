@@ -90,6 +90,14 @@ def fetch_daily_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     return _normalize_ohlcv_frame(history, symbol, interval="1d").drop(columns=["bar_time"])
 
 
+def fetch_fundamentals(symbol: str) -> dict:
+    return yf.Ticker(symbol).info
+
+
+def fetch_earnings_calendar(symbol: str) -> dict:
+    return yf.Ticker(symbol).calendar
+
+
 def fetch_ohlcv_batch(
     symbols: Sequence[str],
     *,
@@ -158,6 +166,12 @@ class YFinanceProvider(BaseMarketDataProvider):
 
     def fetch_daily_ohlcv(self, symbol: str, period: str = "2y") -> pd.DataFrame:
         return fetch_daily_ohlcv(symbol, period)
+
+    def fetch_fundamentals(self, symbol: str) -> dict:
+        return fetch_fundamentals(symbol)
+
+    def fetch_earnings_calendar(self, symbol: str) -> dict:
+        return fetch_earnings_calendar(symbol)
 
     def fetch_ohlcv_batch(
         self,

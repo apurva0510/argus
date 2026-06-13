@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from sqlalchemy import select
-import yfinance as yf
 
 from argus.core.db import session_scope, get_insert_statement_producer
 from argus.core.models import Company, EarningsEvent
 from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import execute_provider_request
+from argus.sources.yfinance_client import YFinanceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +49,18 @@ def _upsert_earnings_event_rows(session, company_id: int, events: list[dict]) ->
 def refresh_earnings() -> dict[str, object]:
     """Refresh upcoming earnings dates from yfinance for active companies."""
     failed_symbols: list[str] = []
+    provider = YFinanceProvider()
 
     with job_run_context("refresh_earnings") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
             for company in companies:
                 try:
-                    ticker = yf.Ticker(company.symbol)
                     calendar = execute_provider_request(
                         session,
-                        "yfinance",
-                        lambda: ticker.calendar,
+                        provider.name,
+                        provider.fetch_earnings_calendar,
+                        company.symbol,
                     )
 
                     if not calendar or not isinstance(calendar, dict):
@@ -86,7 +87,7 @@ def refresh_earnings() -> dict[str, object]:
                                     "event_date": d,
                                     "eps_estimate": calendar.get("Earnings Average"),
                                     "revenue_estimate": calendar.get("Revenue Average"),
-                                    "source": "yfinance",
+                                    "source": provider.name,
                                 }
                             )
 

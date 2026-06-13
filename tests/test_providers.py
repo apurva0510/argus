@@ -57,6 +57,10 @@ def test_market_data_providers_expose_batch_capability_contract() -> None:
         assert provider.supports_intraday_batch is False
         with pytest.raises(NotImplementedError, match=provider.name):
             provider.fetch_ohlcv_batch(["AAPL"], period="5d", interval="15m")
+        with pytest.raises(NotImplementedError, match=provider.name):
+            provider.fetch_fundamentals("AAPL")
+        with pytest.raises(NotImplementedError, match=provider.name):
+            provider.fetch_earnings_calendar("AAPL")
 
 
 def test_finnhub_provider_fetch(monkeypatch) -> None:
@@ -641,4 +645,3 @@ def test_yahoo_rss_news_provider_fetch(monkeypatch) -> None:
     provider = YahooRssNewsProvider()
     results = provider.fetch_news("test query")
     assert results == mocked_news
-

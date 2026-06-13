@@ -34,6 +34,12 @@ class BaseMarketDataProvider(ABC):
     ) -> dict[str, pd.DataFrame]:
         raise NotImplementedError(f"{self.name} does not support batched OHLCV fetching")
 
+    def fetch_fundamentals(self, symbol: str) -> dict:
+        raise NotImplementedError(f"{self.name} does not support fundamentals fetching")
+
+    def fetch_earnings_calendar(self, symbol: str) -> dict:
+        raise NotImplementedError(f"{self.name} does not support earnings calendar fetching")
+
     @abstractmethod
     def is_available(self) -> bool:
         """Return True if this provider is configured and available (e.g. key exists)."""
@@ -74,4 +80,3 @@ class BaseNewsProvider(ABC):
         Returned list should contain dictionaries representing news items.
         """
         pass
-
