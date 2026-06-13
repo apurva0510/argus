@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy.orm import sessionmaker
 
+from app.components.database import get_configured_app_engine
 from app.components.links import link_ticker_series, ticker_link_column_config
 from app.components.metrics import render_plain_metric_card, render_plain_metric_card_parts
 from app.components.sidebar import render_sidebar_navigation
@@ -21,14 +22,12 @@ from argus.services.index_service import (
     get_candidate_weights_data,
     save_index_definition_from_editor,
 )
-from argus.core.app_engine import create_migrated_database_engine
-from argus.core.settings import settings
 from argus.core.timezones import format_et_datetime
 
 
 @st.cache_resource
 def get_index_lab_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 @st.cache_data(ttl=300)

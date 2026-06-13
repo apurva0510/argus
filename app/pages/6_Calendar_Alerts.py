@@ -6,9 +6,8 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
+from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
-from argus.core.app_engine import create_migrated_database_engine
-from argus.core.settings import settings
 from argus.services.company_service import get_company_options
 from argus.services.alert_service import (
     get_all_alerts,
@@ -51,7 +50,7 @@ RULE_DESCRIPTIONS = {
 
 @st.cache_resource
 def get_db_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 @st.cache_data(ttl=60)

@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import UTC, datetime
+from app.components.database import get_configured_app_engine
 from argus.services.company_service import get_company_options
-from argus.core.app_engine import create_migrated_database_engine
 from argus.core.settings import settings
 
 
@@ -10,7 +10,7 @@ from argus.core.settings import settings
 def get_system_health_status() -> tuple[str, str]:
     from sqlalchemy import text
 
-    engine = create_migrated_database_engine(settings.database_url)
+    engine = get_configured_app_engine()
     with engine.connect() as conn:
         latest_dates = pd.read_sql_query(
             text(

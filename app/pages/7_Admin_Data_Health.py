@@ -9,15 +9,14 @@ from app.components.data_health import (
     build_freshness_summary,
     render_freshness_grid_html,
 )
+from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
-from argus.core.app_engine import create_migrated_database_engine
-from argus.core.settings import settings
 from argus.core.timezones import format_et_datetime
 
 
 @st.cache_resource
 def get_db_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 def _load_health_data(today: date) -> dict[str, pd.DataFrame]:

@@ -12,6 +12,7 @@ from app.components.feed_cards import (
     render_filing_feed_card,
     render_news_feed_card,
 )
+from app.components.database import get_configured_app_engine
 from app.components.metrics import render_metric_card, render_plain_metric_card
 from app.components.sidebar import render_sidebar_navigation
 from argus.analytics.market_hours import (
@@ -19,9 +20,7 @@ from argus.analytics.market_hours import (
     append_market_close_markers,
     filter_latest_market_sessions,
 )
-from argus.core.app_engine import create_migrated_database_engine
 from argus.core.seed import WATCH_STATUSES
-from argus.core.settings import settings
 from argus.services.company_service import (
     add_company_note,
     build_relative_performance_frame,
@@ -72,8 +71,7 @@ def load_price_history(company_id: int, interval: str = "1d") -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_index_options() -> list[dict[str, object]]:
-    engine = create_migrated_database_engine(settings.database_url)
-    return load_index_options_from_engine(engine)
+    return load_index_options_from_engine(get_configured_app_engine())
 
 
 @st.cache_data(ttl=300)
@@ -82,9 +80,8 @@ def load_index_relative_returns(
     interval: str = "1d",
     index_definition_id: int | None = None,
 ) -> pd.DataFrame:
-    engine = create_migrated_database_engine(settings.database_url)
     return load_index_relative_returns_from_engine(
-        engine, start_date, interval, index_definition_id
+        get_configured_app_engine(), start_date, interval, index_definition_id
     )
 
 

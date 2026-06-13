@@ -5,11 +5,10 @@ import streamlit as st
 
 from datetime import UTC, datetime
 from app.auth_links import company_detail_url
+from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
 
-from argus.core.app_engine import create_migrated_database_engine
 from argus.core.seed import WATCH_STATUSES
-from argus.core.settings import settings
 from argus.services.dashboard_service import build_stale_reasons
 from argus.services.pullback_finder_service import (
     apply_pullback_filters,
@@ -21,7 +20,7 @@ from app.components.tables import style_positive_green_negative_red, style_score
 
 @st.cache_resource
 def get_pullback_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 @st.cache_data(ttl=300)

@@ -3,16 +3,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
 from app.components.watchlist_table import (
     RETURN_COLUMNS,
     prepare_watchlist_editor_df,
     watchlist_column_config,
 )
-from argus.core.app_engine import create_migrated_database_engine
 
 from argus.core.seed import WATCH_STATUSES
-from argus.core.settings import settings
 from argus.services.watchlist_service import (
     load_watchlist_table,
     normalize_note_value,
@@ -23,7 +22,7 @@ from app.components.tables import style_positive_green_negative_red
 
 @st.cache_resource
 def get_watchlist_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 @st.cache_data(ttl=300)

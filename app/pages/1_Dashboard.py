@@ -16,11 +16,10 @@ from app.components.metrics import (
     render_plain_metric_card,
     render_plain_metric_card_parts,
 )
+from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
 from app.components.tables import style_positive_green_negative_red, style_score_traffic_light
 from argus.analytics.market_hours import append_market_close_markers
-from argus.core.app_engine import create_migrated_database_engine
-from argus.core.settings import settings
 from argus.core.timezones import to_et_naive_series
 from argus.services.dashboard_service import (
     calculate_intraday_core_return_from_engine,
@@ -44,7 +43,7 @@ _fmt_yield_obs = fmt.format_yield_observation
 
 @st.cache_resource
 def get_dashboard_engine():
-    return create_migrated_database_engine(settings.database_url)
+    return get_configured_app_engine()
 
 
 @st.cache_data(ttl=300)
