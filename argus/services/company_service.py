@@ -236,6 +236,7 @@ def get_company_news(company_id: int, limit: int = 10) -> list[dict]:
                 "provider": item.provider,
                 "sentiment_score": item.sentiment_score,
                 "relevance_score": item.relevance_score,
+                "sentiment_explanation": item.sentiment_explanation,
                 "tickers": ",".join(sorted(set(tickers_by_news.get(item.id, [])))),
             }
             for item in results

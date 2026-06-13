@@ -39,6 +39,7 @@ def get_filtered_news(
             ni.provider,
             ni.sentiment_score,
             ni.relevance_score,
+            ni.sentiment_explanation,
             (
                 SELECT {tickers_agg}
                 FROM news_mentions nm2

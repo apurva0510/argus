@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 import logging
+import re
 
 import numpy as np
 import pandas as pd
 from sqlalchemy import select
 
 from argus.analytics.indicators import calculate_power_signal
-from argus.analytics.news_signals import mention_relevance, recency_weight, score_news_article
+from argus.analytics.news_signals import (
+    article_relevance,
+    mention_relevance,
+    recency_weight,
+    source_weight,
+)
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import (
     CapexObservation,
@@ -164,30 +170,74 @@ def _company_news_scores(session, company_id: int, signal_date: date) -> dict[st
     if not rows:
         return {"sentiment_proxy_7d": None, "news_relevance_7d": None}
 
-    weighted_sentiment = []
+    sentiment_by_group: dict[tuple[date | None, str, str], tuple[float, float]] = {}
     weighted_relevance = []
     for item, mention in rows:
         current_mention = {
             "is_primary_match": mention.is_primary_match,
             "matched_keywords": mention.matched_keywords,
         }
-        if item.sentiment_score is None or item.relevance_score is None:
-            sentiment_score, relevance_score = score_news_article(
-                item.title,
-                item.summary,
-                [current_mention],
-            )
-            item.sentiment_score = sentiment_score
-            item.relevance_score = relevance_score
-        weight = recency_weight(item.published_at, as_of_dt)
-        if item.sentiment_score is not None:
-            weighted_sentiment.append((float(item.sentiment_score), weight))
-        weighted_relevance.append((mention_relevance(current_mention), weight))
+        if item.relevance_score is None:
+            item.relevance_score = _article_relevance_from_mentions(session, item.id)
+        recency = recency_weight(item.published_at, as_of_dt)
+        relevance = mention_relevance(current_mention)
+        source = source_weight(provider=item.provider, source_name=item.source_name)
+        sentiment_weight = recency * relevance * source
+        sentiment_value = 0.0 if item.sentiment_score is None else float(item.sentiment_score)
+        group_key = _news_sentiment_group_key(item, sentiment_value)
+        existing_group_value = sentiment_by_group.get(group_key)
+        if existing_group_value is None or sentiment_weight > existing_group_value[1]:
+            sentiment_by_group[group_key] = (sentiment_value, sentiment_weight)
+        weighted_relevance.append((relevance, recency))
 
     return {
-        "sentiment_proxy_7d": _weighted_average(weighted_sentiment),
+        "sentiment_proxy_7d": _weighted_average(list(sentiment_by_group.values())),
         "news_relevance_7d": _weighted_average(weighted_relevance),
     }
+
+
+def _article_relevance_from_mentions(session, news_id: int) -> float | None:
+    mentions = session.query(NewsMention).filter(NewsMention.news_id == news_id).all()
+    return article_relevance(
+        [
+            {
+                "is_primary_match": mention.is_primary_match,
+                "matched_keywords": mention.matched_keywords,
+            }
+            for mention in mentions
+        ]
+    )
+
+
+def _news_sentiment_group_key(item: NewsItem, sentiment_value: float) -> tuple[date | None, str, str]:
+    direction = "neutral"
+    if sentiment_value > 0.05:
+        direction = "positive"
+    elif sentiment_value < -0.05:
+        direction = "negative"
+    published_date = item.published_at.date() if item.published_at else None
+    return (published_date, _title_fingerprint(item.title), direction)
+
+
+def _title_fingerprint(title: str | None) -> str:
+    text = (title or "").lower()
+    tokens = re.findall(r"[a-z0-9]+", text)
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "for",
+        "from",
+        "in",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+    }
+    return " ".join(token for token in tokens if token not in stop_words)
 
 
 def _weighted_average(values: list[tuple[float, float]]) -> float | None:

@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting, IndexDefinition, IndexValue
 
 
-CURRENT_SCHEMA_VERSION = "8"
+CURRENT_SCHEMA_VERSION = "9"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -22,7 +22,9 @@ def run_migrations(database_engine: Engine) -> None:
     """
     _migrate_macro_tables_for_foreign_key(database_engine)
     _migrate_capex_observations_source_column(database_engine)
+    _migrate_news_items_sentiment_explanation(database_engine)
     Base.metadata.create_all(bind=database_engine)
+    _backfill_news_items_sentiment_explanations(database_engine)
     _migrate_price_bars_bar_time(database_engine)
     _migrate_index_values_for_definitions(database_engine)
     _ensure_default_index_definition(database_engine)
@@ -249,3 +251,32 @@ def _migrate_capex_observations_source_column(database_engine: Engine) -> None:
                 "ALTER TABLE capex_observations ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'manual'"
             )
         )
+
+
+def _migrate_news_items_sentiment_explanation(database_engine: Engine) -> None:
+    inspector = inspect(database_engine)
+    if "news_items" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("news_items")}
+    if "sentiment_explanation" in columns:
+        return
+
+    with database_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE news_items ADD COLUMN sentiment_explanation TEXT"))
+
+
+def _backfill_news_items_sentiment_explanations(database_engine: Engine) -> None:
+    inspector = inspect(database_engine)
+    if "news_items" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("news_items")}
+    if "sentiment_explanation" not in columns:
+        return
+
+    from argus.pipelines.news_items import backfill_news_sentiment_explanations
+
+    with Session(database_engine) as session:
+        backfill_news_sentiment_explanations(session)
+        session.commit()

@@ -39,6 +39,10 @@ def build_daily_refresh_steps(
 ) -> list[PipelineStep]:
     steps: list[PipelineStep] = [
         ("refresh_prices", lambda: refresh_prices(period=period)),
+        (
+            "refresh_intraday_close_markers",
+            lambda: refresh_prices(period="1d", interval="15m"),
+        ),
     ]
 
     if include_macro:

@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import sqlite3
 import subprocess
@@ -80,6 +81,7 @@ def test_sqlalchemy_metadata_contains_required_tables() -> None:
     assert Base.metadata.tables["companies"].c.symbol.unique is True
     assert Base.metadata.tables["price_bars"].c.company_id.foreign_keys
     assert Base.metadata.tables["daily_metrics"].c.company_id.foreign_keys
+    assert "sentiment_explanation" in Base.metadata.tables["news_items"].c
     assert Base.metadata.tables["alert_events"].c.dedupe_key.nullable is False
 
 
@@ -120,7 +122,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
         schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
-        assert schema_version.value == "8"
+        assert schema_version.value == "9"
     test_engine.dispose()
 
 
@@ -194,6 +196,41 @@ def test_migration_adds_index_definition_id_to_existing_sqlite_index_values(tmp_
             {"definition_id": val},
         ).scalar_one()
         assert definition_name == "AI Infra Core"
+    test_engine.dispose()
+
+
+def test_migration_adds_sentiment_explanation_to_existing_sqlite_news_items(tmp_path) -> None:
+    from sqlalchemy import text
+    from argus.core.migrations import run_migrations
+
+    db_path = tmp_path / "old_schema_news.db"
+    test_engine = create_database_engine(f"sqlite:///{db_path}")
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE news_items (id INTEGER PRIMARY KEY, published_at DATETIME, title VARCHAR(512) NOT NULL, summary TEXT, url VARCHAR(1024) NOT NULL UNIQUE, source_name VARCHAR(128), provider VARCHAR(64), sentiment_score FLOAT, relevance_score FLOAT, created_at DATETIME NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO news_items (id, title, url, created_at) VALUES (1, 'Nvidia wins contract', 'https://example.com/news', '2026-01-02 00:00:00')"
+            )
+        )
+
+    run_migrations(test_engine)
+
+    inspector = inspect(test_engine)
+    columns = {column["name"] for column in inspector.get_columns("news_items")}
+    assert "sentiment_explanation" in columns
+    with test_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT sentiment_score, sentiment_explanation FROM news_items WHERE id = 1")
+        ).one()
+        assert row.sentiment_score == 1.0
+        explanation = json.loads(row.sentiment_explanation)
+        assert explanation["method"] == "keyword_financial_v1"
+        assert explanation["score"] == 1.0
+        assert explanation["source_weight"] == 0.7
     test_engine.dispose()
 
 

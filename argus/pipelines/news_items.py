@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from argus.analytics.news_signals import score_news_article
+from argus.analytics.news_signals import build_sentiment_explanation, score_news_article
 from argus.core.models import Company, NewsItem, NewsMention
 
 
@@ -211,6 +212,7 @@ def upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         art.get("summary"),
         mentions,
     )
+    sentiment_explanation = _sentiment_explanation_json(art)
 
     if existing_item is None:
         item = NewsItem(
@@ -222,6 +224,7 @@ def upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
             published_at=art["published_at"],
             sentiment_score=sentiment_score,
             relevance_score=relevance_score,
+            sentiment_explanation=sentiment_explanation,
         )
         session.add(item)
         session.flush()
@@ -244,6 +247,7 @@ def upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         existing_item.summary = art["summary"][:2000]
     existing_item.sentiment_score = sentiment_score
     existing_item.relevance_score = relevance_score
+    existing_item.sentiment_explanation = sentiment_explanation
 
     existing_mentions = (
         session.query(NewsMention).filter(NewsMention.news_id == existing_item.id).all()
@@ -270,6 +274,14 @@ def upsert_news_item(session, art: dict, mentions: list[dict]) -> int:
         existing_item.summary,
         [_mention_dict(mention) for mention in existing_mentions],
     )
+    existing_item.sentiment_explanation = _sentiment_explanation_json(
+        {
+            "title": existing_item.title,
+            "summary": existing_item.summary,
+            "provider": existing_item.provider,
+            "source_name": existing_item.source_name,
+        }
+    )
     return 1 if written > 0 else 0
 
 
@@ -283,3 +295,39 @@ def _mention_dict(mention) -> dict:
         "is_primary_match": mention.is_primary_match,
         "matched_keywords": mention.matched_keywords,
     }
+
+
+def backfill_news_sentiment_explanations(session) -> int:
+    """Populate keyword_financial_v1 sentiment fields for existing news rows."""
+    items = session.query(NewsItem).filter(NewsItem.sentiment_explanation.is_(None)).all()
+    updated = 0
+    for item in items:
+        explanation_json = _sentiment_explanation_json(
+            {
+                "title": item.title,
+                "summary": item.summary,
+                "provider": item.provider,
+                "source_name": item.source_name,
+            }
+        )
+        sentiment_score = build_sentiment_explanation(
+            item.title,
+            item.summary,
+            provider=item.provider,
+            source_name=item.source_name,
+        )["score"]
+        if item.sentiment_explanation != explanation_json or item.sentiment_score != sentiment_score:
+            item.sentiment_explanation = explanation_json
+            item.sentiment_score = sentiment_score
+            updated += 1
+    return updated
+
+
+def _sentiment_explanation_json(article: dict) -> str:
+    explanation = build_sentiment_explanation(
+        article["title"],
+        article.get("summary"),
+        provider=article.get("provider"),
+        source_name=article.get("source_name"),
+    )
+    return json.dumps(explanation, sort_keys=True)

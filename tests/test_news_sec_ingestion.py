@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+import json
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -951,6 +952,11 @@ def test_upsert_news_item_populates_transparent_scores(sqlite_engine, monkeypatc
         assert item.sentiment_score is not None
         assert item.sentiment_score > 0
         assert item.relevance_score == pytest.approx(0.9)
+        explanation = json.loads(item.sentiment_explanation)
+        assert explanation["method"] == "keyword_financial_v1"
+        assert explanation["score"] == item.sentiment_score
+        assert explanation["source_weight"] == pytest.approx(0.7)
+        assert "contracts" in explanation["categories"]
 
 
 def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
@@ -1006,6 +1012,7 @@ def test_upsert_news_item_relevance_uses_existing_and_new_mentions(
     with db_module.session_scope() as session:
         item = session.query(NewsItem).one()
         assert item.relevance_score == pytest.approx(0.9)
+        assert json.loads(item.sentiment_explanation)["method"] == "keyword_financial_v1"
 
 
 def test_refresh_news_skips_when_recent_success(sqlite_engine, monkeypatch) -> None:

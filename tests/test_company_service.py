@@ -219,6 +219,7 @@ def test_get_company_news_and_filings(sqlite_engine, db_session, monkeypatch) ->
         title="Apple Big Launch",
         url="https://apple.com/launch",
         published_at=datetime(2026, 1, 1, 10, 0),
+        sentiment_explanation='{"method": "keyword_financial_v1"}',
     )
     db_session.add(news_item)
     db_session.flush()
@@ -233,6 +234,7 @@ def test_get_company_news_and_filings(sqlite_engine, db_session, monkeypatch) ->
     news = get_company_news(c.id)
     assert len(news) == 1
     assert news[0]["title"] == "Apple Big Launch"
+    assert news[0]["sentiment_explanation"] == '{"method": "keyword_financial_v1"}'
 
     filings = get_company_filings(c.id)
     assert len(filings) == 1

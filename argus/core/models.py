@@ -186,6 +186,7 @@ class NewsItem(Base):
     provider: Mapped[str | None] = mapped_column(String(64))
     sentiment_score: Mapped[float | None] = mapped_column(Float)
     relevance_score: Mapped[float | None] = mapped_column(Float)
+    sentiment_explanation: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 

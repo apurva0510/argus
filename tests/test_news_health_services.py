@@ -33,6 +33,7 @@ def test_get_filtered_news_relevance_and_sentiment(sqlite_engine, monkeypatch) -
             published_at=datetime(2026, 6, 1, 10, 0),
             sentiment_score=0.4,
             relevance_score=0.9,
+            sentiment_explanation='{"method": "keyword_financial_v1"}',
         )
         n2 = NewsItem(
             title="Competitor releases chip",
@@ -69,6 +70,10 @@ def test_get_filtered_news_relevance_and_sentiment(sqlite_engine, monkeypatch) -
     res = get_filtered_news(sqlite_engine, ticker="NVDA", min_relevance=0.5)
     assert len(res) == 2
     assert set(res["title"]) == {"Nvidia surges on chip demand", "Nvidia board meeting"}
+    assert "sentiment_explanation" in res.columns
+    assert res[res["title"] == "Nvidia surges on chip demand"].iloc[0][
+        "sentiment_explanation"
+    ] == '{"method": "keyword_financial_v1"}'
 
     # Test 2: sentiment_band="Positive"
     res = get_filtered_news(sqlite_engine, ticker="NVDA", sentiment_band="Positive")

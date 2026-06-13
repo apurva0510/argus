@@ -216,6 +216,217 @@ def test_compute_signals_uses_company_specific_news_relevance(
         assert secondary_signal.news_relevance_7d == pytest.approx(0.45)
 
 
+def test_compute_signals_treats_no_match_news_as_neutral_in_sentiment(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+    with db_module.session_scope() as session:
+        company = Company(symbol="ETN", name="Eaton", is_active=True)
+        session.add(company)
+        session.flush()
+        _seed_prices(session, company, date(2026, 1, 1), [100.0, 101.0, 102.0])
+
+        positive = NewsItem(
+            title="Eaton wins contract",
+            url="https://example.com/positive",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=1.0,
+            relevance_score=0.9,
+        )
+        neutral = NewsItem(
+            title="Eaton hosts investor meeting",
+            url="https://example.com/neutral",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=None,
+            relevance_score=0.9,
+        )
+        session.add_all([positive, neutral])
+        session.flush()
+        for item in (positive, neutral):
+            session.add(
+                NewsMention(
+                    news_id=item.id,
+                    company_id=company.id,
+                    ticker="ETN",
+                    is_primary_match=True,
+                    matched_keywords="ETN, data center, power grid",
+                )
+            )
+
+    result = compute_signals(as_of_date=date(2026, 1, 3))
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        signal = session.query(SignalDaily).one()
+        assert signal.sentiment_proxy_7d == pytest.approx(0.5)
+
+
+def test_compute_signals_weights_sentiment_by_source_and_relevance(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+    with db_module.session_scope() as session:
+        company = Company(symbol="ETN", name="Eaton", is_active=True)
+        session.add(company)
+        session.flush()
+        _seed_prices(session, company, date(2026, 1, 1), [100.0, 101.0, 102.0])
+
+        reuters_news = NewsItem(
+            title="Eaton wins contract",
+            url="https://example.com/reuters",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Reuters",
+            sentiment_score=1.0,
+            relevance_score=0.9,
+        )
+        opinion_news = NewsItem(
+            title="Eaton faces outage",
+            url="https://example.com/opinion",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Motley Fool",
+            sentiment_score=-1.0,
+            relevance_score=0.9,
+        )
+        session.add_all([reuters_news, opinion_news])
+        session.flush()
+        for item in (reuters_news, opinion_news):
+            session.add(
+                NewsMention(
+                    news_id=item.id,
+                    company_id=company.id,
+                    ticker="ETN",
+                    is_primary_match=True,
+                    matched_keywords="ETN, data center, power grid",
+                )
+            )
+
+    result = compute_signals(as_of_date=date(2026, 1, 3))
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        signal = session.query(SignalDaily).one()
+        assert signal.sentiment_proxy_7d == pytest.approx(1 / 3)
+
+
+def test_compute_signals_caps_same_day_syndicated_sentiment_duplicates(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+    with db_module.session_scope() as session:
+        company = Company(symbol="ETN", name="Eaton", is_active=True)
+        session.add(company)
+        session.flush()
+        _seed_prices(session, company, date(2026, 1, 1), [100.0, 101.0, 102.0])
+
+        duplicate_a = NewsItem(
+            title="Eaton wins data center contract",
+            url="https://example.com/dupe-a",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=1.0,
+            relevance_score=0.9,
+        )
+        duplicate_b = NewsItem(
+            title="Eaton wins data center contract",
+            url="https://example.com/dupe-b",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=1.0,
+            relevance_score=0.9,
+        )
+        negative = NewsItem(
+            title="Eaton faces outage",
+            url="https://example.com/negative",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=-1.0,
+            relevance_score=0.9,
+        )
+        session.add_all([duplicate_a, duplicate_b, negative])
+        session.flush()
+        for item in (duplicate_a, duplicate_b, negative):
+            session.add(
+                NewsMention(
+                    news_id=item.id,
+                    company_id=company.id,
+                    ticker="ETN",
+                    is_primary_match=True,
+                    matched_keywords="ETN, data center, power grid",
+                )
+            )
+
+    result = compute_signals(as_of_date=date(2026, 1, 3))
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        signal = session.query(SignalDaily).one()
+        assert signal.sentiment_proxy_7d == pytest.approx(0.0)
+
+
+def test_compute_signals_preserves_article_relevance_for_neutral_multi_company_news(
+    sqlite_engine,
+    monkeypatch,
+) -> None:
+    db_module = _patch_session(sqlite_engine, monkeypatch)
+    with db_module.session_scope() as session:
+        primary = Company(symbol="ETN", name="Eaton", is_active=True)
+        secondary = Company(symbol="VRT", name="Vertiv", is_active=True)
+        session.add_all([primary, secondary])
+        session.flush()
+        _seed_prices(session, primary, date(2026, 1, 1), [100.0, 101.0, 102.0])
+        _seed_prices(session, secondary, date(2026, 1, 1), [50.0, 51.0, 52.0])
+
+        news = NewsItem(
+            title="Eaton and Vertiv present at infrastructure conference",
+            url="https://example.com/neutral-multi",
+            published_at=datetime(2026, 1, 3, 12, 0),
+            provider="rss",
+            source_name="Yahoo Finance",
+            sentiment_score=None,
+            relevance_score=0.9,
+        )
+        session.add(news)
+        session.flush()
+        session.add_all(
+            [
+                NewsMention(
+                    news_id=news.id,
+                    company_id=primary.id,
+                    ticker="ETN",
+                    is_primary_match=True,
+                    matched_keywords="ETN, data center, power grid",
+                ),
+                NewsMention(
+                    news_id=news.id,
+                    company_id=secondary.id,
+                    ticker="VRT",
+                    is_primary_match=False,
+                    matched_keywords="VRT",
+                ),
+            ]
+        )
+
+    result = compute_signals(as_of_date=date(2026, 1, 3))
+
+    assert result["status"] == "success"
+    with db_module.session_scope() as session:
+        news = session.query(NewsItem).one()
+        assert news.sentiment_score is None
+        assert news.relevance_score == pytest.approx(0.9)
+
+
 def test_compute_signals_requires_complete_hyperscaler_basket(
     sqlite_engine,
     monkeypatch,

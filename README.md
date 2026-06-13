@@ -297,7 +297,7 @@ Argus includes five workflow files for production scheduling:
   - Runs: selected investor-relations feed refresh → signals → alerts
 - `.github/workflows/daily-refresh.yml`
   - Once after US market close on weekdays during the 4:00–7:00 PM ET gated window
-  - Runs: daily bars, macro indicators, metrics, scores, index, and alerts (`run_daily_refresh.py --period 2y --skip-news --skip-filings`)
+  - Runs: daily bars, 1-day 15-minute close-marker bars, macro indicators, metrics, scores, index, and alerts (`run_daily_refresh.py --period 2y --skip-news --skip-filings`)
 
 **Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
 

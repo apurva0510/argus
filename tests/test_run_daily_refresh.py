@@ -109,11 +109,39 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
 
     assert step_names == [
         "refresh_prices",
+        "refresh_intraday_close_markers",
         "compute_daily_metrics",
         "compute_opportunity_scores",
         "refresh_index",
         "compute_signals",
     ]
+
+
+def test_build_daily_refresh_steps_refreshes_one_day_intraday_close_markers(
+    monkeypatch,
+) -> None:
+    from argus.pipelines import run_daily_refresh as module
+
+    calls = []
+
+    def fake_refresh_prices(period=None, *, interval="1d"):
+        calls.append({"period": period, "interval": interval})
+        return {"status": "success", "rows_read": 0, "rows_written": 0}
+
+    monkeypatch.setattr(module, "refresh_prices", fake_refresh_prices)
+
+    steps = build_daily_refresh_steps(
+        period="2y",
+        include_news=False,
+        include_filings=False,
+        include_alerts=False,
+        include_fundamentals=False,
+        include_earnings=False,
+        include_macro=False,
+    )
+    dict(steps)["refresh_intraday_close_markers"]()
+
+    assert calls == [{"period": "1d", "interval": "15m"}]
 
 
 def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
@@ -135,6 +163,7 @@ def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
 
     assert step_names == [
         "refresh_prices",
+        "refresh_intraday_close_markers",
         "refresh_macro",
         "refresh_fundamentals",
         "refresh_earnings",
@@ -165,6 +194,7 @@ def test_build_daily_refresh_steps_with_all_enabled(monkeypatch) -> None:
 
     assert step_names == [
         "refresh_prices",
+        "refresh_intraday_close_markers",
         "refresh_macro",
         "refresh_release_calendar",
         "refresh_capex",
@@ -196,3 +226,4 @@ def test_build_daily_refresh_steps_syncs_ciks_before_filings(monkeypatch) -> Non
 
     assert step_names.index("refresh_ciks") < step_names.index("refresh_filings")
     assert step_names[step_names.index("refresh_filings") + 1] == "compute_signals"
+    assert step_names.index("refresh_intraday_close_markers") == 1
