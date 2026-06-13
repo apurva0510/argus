@@ -189,71 +189,33 @@ def check_rsi_below(session: Session, alert: Alert, company: Company) -> list[di
 
 
 def check_crossed_50dma(session: Session, alert: Alert, company: Company) -> list[dict] | None:
-    config = alert.config_json or {}
-    direction = config.get("direction", "any").lower()
-
-    dms = (
-        session.query(DailyMetric)
-        .filter(DailyMetric.company_id == company.id)
-        .order_by(DailyMetric.date.desc())
-        .limit(2)
-        .all()
+    return _check_moving_average_cross(
+        session,
+        alert,
+        company,
+        distance_attr="distance_from_50dma",
+        ma_attr="ma_50",
     )
-    if len(dms) < 2:
-        return None
-
-    # dms[0] is latest, dms[1] is prior
-    latest, prior = dms[0], dms[1]
-    if not _is_fresh_market_date(latest.date):
-        logger.info(
-            "Skipping alert evaluation for %s because latest metric date is stale: %s",
-            company.symbol,
-            latest.date,
-        )
-        return None
-    if (
-        latest.distance_from_50dma is None
-        or prior.distance_from_50dma is None
-        or latest.ma_50 is None
-    ):
-        return None
-
-    # Get latest price
-    pb = (
-        session.query(PriceBar)
-        .filter(
-            PriceBar.company_id == company.id,
-            PriceBar.provider == settings.market_data_provider,
-            PriceBar.interval == "1d",
-            PriceBar.date == latest.date,
-        )
-        .first()
-    )
-    price = pb.adj_close if pb else None
-    if price is None:
-        return None
-
-    triggered = False
-    if direction == "above":
-        triggered = prior.distance_from_50dma < 0 and latest.distance_from_50dma >= 0
-    elif direction == "below":
-        triggered = prior.distance_from_50dma >= 0 and latest.distance_from_50dma < 0
-    else:  # any
-        triggered = (prior.distance_from_50dma >= 0) != (latest.distance_from_50dma >= 0)
-
-    if triggered:
-        return [
-            {
-                "price": price,
-                "ma_50": latest.ma_50,
-                "direction": direction,
-                "date": latest.date.isoformat(),
-            }
-        ]
-    return None
 
 
 def check_crossed_200dma(session: Session, alert: Alert, company: Company) -> list[dict] | None:
+    return _check_moving_average_cross(
+        session,
+        alert,
+        company,
+        distance_attr="distance_from_200dma",
+        ma_attr="ma_200",
+    )
+
+
+def _check_moving_average_cross(
+    session: Session,
+    alert: Alert,
+    company: Company,
+    *,
+    distance_attr: str,
+    ma_attr: str,
+) -> list[dict] | None:
     config = alert.config_json or {}
     direction = config.get("direction", "any").lower()
 
@@ -276,14 +238,12 @@ def check_crossed_200dma(session: Session, alert: Alert, company: Company) -> li
             latest.date,
         )
         return None
-    if (
-        latest.distance_from_200dma is None
-        or prior.distance_from_200dma is None
-        or latest.ma_200 is None
-    ):
+    latest_distance = getattr(latest, distance_attr)
+    prior_distance = getattr(prior, distance_attr)
+    moving_average = getattr(latest, ma_attr)
+    if latest_distance is None or prior_distance is None or moving_average is None:
         return None
 
-    # Get latest price
     pb = (
         session.query(PriceBar)
         .filter(
@@ -300,17 +260,17 @@ def check_crossed_200dma(session: Session, alert: Alert, company: Company) -> li
 
     triggered = False
     if direction == "above":
-        triggered = prior.distance_from_200dma < 0 and latest.distance_from_200dma >= 0
+        triggered = prior_distance < 0 and latest_distance >= 0
     elif direction == "below":
-        triggered = prior.distance_from_200dma >= 0 and latest.distance_from_200dma < 0
-    else:  # any
-        triggered = (prior.distance_from_200dma >= 0) != (latest.distance_from_200dma >= 0)
+        triggered = prior_distance >= 0 and latest_distance < 0
+    else:
+        triggered = (prior_distance >= 0) != (latest_distance >= 0)
 
     if triggered:
         return [
             {
                 "price": price,
-                "ma_200": latest.ma_200,
+                ma_attr: moving_average,
                 "direction": direction,
                 "date": latest.date.isoformat(),
             }
