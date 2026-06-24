@@ -315,8 +315,11 @@ def render_company_detail() -> None:
     if "ticker" in qp:
         qp_ticker = qp["ticker"].strip().upper()
         if qp_ticker in symbols:
-            st.session_state.selected_ticker = qp_ticker
-            st.session_state.ticker_selector_selectbox = qp_ticker
+            # Only override selection if the query parameter is new / changed from last time
+            if qp_ticker != st.session_state.get("last_query_ticker"):
+                st.session_state.selected_ticker = qp_ticker
+                st.session_state.ticker_selector_selectbox = qp_ticker
+                st.session_state.last_query_ticker = qp_ticker
 
     # Check if a ticker is in session_state or default to first
     if "selected_ticker" not in st.session_state:
@@ -330,7 +333,16 @@ def render_company_detail() -> None:
         else 0,
         key="ticker_selector_selectbox",
     )
-    st.session_state.selected_ticker = selected_ticker
+
+    # Sync query parameter and last_query_ticker when ticker changes
+    if selected_ticker != st.session_state.get("selected_ticker"):
+        st.session_state.selected_ticker = selected_ticker
+        st.query_params["ticker"] = selected_ticker
+        st.session_state.last_query_ticker = selected_ticker
+    else:
+        st.session_state.selected_ticker = selected_ticker
+        if "last_query_ticker" not in st.session_state:
+            st.session_state.last_query_ticker = selected_ticker
 
     # Load company details
     company = get_company_by_symbol(selected_ticker)

@@ -73,6 +73,14 @@ def get_system_health_status() -> tuple[str, str]:
 
 
 def render_sidebar_navigation() -> None:
+    from argus.core.auth import AUTH_QUERY_PARAM
+
+    if AUTH_QUERY_PARAM in st.query_params:
+        try:
+            del st.query_params[AUTH_QUERY_PARAM]
+        except Exception:
+            pass
+
     symbols = get_company_options()
     if not symbols:
         return
