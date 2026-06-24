@@ -192,7 +192,7 @@ def build_freshness_summary(
         ),
         FreshnessCard(
             "Latest Macro",
-            _format_freshness_val(latest_values["macro"], is_datetime=False),
+            _format_freshness_val(latest_values["macro"], is_datetime=True),
             _freshness_status(latest_dates["macro"], stale_threshold),
         ),
     ]

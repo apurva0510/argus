@@ -180,6 +180,8 @@ def test_ci_workflow_runs_lint_tests_and_postgres_service() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert "pull_request:" in workflow
+    assert "  push:" in workflow
+    assert "branches: [main]" in workflow
     assert "ruff check ." in workflow
     assert "python -m pytest" in workflow
     assert "postgres:16" in workflow

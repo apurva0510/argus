@@ -97,7 +97,18 @@ def load_data_health_info(engine: Engine, today: date) -> dict[str, pd.DataFrame
             text("SELECT MAX(date) as val FROM daily_metrics"), conn
         )
         data["latest_macro"] = pd.read_sql_query(
-            text("SELECT MAX(observation_date) as val FROM macro_observations"), conn
+            text(
+                """
+                SELECT finished_at as val
+                FROM job_runs
+                WHERE job_name = 'refresh_macro'
+                  AND status IN ('success', 'partial_success')
+                  AND finished_at IS NOT NULL
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            conn,
         )
         data["latest_news"] = pd.read_sql_query(
             text("SELECT published_at as val FROM news_items ORDER BY published_at DESC LIMIT 1"),

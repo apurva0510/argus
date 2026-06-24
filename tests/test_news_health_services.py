@@ -146,6 +146,23 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
                 error_text="timeout",
             )
         )
+        session.add(
+            JobRun(
+                job_name="refresh_macro",
+                started_at=datetime(2026, 6, 4, 11, 0),
+                finished_at=datetime(2026, 6, 4, 11, 5),
+                status="success",
+            )
+        )
+        session.add(
+            JobRun(
+                job_name="refresh_macro",
+                started_at=datetime(2026, 6, 4, 12, 0),
+                finished_at=datetime(2026, 6, 4, 12, 5),
+                status="failed",
+                error_text="timeout",
+            )
+        )
 
     monkeypatch.setattr("argus.core.settings.settings.database_url", str(sqlite_engine.url))
     monkeypatch.setattr("app.pages.7_Admin_Data_Health.get_db_engine", lambda: sqlite_engine)
@@ -163,13 +180,17 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
     assert set(cik_df["symbol"]) == {"MSFT", "GOOG"}
 
     err_df = data["recent_errors"]
-    assert len(err_df) == 1
-    assert err_df.iloc[0]["job_name"] == "refresh_news"
+    assert len(err_df) == 2
+    assert set(err_df["job_name"]) == {"refresh_macro", "refresh_news"}
 
     latest_prices = data["latest_prices"]
     assert len(latest_prices) == 1
     assert latest_prices.iloc[0]["interval"] == "1d"
     assert str(latest_prices.iloc[0]["val"]).startswith("2026-06-03")
+
+    latest_macro = data["latest_macro"]
+    assert len(latest_macro) == 1
+    assert str(latest_macro.iloc[0]["val"]).startswith("2026-06-04 11:05:00")
 
     ph_df = data["provider_health"]
     assert len(ph_df) == 1

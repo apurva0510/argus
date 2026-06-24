@@ -46,7 +46,7 @@ def test_build_freshness_summary_formats_intraday_prices_and_timed_filings() -> 
         {
             "latest_prices": pd.DataFrame([{"val": "2026-06-10 20:00:00", "interval": "15m"}]),
             "latest_metrics": pd.DataFrame([{"val": "2026-06-10"}]),
-            "latest_macro": pd.DataFrame([{"val": "2026-06-10"}]),
+            "latest_macro": pd.DataFrame([{"val": "2026-06-10 19:00:00"}]),
             "latest_news": pd.DataFrame([{"val": "2026-06-10 21:00:00"}]),
             "latest_filings": pd.DataFrame(
                 [{"val": "2026-06-10 22:00:00", "has_time": True}]
@@ -59,6 +59,7 @@ def test_build_freshness_summary_formats_intraday_prices_and_timed_filings() -> 
     cards = {card.title: card for card in summary.cards}
     assert cards["Latest Prices"].display_value == "2026-06-10 04:00 PM ET"
     assert cards["Latest Filings"].display_value == "2026-06-10 06:00 PM ET"
+    assert cards["Latest Macro"].display_value == "2026-06-10 03:00 PM ET"
     assert not summary.stale_items
 
 
