@@ -82,7 +82,15 @@ def load_data_health_info(engine: Engine, today: date) -> dict[str, pd.DataFrame
 
         # 6. Latest Dates/Times for Stale & Freshness Checks
         data["latest_prices"] = pd.read_sql_query(
-            text("SELECT bar_time as val, interval FROM price_bars ORDER BY bar_time DESC LIMIT 1"),
+            text(
+                """
+                SELECT bar_time as val, interval
+                FROM price_bars
+                WHERE interval = '1d'
+                ORDER BY bar_time DESC
+                LIMIT 1
+                """
+            ),
             conn,
         )
         data["latest_metrics"] = pd.read_sql_query(

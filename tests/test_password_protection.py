@@ -6,6 +6,37 @@ from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_toke
 from app.auth_links import company_detail_url
 
 
+class FakeQueryParams:
+    def __init__(self, values):
+        self.values = dict(values)
+        self.clear_count = 0
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
+
+    def get_all(self, key):
+        value = self.values.get(key)
+        if value is None:
+            return []
+        return value if isinstance(value, list) else [value]
+
+    def keys(self):
+        return self.values.keys()
+
+    def clear(self):
+        self.clear_count += 1
+        self.values.clear()
+
+    def __contains__(self, key):
+        return key in self.values
+
+    def __setitem__(self, key, value):
+        self.values[key] = value
+
+    def __eq__(self, other):
+        return self.values == other
+
+
 def test_password_protection_bypass(monkeypatch):
     """If APP_PASSWORD is not set, check_password() returns True immediately and skips login UI."""
     monkeypatch.setattr("argus.core.settings.settings.app_password", "")
@@ -94,7 +125,7 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
 
     mock_st = MagicMock()
     mock_st.session_state = {}
-    mock_st.query_params = {AUTH_QUERY_PARAM: create_auth_token("secure123")}
+    mock_st.query_params = FakeQueryParams({AUTH_QUERY_PARAM: create_auth_token("secure123")})
     mock_st.context.cookies.get.return_value = None
     mock_navigation = MagicMock()
     mock_st.navigation.return_value = mock_navigation
@@ -108,6 +139,7 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
         assert mock_st.session_state["password_correct"] is True
         assert "auth_token" in mock_st.session_state
         assert AUTH_QUERY_PARAM not in mock_st.query_params
+        assert mock_st.query_params.clear_count == 1
         mock_navigation.run.assert_called_once()
 
 
@@ -122,10 +154,12 @@ def test_authenticated_company_link_opens_new_session_without_password(monkeypat
 
     mock_st = MagicMock()
     mock_st.session_state = {}
-    mock_st.query_params = {
-        "ticker": link_params["ticker"][0],
-        AUTH_QUERY_PARAM: link_params[AUTH_QUERY_PARAM][0],
-    }
+    mock_st.query_params = FakeQueryParams(
+        {
+            "ticker": link_params["ticker"][0],
+            AUTH_QUERY_PARAM: link_params[AUTH_QUERY_PARAM][0],
+        }
+    )
     mock_st.context.cookies.get.return_value = None
     mock_navigation = MagicMock()
     mock_st.navigation.return_value = mock_navigation
@@ -139,6 +173,7 @@ def test_authenticated_company_link_opens_new_session_without_password(monkeypat
         assert mock_st.session_state["password_correct"] is True
         assert mock_st.session_state["auth_token"] == source_token
         assert mock_st.query_params == {"ticker": "NVDA"}
+        assert mock_st.query_params.clear_count == 1
         mock_navigation.run.assert_called_once()
 
 

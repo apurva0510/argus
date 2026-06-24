@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, NewsItem, NewsMention, JobRun, ProviderHealth
+from argus.core.models import Company, NewsItem, NewsMention, JobRun, PriceBar, ProviderHealth
 from argus.services.news_filings_service import get_filtered_news
 
 import importlib
@@ -104,6 +104,30 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
         c2 = Company(symbol="MSFT", name="Microsoft", is_active=True, cik=None)
         c3 = Company(symbol="GOOG", name="Google", is_active=True, cik="123")
         session.add_all([c1, c2, c3])
+        session.flush()
+
+        session.add_all(
+            [
+                PriceBar(
+                    company_id=c1.id,
+                    date=date(2026, 6, 3),
+                    bar_time=datetime(2026, 6, 3),
+                    close=100.0,
+                    adj_close=100.0,
+                    provider="yfinance",
+                    interval="1d",
+                ),
+                PriceBar(
+                    company_id=c1.id,
+                    date=date(2026, 6, 4),
+                    bar_time=datetime(2026, 6, 4, 20, 0),
+                    close=101.0,
+                    adj_close=101.0,
+                    provider="yfinance",
+                    interval="15m",
+                ),
+            ]
+        )
 
         session.add(
             ProviderHealth(
@@ -141,6 +165,11 @@ def test_admin_health_diagnostics(sqlite_engine, monkeypatch) -> None:
     err_df = data["recent_errors"]
     assert len(err_df) == 1
     assert err_df.iloc[0]["job_name"] == "refresh_news"
+
+    latest_prices = data["latest_prices"]
+    assert len(latest_prices) == 1
+    assert latest_prices.iloc[0]["interval"] == "1d"
+    assert str(latest_prices.iloc[0]["val"]).startswith("2026-06-03")
 
     ph_df = data["provider_health"]
     assert len(ph_df) == 1

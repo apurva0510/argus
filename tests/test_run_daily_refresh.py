@@ -108,8 +108,8 @@ def test_build_daily_refresh_steps_skips_filings_without_sec_user_agent(monkeypa
     ]
 
     assert step_names == [
-        "refresh_prices",
         "refresh_intraday_close_markers",
+        "refresh_prices",
         "compute_daily_metrics",
         "compute_opportunity_scores",
         "refresh_index",
@@ -162,8 +162,8 @@ def test_build_daily_refresh_steps_includes_new_pipelines(monkeypatch) -> None:
     ]
 
     assert step_names == [
-        "refresh_prices",
         "refresh_intraday_close_markers",
+        "refresh_prices",
         "refresh_macro",
         "refresh_fundamentals",
         "refresh_earnings",
@@ -193,8 +193,8 @@ def test_build_daily_refresh_steps_with_all_enabled(monkeypatch) -> None:
     ]
 
     assert step_names == [
-        "refresh_prices",
         "refresh_intraday_close_markers",
+        "refresh_prices",
         "refresh_macro",
         "refresh_release_calendar",
         "refresh_capex",
@@ -226,4 +226,5 @@ def test_build_daily_refresh_steps_syncs_ciks_before_filings(monkeypatch) -> Non
 
     assert step_names.index("refresh_ciks") < step_names.index("refresh_filings")
     assert step_names[step_names.index("refresh_filings") + 1] == "compute_signals"
-    assert step_names.index("refresh_intraday_close_markers") == 1
+    assert step_names.index("refresh_intraday_close_markers") == 0
+    assert step_names.index("refresh_prices") == 1

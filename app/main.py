@@ -29,6 +29,26 @@ def _query_param_value(name: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _remove_query_param(name: str) -> None:
+    query_params = getattr(st, "query_params", None)
+    if query_params is None or name not in query_params:
+        return
+
+    remaining_params = {}
+    for key in list(query_params.keys()):
+        if key == name:
+            continue
+        if hasattr(query_params, "get_all"):
+            value = query_params.get_all(key)
+            remaining_params[key] = value[0] if len(value) == 1 else value
+        else:
+            remaining_params[key] = query_params.get(key)
+
+    query_params.clear()
+    for key, value in remaining_params.items():
+        query_params[key] = value
+
+
 def _cookie_is_authenticated() -> bool:
     token = st.context.cookies.get(AUTH_COOKIE_NAME)
     return validate_auth_token(token, _auth_secret())
@@ -38,7 +58,7 @@ def _query_token_is_authenticated() -> bool:
     token = _query_param_value(AUTH_QUERY_PARAM)
     if validate_auth_token(token, _auth_secret()):
         st.session_state["auth_token"] = token
-        del st.query_params[AUTH_QUERY_PARAM]
+        _remove_query_param(AUTH_QUERY_PARAM)
         return True
     return False
 
