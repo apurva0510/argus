@@ -140,6 +140,7 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
         assert "auth_token" in mock_st.session_state
         assert AUTH_QUERY_PARAM not in mock_st.query_params
         assert mock_st.query_params.clear_count == 1
+        mock_st.rerun.assert_called_once()
         mock_navigation.run.assert_called_once()
 
 
@@ -174,6 +175,7 @@ def test_authenticated_company_link_opens_new_session_without_password(monkeypat
         assert mock_st.session_state["auth_token"] == source_token
         assert mock_st.query_params == {"ticker": "NVDA"}
         assert mock_st.query_params.clear_count == 1
+        mock_st.rerun.assert_called_once()
         mock_navigation.run.assert_called_once()
 
 

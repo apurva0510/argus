@@ -1259,6 +1259,62 @@ def test_refresh_ir_feeds_stores_company_ir_news(sqlite_engine, monkeypatch) -> 
         assert mention.ticker == "CRWD"
 
 
+def test_ir_feed_urls_include_hyperscalers() -> None:
+    import argus.pipelines.refresh_ir_feeds as ir_module
+
+    assert {"MSFT", "AMZN", "GOOGL", "META"}.issubset(ir_module.IR_FEED_URLS)
+
+
+def test_refresh_ir_feeds_includes_owned_watchlist_items(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+    import argus.pipelines.refresh_ir_feeds as ir_module
+    from argus.core.models import Watchlist, WatchlistItem, Company
+
+    requested_symbols = []
+
+    def mock_fetch_ir_feed(symbol: str, url: str) -> list[dict]:
+        requested_symbols.append(symbol)
+        return []
+
+    monkeypatch.setattr(ir_module, "fetch_ir_feed", mock_fetch_ir_feed)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        wl = Watchlist(name="Test Watchlist")
+        session.add(wl)
+        session.flush()
+
+        # Add a non-hyperscaler company which is NOT owned (should not be fetched)
+        c_anet = Company(symbol="ANET", name="Arista Networks", is_active=True)
+        session.add(c_anet)
+        session.flush()
+        session.add(WatchlistItem(watchlist_id=wl.id, company_id=c_anet.id, watch_status="watch"))
+
+        # Add a non-hyperscaler company which IS owned (should be fetched)
+        c_crwd = Company(symbol="CRWD", name="CrowdStrike", is_active=True)
+        session.add(c_crwd)
+        session.flush()
+        session.add(WatchlistItem(watchlist_id=wl.id, company_id=c_crwd.id, watch_status="owned"))
+
+        # Add a hyperscaler company (should be fetched regardless of watch status)
+        c_msft = Company(symbol="MSFT", name="Microsoft", is_active=True)
+        session.add(c_msft)
+        session.flush()
+        session.add(WatchlistItem(watchlist_id=wl.id, company_id=c_msft.id, watch_status="watch"))
+
+    result = ir_module.refresh_ir_feeds()
+
+    assert result["status"] == "success"
+    # CRWD (owned) and MSFT (hyperscaler) should be fetched. ANET (not owned) should not.
+    assert "CRWD" in requested_symbols
+    assert "MSFT" in requested_symbols
+    assert "ANET" not in requested_symbols
+
+
 def test_refresh_ir_feeds_429_marks_provider_unhealthy(sqlite_engine, monkeypatch) -> None:
     from argus.core import db as db_module
     import argus.pipelines.refresh_ir_feeds as ir_module

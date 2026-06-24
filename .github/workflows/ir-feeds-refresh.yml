@@ -52,5 +52,8 @@ jobs:
       - name: Compute signals
         run: python scripts/compute_signals.py
 
+      - name: Generate theses
+        run: python scripts/generate_theses.py
+
       - name: Run alerts
         run: python scripts/run_alerts.py

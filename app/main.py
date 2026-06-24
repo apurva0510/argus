@@ -142,7 +142,12 @@ if "password_correct" not in st.session_state:
 
 # Check cookie authentication for cross-tab session persistence
 if settings.app_password:
-    if _query_token_is_authenticated() or _cookie_is_authenticated():
+    if _query_token_is_authenticated():
+        st.session_state["password_correct"] = True
+        if "auth_token" not in st.session_state:
+            st.session_state["auth_token"] = create_auth_token(_auth_secret())
+        st.rerun()
+    elif _cookie_is_authenticated():
         st.session_state["password_correct"] = True
         if "auth_token" not in st.session_state:
             st.session_state["auth_token"] = create_auth_token(_auth_secret())

@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from argus.core import models  # noqa: F401
 from argus.core.db import Base, create_database_engine, get_insert_statement_producer
 from argus.core.models import Company, PriceBar
-from scripts.enable_rls import _quote_identifier
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -110,10 +109,14 @@ def test_news_workflow_has_no_github_actions_skip_gate() -> None:
     assert "steps.news_refresh_window.outputs.run_job" not in workflow
     assert "python scripts/refresh_news.py --bypass-refresh-throttle" in workflow
     assert "python scripts/compute_signals.py" in workflow
+    assert "python scripts/generate_theses.py" in workflow
     assert workflow.index("python scripts/refresh_news.py") < workflow.index(
         "python scripts/compute_signals.py"
     )
     assert workflow.index("python scripts/compute_signals.py") < workflow.index(
+        "python scripts/generate_theses.py"
+    )
+    assert workflow.index("python scripts/generate_theses.py") < workflow.index(
         "python scripts/run_alerts.py"
     )
     assert "--force" not in workflow
@@ -130,11 +133,16 @@ def test_ir_feeds_workflow_runs_every_6_hours() -> None:
     assert "Determine if IR refresh window" not in workflow
     assert "steps.ir_refresh_window.outputs.run_job" not in workflow
     assert "python scripts/refresh_ir_feeds.py" in workflow
+    assert "python scripts/refresh_capex.py" not in workflow
     assert "python scripts/compute_signals.py" in workflow
+    assert "python scripts/generate_theses.py" in workflow
     assert workflow.index("python scripts/refresh_ir_feeds.py") < workflow.index(
         "python scripts/compute_signals.py"
     )
     assert workflow.index("python scripts/compute_signals.py") < workflow.index(
+        "python scripts/generate_theses.py"
+    )
+    assert workflow.index("python scripts/generate_theses.py") < workflow.index(
         "python scripts/run_alerts.py"
     )
     assert "--force" not in workflow
@@ -164,16 +172,27 @@ def test_scheduled_workflows_validate_database_url_secret() -> None:
         assert "APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}" in workflow
 
 
-def test_readme_documents_supabase_rls_step() -> None:
+def test_readme_does_not_reference_manual_rls_script() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "scripts/enable_rls.py" in readme
-    assert "Row Level Security" in readme
+    assert "scripts/enable_rls.py" not in readme
 
 
-def test_rls_identifier_quoting_handles_pooler_roles() -> None:
-    assert _quote_identifier("postgres.project-ref") == '"postgres.project-ref"'
-    assert _quote_identifier('postgres"role') == '"postgres""role"'
+def test_catalyst_workflows_regenerate_theses_before_alerts() -> None:
+    for workflow_name, refresh_command in (
+        ("news-refresh.yml", "python scripts/refresh_news.py --bypass-refresh-throttle"),
+        ("filings-refresh.yml", "python scripts/refresh_filings.py"),
+        ("ir-feeds-refresh.yml", "python scripts/refresh_ir_feeds.py"),
+    ):
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / workflow_name).read_text(
+            encoding="utf-8"
+        )
+
+        assert "python scripts/generate_theses.py" in workflow
+        assert workflow.index(refresh_command) < workflow.index("python scripts/generate_theses.py")
+        assert workflow.index("python scripts/generate_theses.py") < workflow.index(
+            "python scripts/run_alerts.py"
+        )
 
 
 def test_ci_workflow_runs_lint_tests_and_postgres_service() -> None:

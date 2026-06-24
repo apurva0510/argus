@@ -54,5 +54,8 @@ jobs:
       - name: Refresh SEC filings
         run: python scripts/refresh_filings.py
 
+      - name: Generate theses
+        run: python scripts/generate_theses.py
+
       - name: Run alerts
         run: python scripts/run_alerts.py

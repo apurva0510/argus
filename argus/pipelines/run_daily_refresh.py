@@ -8,6 +8,8 @@ from argus.core.settings import settings
 from argus.pipelines.compute_metrics import compute_daily_metrics
 from argus.pipelines.compute_scores import compute_opportunity_scores
 from argus.pipelines.compute_signals import compute_signals
+from argus.pipelines.compute_valuation_peers import compute_valuation_peers
+from argus.pipelines.generate_theses import generate_theses
 from argus.pipelines.refresh_capex import refresh_capex
 from argus.pipelines.refresh_ciks import refresh_ciks
 from argus.pipelines.refresh_filings import refresh_filings
@@ -55,6 +57,7 @@ def build_daily_refresh_steps(
 
     if include_fundamentals:
         steps.append(("refresh_fundamentals", refresh_fundamentals))
+        steps.append(("compute_valuation_peers", compute_valuation_peers))
 
     if include_earnings:
         steps.append(("refresh_earnings", refresh_earnings))
@@ -78,6 +81,7 @@ def build_daily_refresh_steps(
             logger.info("Skipping SEC filings refresh because SEC_USER_AGENT is not configured.")
 
     steps.append(("compute_signals", compute_signals))
+    steps.append(("generate_theses", generate_theses))
 
     if include_alerts:
         steps.append(("run_alerts", run_alerts))

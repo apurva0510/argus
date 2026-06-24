@@ -14,6 +14,7 @@ from argus.core.models import (
     PriceBar,
     SecFiling,
     UserNote,
+    ValuationPeerSnapshot,
     Watchlist,
     WatchlistItem,
 )
@@ -199,6 +200,35 @@ def get_company_fundamentals(company_id: int) -> dict | None:
             "free_cash_flow": fundamental.free_cash_flow,
             "provider": fundamental.provider,
         }
+
+
+def get_company_relative_valuation(company_id: int) -> pd.DataFrame:
+    with session_scope() as session:
+        query = (
+            session.query(
+                ValuationPeerSnapshot.peer_group_type,
+                ValuationPeerSnapshot.peer_group_key,
+                ValuationPeerSnapshot.metric_name,
+                ValuationPeerSnapshot.company_value,
+                ValuationPeerSnapshot.peer_median,
+                ValuationPeerSnapshot.peer_count,
+                ValuationPeerSnapshot.percentile_rank,
+                ValuationPeerSnapshot.premium_discount_pct,
+                ValuationPeerSnapshot.valuation_flag,
+                ValuationPeerSnapshot.as_of_date,
+            )
+            .filter(ValuationPeerSnapshot.company_id == company_id)
+            .order_by(
+                ValuationPeerSnapshot.as_of_date.desc(),
+                ValuationPeerSnapshot.peer_group_type.asc(),
+                ValuationPeerSnapshot.metric_name.asc(),
+            )
+        )
+        df = pd.read_sql_query(query.statement, session.bind)
+    if df.empty:
+        return df
+    latest_date = df["as_of_date"].max()
+    return df[df["as_of_date"] == latest_date].reset_index(drop=True)
 
 
 def get_company_news(company_id: int, limit: int = 10) -> list[dict]:

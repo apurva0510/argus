@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import select
 
 from argus.core.db import session_scope
-from argus.core.models import Company
+from argus.core.models import Company, WatchlistItem
 from argus.core.settings import settings
 from argus.pipelines.job_runs import job_run_context
 from argus.pipelines.provider_health import (
@@ -25,17 +25,66 @@ logger = logging.getLogger(__name__)
 _last_ir_request_at = 0.0
 
 IR_FEED_URLS = {
-    "ANET": "https://investors.arista.com/rss/news-releases.xml",
+    "AMZN": "https://ir.aboutamazon.com/rss/news-releases.xml",
+    "GOOGL": "https://abc.xyz/investor/news/rss.xml",
+    "META": "https://investor.fb.com/rss/news-releases.xml",
+    "MSFT": "https://www.microsoft.com/en-us/investor/rss/rssfeed.aspx?ContentType=Microsoft%20News",
+}
+
+OTHER_IR_FEED_URLS = {
+    "NVDA": "https://nvidianews.nvidia.com/rss.xml",
+    "MSFT": "https://www.microsoft.com/en-us/investor/rss/rssfeed.aspx?ContentType=Microsoft%20News",
+    "AMZN": "https://ir.aboutamazon.com/rss/news-releases.xml",
+    "GOOGL": "https://abc.xyz/investor/news/rss.xml",
+    "META": "https://investor.fb.com/rss/news-releases.xml",
+    "QQQ": "https://www.invesco.com/us/financial-products/etfs/product-detail?productId=ETF-QQQ",
+    "AVGO": "https://investors.broadcom.com/rss/news-releases.xml",
+    "MRVL": "https://investor.marvell.com/rss/news-releases.xml",
+    "MU": "https://investors.micron.com/rss/news-releases.xml",
+    "MCHP": "https://investor.microchip.com/rss/news-releases.xml",
+    "ETN": "https://www.eaton.com/us/en-us/company/news-insights/news-releases.feed.xml",
+    "GEV": "https://investors.gevernova.com/rss/news-releases.xml",
+    "PWR": "https://investors.quantaservices.com/rss/news-releases.xml",
+    "ABBNY": "https://global.abb/group/en/media/releases/rss.xml",
+    "SBGSY": "https://www.se.com/ww/en/about-us/newsroom/rss-feeds.xml",
+    "SIEGY": "https://press.siemens.com/global/en/pressreleases.xml",
+    "HUBB": "https://investors.hubbell.com/rss/news-releases.xml",
+    "VRT": "https://investors.vertiv.com/rss/news-releases.xml",
+    "TT": "https://investors.tranetechnologies.com/rss/news-releases.xml",
+    "CARR": "https://ir.carrier.com/rss/news-releases.xml",
+    "JCI": "https://investors.johnsoncontrols.com/rss/news-releases.xml",
     "CIEN": "https://investor.ciena.com/rss/news-releases.xml",
-    "COHR": "https://investors.coherent.com/rss/news-releases.xml",
-    "CRWD": "https://ir.crowdstrike.com/rss/news-releases.xml",
-    "CSCO": "https://newsroom.cisco.com/c/r/newsroom/en/us/rss-feeds/newsroom-rss-feed.xml",
-    "FTNT": "https://investor.fortinet.com/rss/news-releases.xml",
     "GLW": "https://investor.corning.com/rss/news-releases.xml",
+    "COHR": "https://investors.coherent.com/rss/news-releases.xml",
     "LITE": "https://investor.lumentum.com/rss/news-releases.xml",
-    "NET": "https://cloudflare.net/news/news-releases/rss",
+    "NOK": "https://www.nokia.com/en_int/news/releases/rss.xml",
+    "CSCO": "https://newsroom.cisco.com/c/r/newsroom/en/us/rss-feeds/newsroom-rss-feed.xml",
+    "ANET": "https://investors.arista.com/rss/news-releases.xml",
+    "AMAT": "https://ir.appliedmaterials.com/rss/news-releases.xml",
+    "KLAC": "https://ir.kla.com/rss/news-releases.xml",
+    "LRCX": "https://investor.lamresearch.com/rss/news-releases.xml",
+    "ASML": "https://www.asml.com/en/news/press-releases/rss",
+    "ONTO": "https://investors.ontoinnovation.com/rss/news-releases.xml",
+    "TER": "https://investors.teradyne.com/rss/news-releases.xml",
+    "CEG": "https://investors.constellationenergy.com/rss/news-releases.xml",
+    "VST": "https://investor.vistracorp.com/rss/news-releases.xml",
+    "NEE": "https://investor.nexteraenergy.com/rss/news-releases.xml",
+    "CCJ": "https://www.cameco.com/invest/news/rss",
+    "SMR": "https://nuscalepower.gcs-web.com/rss/news-releases.xml",
+    "CRWD": "https://ir.crowdstrike.com/rss/news-releases.xml",
     "PANW": "https://investors.paloaltonetworks.com/rss/news-releases.xml",
+    "FTNT": "https://investor.fortinet.com/rss/news-releases.xml",
+    "NET": "https://cloudflare.net/news/news-releases/rss",
+    "S": "https://investors.sentinelone.com/rss/news-releases.xml",
     "ZS": "https://ir.zscaler.com/rss/news-releases.xml",
+    "IONQ": "https://investors.ionq.com/rss/news-releases.xml",
+    "RGTI": "https://investors.rigetti.com/rss/news-releases.xml",
+    "QBTS": "https://ir.dwavesys.com/rss/news-releases.xml",
+    "QUBT": "https://quantumcomputinginc.com/feed",
+    "INFQ": "https://infleqtion.com/news/rss",
+    "IBM": "https://newsroom.ibm.com/announcements?pagetemplate=rss",
+    "ALAB": "https://investors.asteralabs.com/rss/news-releases.xml",
+    "CRDO": "https://investors.credosemi.com/rss/news-releases.xml",
 }
 
 
@@ -120,10 +169,29 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
     with job_run_context("refresh_ir_feeds") as state:
         with session_scope() as session:
             now = _utc_now()
+
+            # Start with base/configured IR_FEED_URLS (which only contains hyperscalers by default)
+            active_feeds = dict(IR_FEED_URLS)
+
+            # Retrieve active 'owned' companies from the database
+            owned_symbols = session.scalars(
+                select(Company.symbol)
+                .join(WatchlistItem, WatchlistItem.company_id == Company.id)
+                .where(
+                    Company.is_active.is_(True),
+                    WatchlistItem.watch_status == "owned",
+                )
+            ).all()
+
+            for symbol in owned_symbols:
+                sym_upper = symbol.upper()
+                if sym_upper in OTHER_IR_FEED_URLS and sym_upper not in active_feeds:
+                    active_feeds[sym_upper] = OTHER_IR_FEED_URLS[sym_upper]
+
             companies = session.scalars(
                 select(Company).where(
                     Company.is_active.is_(True),
-                    Company.symbol.in_(sorted(IR_FEED_URLS)),
+                    Company.symbol.in_(sorted(active_feeds)),
                 )
             ).all()
             companies_by_symbol = {company.symbol.upper(): company for company in companies}
@@ -142,7 +210,7 @@ def refresh_ir_feeds(*, force: bool = False) -> dict[str, object]:
             else:
                 provider_outcomes["ir_feed"] = "success"
 
-            for symbol, url in IR_FEED_URLS.items():
+            for symbol, url in active_feeds.items():
                 company = companies_by_symbol.get(symbol)
                 if company is None:
                     continue
