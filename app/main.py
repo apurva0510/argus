@@ -30,23 +30,8 @@ def _query_param_value(name: str) -> str | None:
 
 
 def _remove_query_param(name: str) -> None:
-    query_params = getattr(st, "query_params", None)
-    if query_params is None or name not in query_params:
-        return
-
-    remaining_params = {}
-    for key in list(query_params.keys()):
-        if key == name:
-            continue
-        if hasattr(query_params, "get_all"):
-            value = query_params.get_all(key)
-            remaining_params[key] = value[0] if len(value) == 1 else value
-        else:
-            remaining_params[key] = query_params.get(key)
-
-    query_params.clear()
-    for key, value in remaining_params.items():
-        query_params[key] = value
+    if name in st.query_params:
+        del st.query_params[name]
 
 
 def _cookie_is_authenticated() -> bool:
@@ -142,12 +127,7 @@ if "password_correct" not in st.session_state:
 
 # Check cookie authentication for cross-tab session persistence
 if settings.app_password:
-    if _query_token_is_authenticated():
-        st.session_state["password_correct"] = True
-        if "auth_token" not in st.session_state:
-            st.session_state["auth_token"] = create_auth_token(_auth_secret())
-        st.rerun()
-    elif _cookie_is_authenticated():
+    if _query_token_is_authenticated() or _cookie_is_authenticated():
         st.session_state["password_correct"] = True
         if "auth_token" not in st.session_state:
             st.session_state["auth_token"] = create_auth_token(_auth_secret())
