@@ -40,6 +40,7 @@ REQUIRED_TABLES = {
     "price_bars",
     "daily_metrics",
     "fundamentals_snapshot",
+    "valuation_peer_snapshot",
     "news_items",
     "news_mentions",
     "sec_filings",
@@ -47,6 +48,7 @@ REQUIRED_TABLES = {
     "alerts",
     "alert_events",
     "user_notes",
+    "investment_theses",
     "job_runs",
     "macro_series",
     "macro_observations",
@@ -122,7 +124,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
         schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
-        assert schema_version.value == "9"
+        assert schema_version.value == "10"
     test_engine.dispose()
 
 
@@ -275,6 +277,7 @@ def test_unique_constraints_exist() -> None:
         "price_bars": {"uq_price_bars"},
         "daily_metrics": {"uq_daily_metrics"},
         "fundamentals_snapshot": {"uq_fundamentals_snapshot"},
+        "valuation_peer_snapshot": {"uq_valuation_peer_snapshot"},
         "news_mentions": {"uq_news_mentions"},
         "earnings_events": {"uq_earnings_events"},
         "macro_observations": {"uq_macro_observations"},
@@ -285,6 +288,7 @@ def test_unique_constraints_exist() -> None:
         "macro_release_events": {"uq_macro_release_events"},
         "index_constituents": {"uq_index_constituents"},
         "index_values": {"uq_index_values"},
+        "investment_theses": {"uq_investment_theses_company_id"},
     }
 
     for table_name, expected_names in expected_constraints.items():
@@ -302,6 +306,7 @@ def test_lookup_indexes_exist(sqlite_engine) -> None:
         "watchlist_items": {("watchlist_id",), ("company_id",)},
         "price_bars": {("company_id",), ("date",)},
         "daily_metrics": {("company_id",), ("date",)},
+        "valuation_peer_snapshot": {("company_id",), ("as_of_date",)},
         "news_items": {("published_at",)},
         "news_mentions": {("news_id",), ("company_id",)},
         "sec_filings": {("company_id",), ("form",)},
@@ -312,6 +317,7 @@ def test_lookup_indexes_exist(sqlite_engine) -> None:
         "alerts": {("company_id",), ("watchlist_id",)},
         "alert_events": {("alert_id",), ("company_id",)},
         "user_notes": {("company_id",)},
+        "investment_theses": {("company_id",)},
         "job_runs": {("job_name",)},
         "provider_daily_usage": {("provider",), ("date",)},
         "signal_daily": {("company_id",), ("date",)},
@@ -339,6 +345,15 @@ def test_required_columns_are_not_nullable(sqlite_engine) -> None:
         "price_bars": {"company_id", "date", "bar_time", "provider", "interval"},
         "daily_metrics": {"company_id", "date"},
         "fundamentals_snapshot": {"company_id", "as_of_date", "provider"},
+        "valuation_peer_snapshot": {
+            "company_id",
+            "as_of_date",
+            "peer_group_type",
+            "peer_group_key",
+            "metric_name",
+            "peer_count",
+            "valuation_flag",
+        },
         "news_items": {"title", "url"},
         "news_mentions": {"news_id", "company_id", "is_primary_match"},
         "sec_filings": {"company_id", "accession_no", "form", "is_new"},
@@ -349,6 +364,7 @@ def test_required_columns_are_not_nullable(sqlite_engine) -> None:
         "alerts": {"name", "rule_type", "channel", "is_enabled"},
         "alert_events": {"alert_id", "event_type", "dedupe_key"},
         "user_notes": {"company_id", "note_text"},
+        "investment_theses": {"company_id", "thesis_status", "conviction_score"},
         "job_runs": {"job_name", "status"},
         "provider_daily_usage": {
             "provider",
@@ -464,6 +480,33 @@ def test_schema_keeps_required_column_contract(sqlite_engine) -> None:
             "watch_status",
             "sort_order",
             "notes",
+            "created_at",
+            "updated_at",
+        },
+        "valuation_peer_snapshot": {
+            "id",
+            "company_id",
+            "as_of_date",
+            "peer_group_type",
+            "peer_group_key",
+            "metric_name",
+            "company_value",
+            "peer_median",
+            "peer_count",
+            "percentile_rank",
+            "premium_discount_pct",
+            "valuation_flag",
+            "created_at",
+        },
+        "investment_theses": {
+            "id",
+            "company_id",
+            "bull_thesis",
+            "bear_thesis",
+            "key_kpis",
+            "thesis_status",
+            "conviction_score",
+            "last_reviewed_date",
             "created_at",
             "updated_at",
         },

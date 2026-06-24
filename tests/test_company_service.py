@@ -1,16 +1,20 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from argus.core.models import (
     Company,
+    CompanyThemeExposure,
     DailyMetric,
     FundamentalsSnapshot,
     NewsItem,
     NewsMention,
     PriceBar,
     SecFiling,
+    InvestmentThesis,
+    Theme,
+    ValuationPeerSnapshot,
     Watchlist,
     WatchlistItem,
 )
@@ -21,6 +25,7 @@ from argus.services.company_service import (
     get_company_metrics,
     get_company_price_history,
     get_company_fundamentals,
+    get_company_relative_valuation,
     get_company_news,
     get_company_filings,
     get_company_notes,
@@ -28,6 +33,15 @@ from argus.services.company_service import (
     get_watch_status,
     update_watch_status,
     get_watchlist_notes,
+)
+from argus.services.thesis_service import (
+    generate_all_company_theses,
+    generate_and_save_company_thesis,
+    generate_company_thesis_draft,
+    generated_status_for_conviction,
+    get_company_thesis,
+    get_or_generate_company_thesis,
+    upsert_company_thesis,
 )
 
 
@@ -207,6 +221,232 @@ def test_get_company_fundamentals(sqlite_engine, db_session, monkeypatch) -> Non
 
     res_missing = get_company_fundamentals(9999)
     assert res_missing is None
+
+
+def test_get_company_relative_valuation(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="AAPL", name="Apple", is_active=True)
+    db_session.add(company)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ValuationPeerSnapshot(
+                company_id=company.id,
+                as_of_date=date(2026, 1, 1),
+                peer_group_type="sector",
+                peer_group_key="Tech",
+                metric_name="ev_to_sales",
+                company_value=5.0,
+                peer_median=4.0,
+                peer_count=3,
+                percentile_rank=75.0,
+                premium_discount_pct=0.25,
+                valuation_flag="stretched",
+            ),
+            ValuationPeerSnapshot(
+                company_id=company.id,
+                as_of_date=date(2026, 2, 1),
+                peer_group_type="sector",
+                peer_group_key="Tech",
+                metric_name="ev_to_sales",
+                company_value=3.0,
+                peer_median=4.0,
+                peer_count=3,
+                percentile_rank=25.0,
+                premium_discount_pct=-0.25,
+                valuation_flag="cheap",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    df = get_company_relative_valuation(company.id)
+
+    assert len(df) == 1
+    assert df.iloc[0]["as_of_date"] == date(2026, 2, 1)
+    assert df.iloc[0]["valuation_flag"] == "cheap"
+
+
+def test_company_thesis_upsert_and_stale_detection(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="AAPL", name="Apple", is_active=True)
+    db_session.add(company)
+    db_session.commit()
+
+    default_thesis = get_company_thesis(company.id)
+    assert default_thesis["has_thesis"] is False
+    assert default_thesis["thesis_status"] == "monitoring"
+    assert default_thesis["conviction_score"] == 3
+    assert default_thesis["is_stale"] is False
+    with Session(sqlite_engine) as session:
+        assert session.query(InvestmentThesis).count() == 0
+
+    upsert_company_thesis(
+        company.id,
+        bull_thesis="Services growth",
+        bear_thesis="Multiple compression",
+        key_kpis="Revenue growth",
+        thesis_status="intact",
+        conviction_score=4,
+        last_reviewed_date=date.today(),
+    )
+    upsert_company_thesis(
+        company.id,
+        bull_thesis="Installed base",
+        bear_thesis="China weakness",
+        key_kpis="iPhone revenue",
+        thesis_status="weakening",
+        conviction_score=2,
+        last_reviewed_date=date.today() - timedelta(days=91),
+    )
+
+    thesis = get_company_thesis(company.id)
+    assert thesis["has_thesis"] is True
+    assert thesis["bull_thesis"] == "Installed base"
+    assert thesis["thesis_status"] == "weakening"
+    assert thesis["conviction_score"] == 2
+    assert thesis["is_stale"] is True
+    with Session(sqlite_engine) as session:
+        assert session.query(InvestmentThesis).count() == 1
+
+
+def test_generate_company_thesis_draft_uses_argus_data(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="AAPL", name="Apple", is_active=True, sector="Tech")
+    theme = Theme(code="ai_infra", name="AI Infra")
+    db_session.add_all([company, theme])
+    db_session.flush()
+    db_session.add_all(
+        [
+            CompanyThemeExposure(company_id=company.id, theme_id=theme.id, exposure_score=4.5),
+            DailyMetric(
+                company_id=company.id,
+                date=date(2026, 1, 2),
+                drawdown_52w=-0.12,
+                distance_from_200dma=0.08,
+                relative_return_vs_qqq_3m=0.06,
+            ),
+            FundamentalsSnapshot(
+                company_id=company.id,
+                as_of_date=date(2026, 1, 2),
+                ev_to_sales=8.0,
+                revenue_growth=0.2,
+                provider="yfinance",
+            ),
+            ValuationPeerSnapshot(
+                company_id=company.id,
+                as_of_date=date(2026, 1, 2),
+                peer_group_type="sector",
+                peer_group_key="Tech",
+                metric_name="ev_to_sales",
+                company_value=8.0,
+                peer_median=4.0,
+                peer_count=5,
+                percentile_rank=90.0,
+                premium_discount_pct=1.0,
+                valuation_flag="stretched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    draft = generate_company_thesis_draft(company.id)
+
+    assert "AI Infra" in draft["bull_thesis"]
+    assert "Valuation screens stretched" in draft["bear_thesis"]
+    assert "EV/Sales" in draft["key_kpis"]
+    assert draft["thesis_status"] == "monitoring"
+
+    saved = generate_and_save_company_thesis(company.id)
+    thesis = get_company_thesis(company.id)
+    assert saved["bull_thesis"] == thesis["bull_thesis"]
+    assert thesis["has_thesis"] is True
+
+
+def test_generated_status_for_conviction_is_deterministic() -> None:
+    assert generated_status_for_conviction(5) == "intact"
+    assert generated_status_for_conviction(4) == "intact"
+    assert generated_status_for_conviction(3) == "monitoring"
+    assert generated_status_for_conviction(2) == "weakening"
+    assert generated_status_for_conviction(1) == "weakening"
+
+
+def test_get_or_generate_company_thesis_regenerates_daily(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="AAPL", name="Apple", is_active=True, sector="Tech")
+    db_session.add(company)
+    db_session.commit()
+
+    generated = get_or_generate_company_thesis(company.id)
+    assert generated["has_thesis"] is True
+    assert "AAPL" in generated["bull_thesis"]
+    assert generated["last_reviewed_date"] == date.today()
+
+    upsert_company_thesis(
+        company.id,
+        bull_thesis="Keep today's generated thesis",
+        bear_thesis="Existing risk",
+        key_kpis="Existing KPI",
+        thesis_status="intact",
+        conviction_score=4,
+        last_reviewed_date=date.today(),
+    )
+    current = get_or_generate_company_thesis(company.id)
+    assert current["bull_thesis"] == "Keep today's generated thesis"
+
+    upsert_company_thesis(
+        company.id,
+        bull_thesis="Yesterday's generated thesis",
+        bear_thesis="Existing risk",
+        key_kpis="Existing KPI",
+        thesis_status="intact",
+        conviction_score=4,
+        last_reviewed_date=date.today() - timedelta(days=1),
+    )
+    refreshed = get_or_generate_company_thesis(company.id)
+    assert refreshed["bull_thesis"] != "Yesterday's generated thesis"
+    assert refreshed["last_reviewed_date"] == date.today()
+
+
+def test_generate_all_company_theses_refreshes_active_companies(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    active = Company(symbol="AAPL", name="Apple", is_active=True)
+    inactive = Company(symbol="TSLA", name="Tesla", is_active=False)
+    db_session.add_all([active, inactive])
+    db_session.commit()
+
+    result = generate_all_company_theses()
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 1
+    assert result["rows_written"] == 1
+    assert get_company_thesis(active.id)["has_thesis"] is True
+    assert get_company_thesis(inactive.id)["has_thesis"] is False
+
+
+def test_generate_all_company_theses_overwrites_same_day_output(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="AAPL", name="Apple", is_active=True)
+    db_session.add(company)
+    db_session.commit()
+    upsert_company_thesis(
+        company.id,
+        bull_thesis="Stale same-day generated text",
+        bear_thesis="Old risk",
+        key_kpis="Old KPI",
+        thesis_status="monitoring",
+        conviction_score=3,
+        last_reviewed_date=date.today(),
+    )
+
+    result = generate_all_company_theses()
+    thesis = get_company_thesis(company.id)
+
+    assert result["status"] == "success"
+    assert thesis["bull_thesis"] != "Stale same-day generated text"
+    assert thesis["last_reviewed_date"] == date.today()
 
 
 def test_get_company_news_and_filings(sqlite_engine, db_session, monkeypatch) -> None:

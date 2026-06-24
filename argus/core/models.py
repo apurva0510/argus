@@ -175,6 +175,37 @@ class FundamentalsSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
+class ValuationPeerSnapshot(Base):
+    __tablename__ = "valuation_peer_snapshot"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "as_of_date",
+            "peer_group_type",
+            "peer_group_key",
+            "metric_name",
+            name="uq_valuation_peer_snapshot",
+        ),
+        CheckConstraint(
+            "valuation_flag IN ('cheap', 'neutral', 'stretched', 'unavailable')",
+            name="ck_valuation_peer_snapshot_flag",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    peer_group_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    peer_group_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    company_value: Mapped[float | None] = mapped_column(Float)
+    peer_median: Mapped[float | None] = mapped_column(Float)
+    peer_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    percentile_rank: Mapped[float | None] = mapped_column(Float)
+    premium_discount_pct: Mapped[float | None] = mapped_column(Float)
+    valuation_flag: Mapped[str] = mapped_column(String(32), default="unavailable", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
 class NewsItem(Base):
     __tablename__ = "news_items"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -338,6 +369,29 @@ class UserNote(Base, TimestampMixin):
     note_text: Mapped[str] = mapped_column(Text, nullable=False)
     note_type: Mapped[str | None] = mapped_column(String(64))
     created_by: Mapped[str | None] = mapped_column(String(64))
+
+
+class InvestmentThesis(Base, TimestampMixin):
+    __tablename__ = "investment_theses"
+    __table_args__ = (
+        UniqueConstraint("company_id", name="uq_investment_theses_company_id"),
+        CheckConstraint(
+            "thesis_status IN ('intact', 'monitoring', 'weakening', 'broken')",
+            name="ck_investment_theses_status",
+        ),
+        CheckConstraint(
+            "conviction_score >= 1 AND conviction_score <= 5",
+            name="ck_investment_theses_conviction_score",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    bull_thesis: Mapped[str | None] = mapped_column(Text)
+    bear_thesis: Mapped[str | None] = mapped_column(Text)
+    key_kpis: Mapped[str | None] = mapped_column(Text)
+    thesis_status: Mapped[str] = mapped_column(String(32), default="monitoring", nullable=False)
+    conviction_score: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    last_reviewed_date: Mapped[date | None] = mapped_column(Date)
 
 
 class JobRun(Base):

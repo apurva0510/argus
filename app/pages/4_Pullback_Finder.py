@@ -228,6 +228,21 @@ def render_pullback_finder() -> None:
     display_df["max theme score"] = display_df["theme_exposure_score"].apply(
         lambda value: "n/a" if pd.isna(value) else f"{value:.1f}/5"
     )
+    display_df["valuation"] = (
+        display_df["valuation_flag"].fillna("n/a") if "valuation_flag" in display_df else "n/a"
+    )
+    display_df["EV/Sales vs sector"] = (
+        display_df["ev_sales_premium_discount_pct"].apply(_fmt_pct)
+        if "ev_sales_premium_discount_pct" in display_df
+        else "n/a"
+    )
+    display_df["Fwd P/E pctile"] = (
+        display_df["forward_pe_percentile_rank"].apply(
+            lambda value: "n/a" if pd.isna(value) else f"{value:.0f}"
+        )
+        if "forward_pe_percentile_rank" in display_df
+        else "n/a"
+    )
 
     table_df = display_df[
         [
@@ -243,6 +258,9 @@ def render_pullback_finder() -> None:
             "rsi",
             "200DMA",
             "vs QQQ 3M",
+            "valuation",
+            "EV/Sales vs sector",
+            "Fwd P/E pctile",
             "max theme score",
         ]
     ]

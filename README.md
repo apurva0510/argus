@@ -88,6 +88,12 @@ python scripts/backfill_prices.py --period 5d --interval 15m
 # Compute technical/moving average indicators
 python scripts/compute_metrics.py
 
+# Refresh fundamentals used by peer-relative valuation
+python scripts/refresh_fundamentals.py
+
+# Compute peer-relative valuation snapshots from refreshed fundamentals
+python scripts/compute_valuation_peers.py
+
 # Calculate opportunity and pullback scores
 python scripts/compute_scores.py
 
@@ -96,6 +102,9 @@ python scripts/refresh_index.py
 
 # Compute rich signals (NVDA/hyperscaler correlation, capex growth, power demand, etc.)
 python scripts/compute_signals.py
+
+# Generate read-only company theses from current Argus data
+python scripts/generate_theses.py
 ```
 
 ### 3. (Optional) Ingest News, IR Feeds & SEC Filings
@@ -142,7 +151,7 @@ python scripts/run_alerts.py
 
 ### 6. Orchestrated Daily Refresh
 
-Instead of running individual scripts, use the daily orchestrator to sync daily prices, macro data, metrics/scores, index values, and alerts in one command. Scheduled production jobs handle news, IR feeds, intraday prices, and SEC filings separately through GitHub Actions:
+Instead of running individual scripts, use the daily orchestrator to sync daily prices, macro data, metrics/scores, index values, generated theses, and alerts in one command. Scheduled production jobs handle news, IR feeds, intraday prices, and SEC filings separately through GitHub Actions:
 
 ```bash
 # Run the complete refresh workflow
@@ -241,7 +250,6 @@ Argus supports both **local SQLite** (default) and **Supabase Postgres** for pro
 
    ```bash
    DATABASE_URL="postgresql://..." python scripts/init_db.py
-   DATABASE_URL="postgresql://..." python scripts/enable_rls.py
    DATABASE_URL="postgresql://..." python scripts/seed_companies.py
    ```
 4. Backfill prices and compute metrics:
@@ -275,8 +283,8 @@ To deploy the Streamlit app on [Streamlit Community Cloud](https://streamlit.io/
 > [!IMPORTANT]
 > Never commit secrets to your repository. The Streamlit secrets panel and GitHub Actions secrets are the only places credentials should live.
 
-> [!IMPORTANT]
-> Run `scripts/enable_rls.py` after schema creation for Supabase deployments. It enables Row Level Security on Argus tables and grants access to the database role used by your `DATABASE_URL`.
+> [!NOTE]
+> Supabase Row Level Security is managed in the Supabase project configuration. Argus does not require a repo-managed RLS script.
 
 ### 3. GitHub Actions — Automated Refresh Schedules
 

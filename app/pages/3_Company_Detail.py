@@ -15,11 +15,13 @@ from app.components.feed_cards import (
 from app.components.database import get_configured_app_engine
 from app.components.metrics import render_metric_card, render_plain_metric_card
 from app.components.sidebar import render_sidebar_navigation
+from app.components.tables import style_positive_red_negative_green
 from argus.analytics.market_hours import (
     MARKET_TZ,
     append_market_close_markers,
     filter_latest_market_sessions,
 )
+from argus.analytics.valuation import valuation_metric_label
 from argus.core.seed import WATCH_STATUSES
 from argus.services.company_service import (
     add_company_note,
@@ -31,6 +33,7 @@ from argus.services.company_service import (
     get_company_news,
     get_company_options,
     get_company_price_history,
+    get_company_relative_valuation,
     get_company_notes,
     get_watch_status,
     get_watchlist_notes,
@@ -39,6 +42,9 @@ from argus.services.company_service import (
 from argus.services.index_view_service import (
     load_index_options_from_engine,
     load_index_relative_returns_from_engine,
+)
+from argus.services.thesis_service import (
+    get_company_thesis,
 )
 
 get_relative_perf_df = build_relative_performance_frame
@@ -98,6 +104,11 @@ def load_company_news(company_id: int) -> list[dict]:
 @st.cache_data(ttl=300)
 def load_company_filings(company_id: int) -> list[dict]:
     return get_company_filings(company_id)
+
+
+@st.cache_data(ttl=300)
+def load_company_relative_valuation(company_id: int) -> pd.DataFrame:
+    return get_company_relative_valuation(company_id)
 
 
 def _interval_for_timeframe(tf: str) -> str:
@@ -205,6 +216,85 @@ def _latest_price_from_history(daily_prices: pd.DataFrame, intraday_prices: pd.D
         latest_daily_idx = daily_dates.idxmax()
         return daily_prices.loc[latest_daily_idx, "adj_close"]
     return None
+
+
+def _fmt_percentile(value) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{float(value):.0f}"
+
+
+def _relative_valuation_table_df(group_df: pd.DataFrame) -> pd.DataFrame:
+    group_df = group_df.copy()
+    group_df["Metric"] = group_df["metric_name"].apply(valuation_metric_label)
+    group_df["Company"] = group_df["company_value"].apply(_fmt_multiple)
+    group_df["Peer Median"] = group_df["peer_median"].apply(_fmt_multiple)
+    group_df["Premium / Discount"] = group_df["premium_discount_pct"].apply(_fmt_pct)
+    group_df["Percentile"] = group_df["percentile_rank"].apply(_fmt_percentile)
+    group_df["Flag"] = group_df["valuation_flag"]
+    group_df["Peers"] = group_df["peer_count"]
+    return group_df[
+        [
+            "Metric",
+            "Company",
+            "Peer Median",
+            "Premium / Discount",
+            "Percentile",
+            "Flag",
+            "Peers",
+        ]
+    ]
+
+
+def _valuation_tables_match(left: pd.DataFrame, right: pd.DataFrame) -> bool:
+    if left.empty or right.empty:
+        return False
+    return left.reset_index(drop=True).equals(right.reset_index(drop=True))
+
+
+def _render_relative_valuation_table(table_df: pd.DataFrame, title: str) -> None:
+    if table_df.empty:
+        st.info(f"No {title.lower()} valuation peer data available.")
+        return
+    st.markdown(f"**{title}**")
+    st.dataframe(
+        table_df.style.map(style_positive_red_negative_green, subset=["Premium / Discount"]),
+        hide_index=True,
+        width="stretch",
+    )
+
+
+def _render_thesis_section(company_id: int) -> None:
+    st.markdown("### Thesis")
+    thesis = get_company_thesis(company_id)
+    if not thesis.get("has_thesis"):
+        st.info(
+            "No generated thesis is available yet. Run `python scripts/generate_theses.py` "
+            "or the daily refresh workflow to generate one."
+        )
+        return
+    last_generated = thesis.get("last_reviewed_date")
+    if thesis.get("is_stale"):
+        st.warning("Generated thesis is stale. Run the thesis generator after refreshing data.")
+    st.caption(
+        "Generated automatically from current Argus data. "
+        "Daily refresh regenerates theses after market data, fundamentals, valuation, news, and filings update. "
+        f"_As of {_fmt_as_of_date(last_generated)}._"
+    )
+
+    col1, _ = st.columns([1, 3])
+    col1.markdown(
+        render_plain_metric_card("Conviction", f"{int(thesis.get('conviction_score') or 3)}/5"),
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+
+    st.markdown("**Bull thesis**")
+    st.markdown(thesis.get("bull_thesis") or "_No bull thesis generated yet._")
+    st.markdown("**Bear thesis**")
+    st.markdown(thesis.get("bear_thesis") or "_No bear thesis generated yet._")
+    st.markdown("**Key KPIs to monitor**")
+    st.markdown(thesis.get("key_kpis") or "_No KPI list generated yet._")
 
 
 def render_company_detail() -> None:
@@ -626,9 +716,11 @@ def render_company_detail() -> None:
                 st.markdown(f"**{note['created_by'] or 'User'}** ({dt_str}):")
                 st.info(note["note_text"])
 
-    # Bottom Layout: Fundamentals, news, filings
+    # Bottom Layout: Fundamentals, thesis, news, filings
     st.write("---")
-    bottom_tabs = st.tabs(["Fundamentals Snapshot", "Latest News", "Latest SEC Filings"])
+    bottom_tabs = st.tabs(
+        ["Fundamentals Snapshot", "Thesis", "Latest News", "Latest SEC Filings"]
+    )
 
     with bottom_tabs[0]:
         fundamentals = load_company_fundamentals(company["id"])
@@ -695,8 +787,38 @@ def render_company_detail() -> None:
                     f"- **As of Date:** {_fmt_as_of_date(fundamentals.get('as_of_date'))}",
                     unsafe_allow_html=True,
                 )
+            valuation_df = load_company_relative_valuation(company["id"])
+            st.markdown(
+                "<div style='margin-top: 1.5rem; padding-top: 1.25rem; "
+                "border-top: 1px solid rgba(250, 250, 250, 0.14);'></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("**Peer-relative valuation**")
+            st.caption(
+                "Compares the company against current peer medians; positive premium is worse for valuation multiples."
+            )
+            if valuation_df.empty:
+                st.info(
+                    "No peer valuation snapshot available. Run `python scripts/compute_valuation_peers.py` after refreshing fundamentals."
+                )
+            else:
+                sector_table = _relative_valuation_table_df(
+                    valuation_df[valuation_df["peer_group_type"] == "sector"]
+                )
+                theme_table = _relative_valuation_table_df(
+                    valuation_df[valuation_df["peer_group_type"] == "theme"]
+                )
+                _render_relative_valuation_table(sector_table, "Sector Peers")
+                if not theme_table.empty and not _valuation_tables_match(sector_table, theme_table):
+                    st.write("")
+                    _render_relative_valuation_table(theme_table, "Top Theme Peers")
+                elif not theme_table.empty:
+                    st.caption("Top theme peer valuation matches the sector peer view, so it is not repeated.")
 
     with bottom_tabs[1]:
+        _render_thesis_section(company["id"])
+
+    with bottom_tabs[2]:
         news_items = load_company_news(company["id"])
         if not news_items:
             st.info("No recent news articles found in database.")
@@ -723,7 +845,7 @@ def render_company_detail() -> None:
                     unsafe_allow_html=True,
                 )
 
-    with bottom_tabs[2]:
+    with bottom_tabs[3]:
         filings = load_company_filings(company["id"])
         if not filings:
             st.info("No SEC filings found in database.")

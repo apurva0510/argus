@@ -88,6 +88,16 @@ def test_readme_script_commands_exist():
         )
 
 
+def test_readme_refreshes_fundamentals_before_peer_valuation():
+    readme_path = Path(__file__).resolve().parents[1] / "README.md"
+    content = readme_path.read_text(encoding="utf-8")
+
+    refresh_idx = content.index("python scripts/refresh_fundamentals.py")
+    valuation_idx = content.index("python scripts/compute_valuation_peers.py")
+
+    assert refresh_idx < valuation_idx
+
+
 def test_script_bootstrap_imports_from_non_repo_cwd(tmp_path):
     project_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
