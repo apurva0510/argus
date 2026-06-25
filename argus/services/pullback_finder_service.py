@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -7,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from argus.analytics.scoring import compute_opportunity_score
+from argus.analytics.valuation import FUNDAMENTALS_MAX_AGE_DAYS
 from argus.core.settings import settings
 from argus.services.scoring_service import build_score_inputs, load_scoring_inputs_for_active_companies
 
@@ -77,6 +79,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     WHERE vps_ev2.company_id = c.id
                         AND vps_ev2.peer_group_type = 'sector'
                         AND vps_ev2.metric_name = 'ev_to_sales'
+                        AND vps_ev2.as_of_date >= :min_snapshot_date
                     ORDER BY vps_ev2.as_of_date DESC, vps_ev2.id DESC
                     LIMIT 1
                 )
@@ -86,6 +89,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     WHERE vps_fpe2.company_id = c.id
                         AND vps_fpe2.peer_group_type = 'sector'
                         AND vps_fpe2.metric_name = 'forward_pe'
+                        AND vps_fpe2.as_of_date >= :min_snapshot_date
                     ORDER BY vps_fpe2.as_of_date DESC, vps_fpe2.id DESC
                     LIMIT 1
                 )
@@ -93,6 +97,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     SELECT fs2.id
                     FROM fundamentals_snapshot fs2
                     WHERE fs2.company_id = c.id
+                        AND fs2.as_of_date >= :min_snapshot_date
                     ORDER BY fs2.as_of_date DESC, fs2.id DESC
                     LIMIT 1
                 )
@@ -103,6 +108,7 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
             conn,
             params={
                 "provider": settings.market_data_provider,
+                "min_snapshot_date": date.today() - timedelta(days=FUNDAMENTALS_MAX_AGE_DAYS),
             },
         )
 

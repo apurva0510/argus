@@ -573,7 +573,11 @@ class CatalystEvent(Base):
     details: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
-    __table_args__ = (UniqueConstraint("company_id", "event_type", "date", name="uq_catalyst_events"),)
+    source_key: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "event_type", "source_key", name="uq_catalyst_events"),
+    )
 
 
 class CatalystImpactSnapshot(Base):

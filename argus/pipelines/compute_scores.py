@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 
 from sqlalchemy import text
 
 from argus.analytics.scoring import compute_opportunity_score
+from argus.analytics.valuation import FUNDAMENTALS_MAX_AGE_DAYS
 from argus.core.db import session_scope
 from argus.core.models import DailyMetric
 from argus.pipelines.job_runs import job_run_context
@@ -48,6 +50,7 @@ def _load_score_inputs(session) -> list[dict]:
                 WHERE vps_ev2.company_id = c.id
                     AND vps_ev2.peer_group_type = 'sector'
                     AND vps_ev2.metric_name = 'ev_to_sales'
+                    AND vps_ev2.as_of_date >= :min_snapshot_date
                 ORDER BY vps_ev2.as_of_date DESC, vps_ev2.id DESC
                 LIMIT 1
             )
@@ -55,6 +58,7 @@ def _load_score_inputs(session) -> list[dict]:
                 SELECT fs2.id
                 FROM fundamentals_snapshot fs2
                 WHERE fs2.company_id = c.id
+                    AND fs2.as_of_date >= :min_snapshot_date
                 ORDER BY fs2.as_of_date DESC, fs2.id DESC
                 LIMIT 1
             )
@@ -66,7 +70,10 @@ def _load_score_inputs(session) -> list[dict]:
                 )
     """
 
-    rows = session.execute(text(query_str)).mappings()
+    rows = session.execute(
+        text(query_str),
+        {"min_snapshot_date": date.today() - timedelta(days=FUNDAMENTALS_MAX_AGE_DAYS)},
+    ).mappings()
     inputs = load_scoring_inputs_for_active_companies(session)
 
     results = []

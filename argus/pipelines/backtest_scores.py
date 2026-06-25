@@ -11,6 +11,9 @@ from argus.core.models import ScoreBacktestEvent, ScoreBacktestSummary
 
 logger = logging.getLogger(__name__)
 
+FUNDAMENTALS_MAX_AGE_DAYS = 120
+VALUATION_MAX_AGE_DAYS = 120
+
 
 def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
     """Run historical backtest for pullback finder scores from start_date to yesterday.
@@ -28,10 +31,18 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
         return {"events_created": 0}
 
     with session_scope() as session:
-        # 1. Load active companies
+        # 1. Load companies with historical metrics in range. This avoids dropping inactive
+        # names from old periods solely because today's universe changed.
         companies = safe_execute_query(
             session,
-            "SELECT id, symbol, sector FROM companies WHERE is_active = TRUE"
+            """
+            SELECT DISTINCT c.id, c.symbol, c.sector
+            FROM companies c
+            JOIN daily_metrics dm ON dm.company_id = c.id
+            WHERE dm.date >= :start_date AND dm.date <= :yesterday
+            """,
+            {"start_date": start_date, "yesterday": yesterday},
+            type_map={"date": "date"},
         )
         company_map = {c["id"]: c for c in companies}
         company_ids = list(company_map.keys())
@@ -51,7 +62,8 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
             WHERE date >= :start_date AND date <= :yesterday AND company_id IN ({','.join(map(str, company_ids))})
             ORDER BY date ASC
             """,
-            {"start_date": start_date, "yesterday": yesterday}
+            {"start_date": start_date, "yesterday": yesterday},
+            type_map={"date": "date"},
         )
 
         # Group metrics by date
@@ -65,7 +77,12 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
         # Theme exposures
         cte_rows = safe_execute_query(
             session,
-            "SELECT company_id, exposure_score, as_of_date FROM company_theme_exposure"
+            """
+            SELECT company_id, exposure_score, as_of_date
+            FROM company_theme_exposure
+            WHERE as_of_date IS NOT NULL
+            """,
+            type_map={"as_of_date": "date"},
         )
         cte_by_company = {}
         for row in cte_rows:
@@ -80,7 +97,8 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
             SELECT nm.company_id, ni.published_at
             FROM news_mentions nm
             JOIN news_items ni ON ni.id = nm.news_id
-            """
+            """,
+            type_map={"published_at": "datetime"},
         )
         news_by_company = {}
         for row in news_rows:
@@ -91,24 +109,13 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
         # SEC filings
         filing_rows = safe_execute_query(
             session,
-            "SELECT company_id, filing_date FROM sec_filings"
+            "SELECT company_id, filing_date FROM sec_filings",
+            type_map={"filing_date": "date"},
         )
-        filing_by_company = {}
+        filing_by_company: dict[int, set[date]] = {}
         for row in filing_rows:
-            filing_by_company.setdefault(row["company_id"], []).append(row["filing_date"])
-        for cid in filing_by_company:
-            filing_by_company[cid].sort()
-
-        # Earnings events
-        earnings_rows = safe_execute_query(
-            session,
-            "SELECT company_id, event_date FROM earnings_events"
-        )
-        earnings_by_company = {}
-        for row in earnings_rows:
-            earnings_by_company.setdefault(row["company_id"], []).append(row["event_date"])
-        for cid in earnings_by_company:
-            earnings_by_company[cid].sort()
+            if row["filing_date"]:
+                filing_by_company.setdefault(row["company_id"], set()).add(row["filing_date"])
 
         # Valuation snapshots (ev_to_sales)
         vps_rows = safe_execute_query(
@@ -117,7 +124,8 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
             SELECT company_id, valuation_flag, as_of_date
             FROM valuation_peer_snapshot
             WHERE peer_group_type = 'sector' AND metric_name = 'ev_to_sales'
-            """
+            """,
+            type_map={"as_of_date": "date"},
         )
         vps_by_company = {}
         for row in vps_rows:
@@ -128,20 +136,14 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
         # Fundamentals snapshots
         fs_rows = safe_execute_query(
             session,
-            "SELECT company_id, revenue_growth, as_of_date FROM fundamentals_snapshot"
+            "SELECT company_id, revenue_growth, as_of_date FROM fundamentals_snapshot",
+            type_map={"as_of_date": "date"},
         )
         fs_by_company = {}
         for row in fs_rows:
             fs_by_company.setdefault(row["company_id"], []).append(row)
         for cid in fs_by_company:
             fs_by_company[cid].sort(key=lambda x: x["as_of_date"] or date.min)
-
-        # Watchlist priority
-        watchlist_rows = safe_execute_query(
-            session,
-            "SELECT company_id, watch_status FROM watchlist_items"
-        )
-        watchlist_by_company = {row["company_id"]: row["watch_status"] for row in watchlist_rows}
 
         # 4. Load price bars sorted by date to calculate trading-day windows
         logger.info("Loading price bars...")
@@ -152,7 +154,8 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
             FROM price_bars
             WHERE interval = '1d'
             ORDER BY date ASC
-            """
+            """,
+            type_map={"date": "date"},
         )
 
         prices_by_company = {}
@@ -163,31 +166,40 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
         existing_event_dates = {}
         existing_rows = safe_execute_query(
             session,
-            "SELECT company_id, date FROM score_backtest_events"
+            "SELECT company_id, date FROM score_backtest_events",
+            type_map={"date": "date"},
         )
         for row in existing_rows:
             existing_event_dates.setdefault(row["company_id"], set()).add(row["date"])
 
         # Helper functions for fast lookups
-        def _get_latest_value(sorted_list, key_name, target_date):
+        def _get_latest_value(sorted_list, key_name, target_date, max_age_days: int | None = None):
             best_val = None
+            best_date = None
             for item in sorted_list:
                 if (item["as_of_date"] or date.min) <= target_date:
                     best_val = item[key_name]
+                    best_date = item["as_of_date"]
                 else:
                     break
+            if max_age_days is not None:
+                if best_date is None or (target_date - best_date).days > max_age_days:
+                    return None
             return best_val
 
-        # Track the last recorded event date for each company (to implement 5-day spacing rule)
-        # Load any existing ones from database first
-        last_event_date_by_company = {}
-        last_event_query = safe_execute_query(
-            session,
-            "SELECT company_id, MAX(date) AS max_date FROM score_backtest_events GROUP BY company_id"
-        )
-        for row in last_event_query:
-            if row["max_date"]:
-                last_event_date_by_company[row["company_id"]] = row["max_date"]
+        spaced_event_dates_by_company = {
+            cid: sorted(dates)
+            for cid, dates in existing_event_dates.items()
+        }
+
+        def _has_prior_event_within_spacing(cid: int, curr_idx: int, date_to_idx: dict) -> bool:
+            for evt_date in reversed(spaced_event_dates_by_company.get(cid, [])):
+                if evt_date not in date_to_idx:
+                    continue
+                evt_idx = date_to_idx[evt_date]
+                if evt_idx <= curr_idx:
+                    return (curr_idx - evt_idx) < 5
+            return False
 
         events_to_insert = []
         all_dates = sorted(list(metrics_by_date.keys()))
@@ -216,11 +228,8 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
                 curr_idx = date_to_idx[curr_date]
 
                 # Apply the 5 trading days spacing constraint
-                last_evt_date = last_event_date_by_company.get(cid)
-                if last_evt_date and last_evt_date in date_to_idx:
-                    last_idx = date_to_idx[last_evt_date]
-                    if (curr_idx - last_idx) < 5:
-                        continue
+                if _has_prior_event_within_spacing(cid, curr_idx, date_to_idx):
+                    continue
 
                 # 5. Reconstruct ScoreInputs
                 # Theme exposure
@@ -233,22 +242,24 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
                 news_count = sum(1 for dt in news_dates if start_dt <= dt <= end_dt)
 
                 # Recent filing count (past 30 days)
-                filing_dates = filing_by_company.get(cid, [])
+                filing_dates = filing_by_company.get(cid, set())
                 filing_count = sum(1 for d in filing_dates if curr_date - timedelta(days=30) <= d <= curr_date)
 
-                # Upcoming earnings days
-                earnings_dates = earnings_by_company.get(cid, [])
-                upcoming_earnings = None
-                for d in earnings_dates:
-                    if d >= curr_date:
-                        upcoming_earnings = (d - curr_date).days
-                        break
-
                 # Valuation flag
-                val_flag = _get_latest_value(vps_by_company.get(cid, []), "valuation_flag", curr_date)
+                val_flag = _get_latest_value(
+                    vps_by_company.get(cid, []),
+                    "valuation_flag",
+                    curr_date,
+                    max_age_days=VALUATION_MAX_AGE_DAYS,
+                )
 
                 # Revenue growth
-                rev_growth = _get_latest_value(fs_by_company.get(cid, []), "revenue_growth", curr_date)
+                rev_growth = _get_latest_value(
+                    fs_by_company.get(cid, []),
+                    "revenue_growth",
+                    curr_date,
+                    max_age_days=FUNDAMENTALS_MAX_AGE_DAYS,
+                )
 
                 # Build inputs dataclass
                 inputs = ScoreInputs(
@@ -257,10 +268,10 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
                     rsi_14=m["rsi_14"],
                     distance_from_200dma=m["distance_from_200dma"],
                     relative_return_vs_qqq_3m=m["relative_return_vs_qqq_3m"],
-                    watch_status=watchlist_by_company.get(cid),
+                    watch_status=None,
                     recent_news_count=news_count,
                     recent_filing_count=filing_count,
-                    upcoming_earnings_days=upcoming_earnings,
+                    upcoming_earnings_days=None,
                     return_1w=m["return_1w"],
                     macro_pressure_level=0, # Backtesting assumes neutral macro pressure for baseline
                     sector=comp["sector"],
@@ -326,7 +337,7 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
                         "relative_return_vs_qqq_3m": m["relative_return_vs_qqq_3m"],
                         "recent_news_count": news_count,
                         "recent_filing_count": filing_count,
-                        "upcoming_earnings_days": upcoming_earnings,
+                        "upcoming_earnings_days": None,
                         "valuation_flag": val_flag,
                         "revenue_growth": rev_growth,
                     },
@@ -340,7 +351,7 @@ def backtest_opportunity_scores(start_date: date) -> dict[str, int]:
                 events_to_insert.append(evt)
                 
                 # Update spacing check state
-                last_event_date_by_company[cid] = curr_date
+                spaced_event_dates_by_company.setdefault(cid, []).append(curr_date)
 
         if events_to_insert:
             logger.info("Saving %s new backtest events...", len(events_to_insert))

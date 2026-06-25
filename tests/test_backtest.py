@@ -1,6 +1,5 @@
 import pytest
 from datetime import date, timedelta
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from argus.core.models import Company, PriceBar, DailyMetric, ScoreBacktestEvent, ScoreBacktestSummary, Watchlist, WatchlistItem
@@ -102,3 +101,89 @@ def test_backtest_opportunity_scores_calculation_and_spacing(sqlite_engine, db_s
     for s in summaries:
         assert s.event_count == 1
         assert s.avg_return in [evt.ret_5d, evt.ret_20d, evt.ret_60d]
+
+
+def test_backtest_includes_inactive_companies_with_historical_metrics(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="OLD", name="Old Co", sector="Technology", is_active=False)
+    db_session.add(comp)
+    db_session.flush()
+
+    start_date = date(2026, 1, 1)
+    for i in range(70):
+        d = start_date + timedelta(days=i)
+        price = 100.0 + i
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=price,
+                adj_close=price,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    db_session.add(
+        DailyMetric(
+            company_id=comp.id,
+            date=date(2026, 1, 5),
+            drawdown_52w=-0.15,
+            rsi_14=35.0,
+            distance_from_200dma=0.05,
+            relative_return_vs_qqq_3m=0.02,
+            return_1w=-0.03,
+        )
+    )
+    db_session.commit()
+
+    result = backtest_opportunity_scores(start_date=date(2026, 1, 1))
+
+    assert result["events_created"] == 1
+    event = db_session.query(ScoreBacktestEvent).filter_by(company_id=comp.id).one()
+    assert event.date == date(2026, 1, 5)
+
+
+def test_backtest_earlier_backfill_uses_prior_spacing_not_global_latest(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="BT", name="Backtest Co", sector="Technology", is_active=True)
+    db_session.add(comp)
+    db_session.flush()
+
+    start_date = date(2026, 1, 1)
+    for i in range(90):
+        d = start_date + timedelta(days=i)
+        price = 100.0 + i
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=price,
+                adj_close=price,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    db_session.add(
+        ScoreBacktestEvent(
+            company_id=comp.id,
+            date=date(2026, 2, 1),
+            score=50.0,
+        )
+    )
+    db_session.add(
+        DailyMetric(
+            company_id=comp.id,
+            date=date(2026, 1, 5),
+            drawdown_52w=-0.15,
+            rsi_14=35.0,
+            distance_from_200dma=0.05,
+            relative_return_vs_qqq_3m=0.02,
+            return_1w=-0.03,
+        )
+    )
+    db_session.commit()
+
+    result = backtest_opportunity_scores(start_date=date(2026, 1, 1))
+
+    assert result["events_created"] == 1
+    assert db_session.query(ScoreBacktestEvent).filter_by(company_id=comp.id).count() == 2

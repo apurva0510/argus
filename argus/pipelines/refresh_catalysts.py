@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 import logging
 from argus.core.db import session_scope, safe_execute_query
 from argus.core.models import CatalystEvent, CatalystImpactSnapshot, Company
@@ -21,6 +21,32 @@ def _parse_date(val) -> date | None:
     return val
 
 
+def _parse_datetime(val) -> datetime | None:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val
+    if isinstance(val, str):
+        return datetime.fromisoformat(val)
+    return None
+
+
+def _source_key(*parts) -> str:
+    return ":".join(str(part) for part in parts if part is not None and str(part) != "")
+
+
+def _target_company_ids_for_cross_event(companies: list[Company], trigger: Company) -> list[int]:
+    targets: list[int] = []
+    for company in companies:
+        if company.id == trigger.id or company.is_benchmark:
+            continue
+        if trigger.symbol.upper() == "NVDA":
+            targets.append(company.id)
+        elif trigger.is_hyperscaler and (not trigger.sector or company.sector == trigger.sector):
+            targets.append(company.id)
+    return targets
+
+
 def refresh_catalyst_impact() -> dict[str, int]:
     """Ingest earnings events, SEC filings, and cross-stock catalysts, then compute impact snapshots.
 
@@ -28,7 +54,7 @@ def refresh_catalyst_impact() -> dict[str, int]:
     """
     with session_scope() as session:
         # 1. Load active companies
-        companies = session.query(Company).filter(Company.is_active == True).all()
+        companies = session.query(Company).filter(Company.is_active.is_(True)).all()
         company_map = {c.id: c for c in companies}
         company_ids = list(company_map.keys())
 
@@ -36,34 +62,33 @@ def refresh_catalyst_impact() -> dict[str, int]:
             logger.warning("No active companies found for catalyst ingestion.")
             return {"events_created": 0, "snapshots_updated": 0}
 
-        # Find hyperscalers and NVDA
-        hyperscaler_ids = [c.id for c in companies if c.is_hyperscaler]
-        nvda_company = next((c for c in companies if c.symbol.upper() == "NVDA"), None)
-
         events_created = 0
 
         # Load existing catalyst events into memory to avoid duplicates
         existing_events = {}
         for row in session.query(CatalystEvent).all():
-            existing_events.setdefault(row.company_id, {}).setdefault(row.event_type, set()).add(_parse_date(row.date))
+            key = row.source_key or _source_key(row.event_type, _parse_date(row.date))
+            existing_events.setdefault(row.company_id, {}).setdefault(row.event_type, set()).add(key)
 
-        def _add_event(cid, etype, edate, details=None):
+        def _add_event(cid, etype, edate, details=None, source_key=None):
             nonlocal events_created
             parsed_edate = _parse_date(edate)
             if not parsed_edate:
                 return
-            if cid in existing_events and etype in existing_events[cid] and parsed_edate in existing_events[cid][etype]:
+            event_key = source_key or _source_key(etype, parsed_edate)
+            if cid in existing_events and etype in existing_events[cid] and event_key in existing_events[cid][etype]:
                 return
             
             evt = CatalystEvent(
                 company_id=cid,
                 event_type=etype,
                 date=parsed_edate,
-                details=details
+                details=details,
+                source_key=event_key,
             )
             session.add(evt)
             events_created += 1
-            existing_events.setdefault(cid, {}).setdefault(etype, set()).add(parsed_edate)
+            existing_events.setdefault(cid, {}).setdefault(etype, set()).add(event_key)
 
         # A. Ingest Earnings Events
         logger.info("Ingesting earnings events...")
@@ -74,7 +99,8 @@ def refresh_catalyst_impact() -> dict[str, int]:
                    revenue_actual, revenue_estimate
             FROM earnings_events
             WHERE company_id IN ({','.join(map(str, company_ids))})
-            """
+            """,
+            type_map={"event_date": "date"},
         )
 
         for row in earnings_rows:
@@ -92,30 +118,39 @@ def refresh_catalyst_impact() -> dict[str, int]:
                 "revenue_estimate": row["revenue_estimate"]
             }
             # Add direct earnings event
-            _add_event(cid, "earnings", edate, details)
+            _add_event(cid, "earnings", edate, details, _source_key("earnings", row["id"]))
 
             # Add cross-stock events
             comp = company_map[cid]
             if comp.symbol.upper() == "NVDA":
-                # Create nvda_earnings for all OTHER companies
-                for other_cid in company_ids:
-                    if other_cid != cid:
-                        _add_event(other_cid, "nvda_earnings", edate, {"trigger_symbol": "NVDA"})
+                for other_cid in _target_company_ids_for_cross_event(companies, comp):
+                    _add_event(
+                        other_cid,
+                        "nvda_earnings",
+                        edate,
+                        {"trigger_symbol": "NVDA", "trigger_company_id": cid},
+                        _source_key("nvda_earnings", cid, row["id"]),
+                    )
             elif comp.is_hyperscaler:
-                # Create hyperscaler_earnings for all OTHER companies
-                for other_cid in company_ids:
-                    if other_cid != cid:
-                        _add_event(other_cid, "hyperscaler_earnings", edate, {"trigger_symbol": comp.symbol})
+                for other_cid in _target_company_ids_for_cross_event(companies, comp):
+                    _add_event(
+                        other_cid,
+                        "hyperscaler_earnings",
+                        edate,
+                        {"trigger_symbol": comp.symbol, "trigger_company_id": cid},
+                        _source_key("hyperscaler_earnings", cid, row["id"]),
+                    )
 
         # B. Ingest SEC Filings (10-K, 10-Q, 8-K)
         logger.info("Ingesting SEC filings...")
         filing_rows = safe_execute_query(
             session,
             f"""
-            SELECT id, company_id, form, filing_date, accession_no, filing_detail_url
+            SELECT id, company_id, form, filing_date, acceptance_datetime, accession_no, filing_detail_url
             FROM sec_filings
             WHERE form IN ('10-K', '10-Q', '8-K') AND company_id IN ({','.join(map(str, company_ids))})
-            """
+            """,
+            type_map={"filing_date": "date", "acceptance_datetime": "datetime"},
         )
 
         form_mapping = {
@@ -139,7 +174,12 @@ def refresh_catalyst_impact() -> dict[str, int]:
                 "accession_no": row["accession_no"],
                 "filing_detail_url": row["filing_detail_url"]
             }
-            _add_event(cid, etype, edate, details)
+            accepted_at = _parse_datetime(row.get("acceptance_datetime"))
+            if accepted_at:
+                details["acceptance_datetime"] = accepted_at.isoformat()
+                if accepted_at.time() >= time(16, 0):
+                    details["after_close"] = True
+            _add_event(cid, etype, edate, details, _source_key(etype, row["accession_no"]))
 
         session.commit()
         logger.info("Created %s new catalyst events.", events_created)
@@ -153,7 +193,8 @@ def refresh_catalyst_impact() -> dict[str, int]:
             FROM price_bars
             WHERE interval = '1d'
             ORDER BY date ASC
-            """
+            """,
+            type_map={"date": "date"},
         )
 
         prices_by_company = {}
@@ -176,10 +217,17 @@ def refresh_catalyst_impact() -> dict[str, int]:
             # Map date to index
             date_to_idx = {p[0]: idx for idx, p in enumerate(price_list)}
             parsed_evt_date = _parse_date(evt.date)
-            if parsed_evt_date not in date_to_idx:
+            anchor_date = parsed_evt_date
+            details = evt.details or {}
+            accepted_at = _parse_datetime(details.get("acceptance_datetime"))
+            if accepted_at and accepted_at.time() >= time(16, 0):
+                anchor_date = next((d for d, _ in price_list if d > parsed_evt_date), None)
+            elif parsed_evt_date not in date_to_idx:
+                anchor_date = next((d for d, _ in price_list if d >= parsed_evt_date), None)
+            if anchor_date not in date_to_idx:
                 continue
 
-            curr_idx = date_to_idx[evt.date]
+            curr_idx = date_to_idx[anchor_date]
 
             # M1 return (1 trading day before to event date)
             ret_m1 = None

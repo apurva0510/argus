@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import text
 
-from argus.analytics.valuation import build_peer_rows, compute_ev_sales_to_growth
+from argus.analytics.valuation import (
+    FUNDAMENTALS_MAX_AGE_DAYS,
+    build_peer_rows,
+    compute_ev_sales_to_growth,
+)
 from argus.core.db import get_insert_statement_producer, session_scope
 from argus.core.models import ValuationPeerSnapshot
 from argus.pipelines.job_runs import job_run_context
@@ -26,6 +30,7 @@ def _load_latest_fundamentals(session) -> list[dict]:
             FROM fundamentals_snapshot fs
             JOIN companies c ON c.id = fs.company_id
             WHERE c.is_active = TRUE
+                AND fs.as_of_date >= :min_as_of_date
                 AND fs.id = (
                     SELECT fs2.id
                     FROM fundamentals_snapshot fs2
@@ -34,7 +39,8 @@ def _load_latest_fundamentals(session) -> list[dict]:
                     LIMIT 1
                 )
             """
-        )
+        ),
+        {"min_as_of_date": date.today() - timedelta(days=FUNDAMENTALS_MAX_AGE_DAYS)},
     ).mappings()
     fundamentals: list[dict] = []
     for row in rows:

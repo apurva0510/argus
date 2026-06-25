@@ -129,7 +129,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
         schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
-        assert schema_version.value == "11"
+        assert schema_version.value == "12"
     test_engine.dispose()
 
 
@@ -168,6 +168,65 @@ def test_migration_adds_bar_time_to_existing_sqlite_price_bars(tmp_path) -> None
     with test_engine.connect() as conn:
         bar_time = conn.execute(text("SELECT bar_time FROM price_bars WHERE id = 1")).scalar_one()
         assert str(bar_time).startswith("2026-01-02")
+    test_engine.dispose()
+
+
+def test_migration_rebuilds_sqlite_catalyst_event_identity(tmp_path) -> None:
+    from sqlalchemy import text
+    from argus.core.migrations import run_migrations
+
+    db_path = tmp_path / "old_schema_catalysts.db"
+    test_engine = create_database_engine(f"sqlite:///{db_path}")
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE companies (id INTEGER PRIMARY KEY, symbol VARCHAR(16) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT 1, is_benchmark BOOLEAN NOT NULL DEFAULT 0, is_hyperscaler BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE catalyst_events (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, event_type VARCHAR(64) NOT NULL, date DATE NOT NULL, details JSON, created_at DATETIME NOT NULL, CONSTRAINT uq_catalyst_events UNIQUE (company_id, event_type, date), FOREIGN KEY(company_id) REFERENCES companies (id) ON DELETE CASCADE)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE catalyst_impact_snapshots (id INTEGER PRIMARY KEY, catalyst_event_id INTEGER NOT NULL, return_m1_to_event FLOAT, return_event_to_p1 FLOAT, return_p1_to_p5 FLOAT, return_p1_to_p20 FLOAT, max_drawdown_p20 FLOAT, created_at DATETIME NOT NULL, FOREIGN KEY(catalyst_event_id) REFERENCES catalyst_events (id) ON DELETE CASCADE)"
+            )
+        )
+        conn.execute(text("CREATE INDEX ix_catalyst_events_company_id ON catalyst_events (company_id)"))
+        conn.execute(text("CREATE INDEX ix_catalyst_events_date ON catalyst_events (date)"))
+        conn.execute(
+            text(
+                "CREATE INDEX ix_catalyst_impact_snapshots_catalyst_event_id ON catalyst_impact_snapshots (catalyst_event_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO companies (id, symbol, name, is_active, is_benchmark, is_hyperscaler, created_at, updated_at) VALUES (1, 'AAPL', 'Apple', 1, 0, 0, '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO catalyst_events (id, company_id, event_type, date, details, created_at) VALUES (1, 1, 'sec_8k', '2026-01-08', '{}', '2026-01-08')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO catalyst_impact_snapshots (id, catalyst_event_id, return_m1_to_event, created_at) VALUES (1, 1, 0.1, '2026-01-08')"
+            )
+        )
+
+    run_migrations(test_engine)
+
+    with test_engine.begin() as conn:
+        columns = {column["name"] for column in inspect(test_engine).get_columns("catalyst_events")}
+        assert "source_key" in columns
+        assert conn.execute(text("SELECT COUNT(*) FROM catalyst_impact_snapshots")).scalar_one() == 1
+        conn.execute(
+            text(
+                "INSERT INTO catalyst_events (company_id, event_type, date, details, created_at, source_key) VALUES (1, 'sec_8k', '2026-01-08', '{}', '2026-01-08', 'sec_8k:second')"
+            )
+        )
     test_engine.dispose()
 
 

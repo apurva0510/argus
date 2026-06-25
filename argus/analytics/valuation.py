@@ -22,6 +22,7 @@ VALUATION_METRIC_SPECS = (
 VALUATION_METRICS = tuple(spec.name for spec in VALUATION_METRIC_SPECS)
 
 MIN_PEER_COUNT = 3
+FUNDAMENTALS_MAX_AGE_DAYS = 120
 
 
 @dataclass(frozen=True)

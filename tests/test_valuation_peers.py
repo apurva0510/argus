@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -58,6 +58,7 @@ def test_build_peer_rows_flags_relative_valuation() -> None:
 
 
 def test_compute_valuation_peers_is_idempotent(sqlite_engine, db_session: Session) -> None:
+    today = date.today()
     theme = Theme(code="power", name="Power")
     companies = [
         Company(symbol="AAA", name="AAA", sector="Power"),
@@ -79,7 +80,7 @@ def test_compute_valuation_peers_is_idempotent(sqlite_engine, db_session: Sessio
         db_session.add(
             FundamentalsSnapshot(
                 company_id=company.id,
-                as_of_date=date(2026, 1, 1),
+                as_of_date=today,
                 ev_to_sales=float(idx * 2),
                 forward_pe=float(idx * 10),
                 provider="yfinance",
@@ -104,3 +105,41 @@ def test_compute_valuation_peers_is_idempotent(sqlite_engine, db_session: Sessio
         assert len(ev_rows) == 4
         assert {row.valuation_flag for row in ev_rows} == {"cheap", "neutral", "stretched"}
         assert {row.peer_count for row in ev_rows} == {3}
+
+
+def test_compute_valuation_peers_ignores_stale_fundamentals(sqlite_engine, db_session: Session) -> None:
+    theme = Theme(code="power", name="Power")
+    companies = [
+        Company(symbol="AAA", name="AAA", sector="Power"),
+        Company(symbol="BBB", name="BBB", sector="Power"),
+        Company(symbol="CCC", name="CCC", sector="Power"),
+        Company(symbol="DDD", name="DDD", sector="Power"),
+    ]
+    db_session.add(theme)
+    db_session.add_all(companies)
+    db_session.flush()
+    stale_date = date.today() - timedelta(days=180)
+    for idx, company in enumerate(companies, start=1):
+        db_session.add(
+            CompanyThemeExposure(
+                company_id=company.id,
+                theme_id=theme.id,
+                exposure_score=float(idx),
+            )
+        )
+        db_session.add(
+            FundamentalsSnapshot(
+                company_id=company.id,
+                as_of_date=stale_date,
+                ev_to_sales=float(idx * 2),
+                forward_pe=float(idx * 10),
+                provider="yfinance",
+            )
+        )
+    db_session.commit()
+
+    result = compute_valuation_peers()
+
+    assert result["status"] == "success"
+    assert result["rows_read"] == 0
+    assert db_session.query(ValuationPeerSnapshot).count() == 0

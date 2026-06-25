@@ -1,6 +1,5 @@
 import pytest
 from datetime import date, datetime, timedelta
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from argus.core.models import Company, PriceBar, EarningsEvent, SecFiling, CatalystEvent, CatalystImpactSnapshot
@@ -99,26 +98,30 @@ def test_refresh_catalysts_ingestion_and_impact(sqlite_engine, db_session: Sessi
     assert nvda_earnings_events[0].date == date(2026, 1, 5)
     assert nvda_earnings_events[0].details["eps_actual"] == 1.2
 
-    # B. Cross-stock NVDA Earnings created for AAPL and MSFT
+    # B. Cross-stock NVDA Earnings created for non-benchmark AAPL, not benchmark MSFT
     cross_nvda_aapl = db_session.query(CatalystEvent).filter(
         CatalystEvent.company_id == aapl.id,
         CatalystEvent.event_type == "nvda_earnings"
     ).one()
     assert cross_nvda_aapl.date == date(2026, 1, 5)
 
-    cross_nvda_msft = db_session.query(CatalystEvent).filter(
+    assert db_session.query(CatalystEvent).filter(
         CatalystEvent.company_id == msft.id,
         CatalystEvent.event_type == "nvda_earnings"
-    ).one()
-    assert cross_nvda_msft.date == date(2026, 1, 5)
+    ).count() == 0
 
-    # C. Cross-stock MSFT (hyperscaler) Earnings created for AAPL and NVDA
+    # C. Cross-stock MSFT (hyperscaler) Earnings created for non-benchmark AAPL only
     cross_msft_aapl = db_session.query(CatalystEvent).filter(
         CatalystEvent.company_id == aapl.id,
         CatalystEvent.event_type == "hyperscaler_earnings"
     ).one()
     assert cross_msft_aapl.date == date(2026, 1, 6)
     assert cross_msft_aapl.details["trigger_symbol"] == "MSFT"
+
+    assert db_session.query(CatalystEvent).filter(
+        CatalystEvent.company_id == nvda.id,
+        CatalystEvent.event_type == "hyperscaler_earnings"
+    ).count() == 0
 
     # D. SEC 10-Q for AAPL
     aapl_filing_events = db_session.query(CatalystEvent).filter(
@@ -143,3 +146,93 @@ def test_refresh_catalysts_ingestion_and_impact(sqlite_engine, db_session: Sessi
     ).one()
     assert snap.return_m1_to_event == pytest.approx(-0.10)
     assert snap.return_event_to_p1 == pytest.approx(5.0 / 90.0)
+
+
+def test_refresh_catalysts_preserves_same_day_filings(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="AAPL", name="Apple Inc.", is_active=True)
+    db_session.add(comp)
+    db_session.flush()
+
+    start_date = date(2026, 1, 1)
+    for i in range(30):
+        d = start_date + timedelta(days=i)
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=100.0,
+                adj_close=100.0,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    for accession in ["0000320193-26-000001", "0000320193-26-000002"]:
+        db_session.add(
+            SecFiling(
+                company_id=comp.id,
+                accession_no=accession,
+                form="8-K",
+                filing_date=date(2026, 1, 8),
+                acceptance_datetime=datetime(2026, 1, 8, 12, 0, 0),
+                primary_doc_url=f"http://sec.gov/{accession}",
+                filing_detail_url=f"http://sec.gov/detail/{accession}",
+            )
+        )
+    db_session.commit()
+
+    refresh_catalyst_impact()
+
+    events = db_session.query(CatalystEvent).filter_by(company_id=comp.id, event_type="sec_8k").all()
+    assert len(events) == 2
+    assert {event.details["accession_no"] for event in events} == {
+        "0000320193-26-000001",
+        "0000320193-26-000002",
+    }
+
+
+def test_refresh_catalysts_aligns_non_trading_event_to_next_price_bar(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="AAPL", name="Apple Inc.", is_active=True)
+    db_session.add(comp)
+    db_session.flush()
+
+    prices = [
+        (date(2026, 1, 2), 100.0),
+        (date(2026, 1, 5), 90.0),
+        (date(2026, 1, 6), 99.0),
+        (date(2026, 1, 7), 100.0),
+        (date(2026, 1, 8), 101.0),
+        (date(2026, 1, 9), 102.0),
+        (date(2026, 1, 12), 103.0),
+    ]
+    for d, price in prices:
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=price,
+                adj_close=price,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    db_session.add(
+        SecFiling(
+            company_id=comp.id,
+            accession_no="0000320193-26-000003",
+            form="8-K",
+            filing_date=date(2026, 1, 3),
+            acceptance_datetime=datetime(2026, 1, 3, 12, 0, 0),
+            primary_doc_url="http://sec.gov/doc",
+            filing_detail_url="http://sec.gov/detail",
+        )
+    )
+    db_session.commit()
+
+    refresh_catalyst_impact()
+
+    event = db_session.query(CatalystEvent).filter_by(company_id=comp.id, event_type="sec_8k").one()
+    snap = db_session.query(CatalystImpactSnapshot).filter_by(catalyst_event_id=event.id).one()
+    assert snap.return_m1_to_event == pytest.approx((90.0 - 100.0) / 100.0)
+    assert snap.return_event_to_p1 == pytest.approx((99.0 - 90.0) / 90.0)

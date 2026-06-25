@@ -286,6 +286,11 @@ def score_valuation_adjustment(
 
     flag = valuation_flag.strip().lower()
     if flag == "cheap":
+        growth = None if _is_missing(revenue_growth) else float(revenue_growth)
+        if growth is None:
+            return 0.0, ["Valuation: cheap but growth unavailable (0.0)"]
+        if growth <= 0.0:
+            return 0.0, [f"Valuation: cheap with flat/negative growth {growth * 100:.1f}% (0.0)"]
         return 5.0, ["Valuation: cheap (+5.0)"]
     elif flag == "stretched":
         growth = 0.0 if _is_missing(revenue_growth) else float(revenue_growth)
@@ -347,6 +352,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         + macro_penalty
         + valuation_adjustment
     )
+    opportunity_score = max(0.0, min(100.0, opportunity_score))
 
     return ScoreBreakdown(
         theme_exposure=theme_score,
