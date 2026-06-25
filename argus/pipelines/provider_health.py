@@ -109,6 +109,37 @@ def record_provider_attempt(
         health.last_error = error_message or "General failure"
 
 
+def _log_provider_attempt_isolated(
+    session: Session,
+    provider_key: str,
+    outcome: str,
+    now: datetime,
+    error_msg: str | None = None,
+) -> None:
+    """Log provider success/failure inside an isolated transaction using a separate session."""
+    bind = session.bind
+    is_sqlite = bind is not None and bind.dialect.name == "sqlite"
+
+    if bind is not None and not is_sqlite:
+        with Session(bind) as audit_session:
+            try:
+                record_provider_attempt(
+                    audit_session, provider_key, outcome, now, error_message=error_msg
+                )
+                audit_session.commit()
+            except Exception as commit_exc:
+                logger.warning("Failed to commit provider health update: %s", commit_exc)
+    else:
+        # Fallback to current session for SQLite to avoid locked database errors.
+        # We must commit on failure/rate_limit so the logs are not rolled back when the exception propagates.
+        try:
+            record_provider_attempt(session, provider_key, outcome, now, error_message=error_msg)
+            if outcome in ("failure", "rate_limit"):
+                session.commit()
+        except Exception as exc:
+            logger.warning("Failed to record provider health: %s", exc)
+
+
 def execute_provider_request(
     session: Session,
     provider: str,
@@ -120,11 +151,9 @@ def execute_provider_request(
     provider_key = provider.strip().lower()
     now = datetime.now(UTC).replace(tzinfo=None)
 
-    outcome = "success"
-    error_msg = None
     try:
         result = func(*args, **kwargs)
-        record_provider_attempt(session, provider_key, "success", now)
+        _log_provider_attempt_isolated(session, provider_key, "success", now)
         return result
     except Exception as exc:
         from argus.sources.news_rss_client import NewsProviderRateLimitError
@@ -148,9 +177,5 @@ def execute_provider_request(
             outcome = "failure"
             error_msg = f"{type(exc).__name__}: {str(exc)}"
 
-        record_provider_attempt(session, provider_key, outcome, now, error_message=error_msg)
-        try:
-            session.commit()
-        except Exception as commit_exc:
-            logger.warning("Failed to commit provider health update: %s", commit_exc)
+        _log_provider_attempt_isolated(session, provider_key, outcome, now, error_msg)
         raise

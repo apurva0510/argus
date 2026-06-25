@@ -20,20 +20,23 @@ SAMPLE_COMPANY_FACTS = {
                             "end": "2025-03-31",
                             "val": 8500000000,
                             "accn": "0001234567-25-000001",
+                            "fy": 2025,
                         },
                         {
                             "form": "10-Q",
                             "fp": "Q2",
                             "end": "2025-06-30",
-                            "val": 9200000000,
+                            "val": 17700000000,
                             "accn": "0001234567-25-000002",
+                            "fy": 2025,
                         },
                         {
                             "form": "10-Q",
                             "fp": "Q3",
                             "end": "2025-09-30",
-                            "val": -10000000000,
+                            "val": -27700000000,
                             "accn": "0001234567-25-000003",
+                            "fy": 2025,
                         },
                         {
                             "form": "10-K",
@@ -41,6 +44,7 @@ SAMPLE_COMPANY_FACTS = {
                             "end": "2025-12-31",
                             "val": 38000000000,
                             "accn": "0001234567-26-000001",
+                            "fy": 2025,
                         },
                     ]
                 }
@@ -61,6 +65,7 @@ FALLBACK_FACTS = {
                             "end": "2025-03-31",
                             "val": 5000000000,
                             "accn": "0009876543-25-000001",
+                            "fy": 2025,
                         },
                     ]
                 }
@@ -76,11 +81,11 @@ def test_parse_capex_facts_extracts_quarterly_and_annual() -> None:
     assert results[0]["fiscal_period_end"] == date(2025, 3, 31)
     assert results[0]["capex_amount"] == 8500000000.0
     assert results[0]["form"] == "10-Q"
-    # Negative values should be converted to positive (absolute)
+    # Negative values should be converted to positive (absolute) and subtracted
     assert results[2]["capex_amount"] == 10000000000.0
-    # Annual value
+    # Annual value should subtract prior cumulative value (38.0B - 27.7B = 10.3B)
     assert results[3]["form"] == "10-K"
-    assert results[3]["capex_amount"] == 38000000000.0
+    assert results[3]["capex_amount"] == 10300000000.0
 
 
 def test_parse_capex_facts_uses_fallback_concept() -> None:
@@ -108,6 +113,7 @@ def test_parse_capex_facts_deduplicates_by_period() -> None:
                                 "end": "2025-03-31",
                                 "val": 100,
                                 "accn": "a",
+                                "fy": 2025,
                             },
                             {
                                 "form": "10-Q",
@@ -115,6 +121,7 @@ def test_parse_capex_facts_deduplicates_by_period() -> None:
                                 "end": "2025-03-31",
                                 "val": 200,
                                 "accn": "b",
+                                "fy": 2025,
                             },
                         ]
                     }

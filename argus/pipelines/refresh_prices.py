@@ -131,7 +131,8 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
     with job_run_context("refresh_prices") as state:
         with session_scope() as session:
             companies = session.scalars(select(Company).where(Company.is_active.is_(True))).all()
-            if interval == "15m":
+            use_batch = getattr(provider, "supports_intraday_batch", False)
+            if use_batch:
                 symbols = [company.symbol for company in companies]
                 try:
                     frames_by_symbol = execute_provider_request(
@@ -144,7 +145,7 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                     )
                 except Exception as exc:
                     failed_symbols = symbols
-                    raise RuntimeError(f"batched yfinance refresh failed: {exc}") from exc
+                    raise RuntimeError(f"batched price refresh failed: {exc}") from exc
 
                 companies_by_symbol = {company.symbol: company for company in companies}
                 for symbol in symbols:
@@ -163,50 +164,35 @@ def refresh_prices(period: str | None = None, *, interval: str = "1d") -> dict[s
                         provider.name,
                         interval=interval,
                     )
+            else:
+                for company in companies:
+                    try:
+                        frame = execute_provider_request(
+                            session,
+                            provider.name,
+                            fetch_daily_ohlcv,
+                            company.symbol,
+                            period=period,
+                        )
+                    except Exception:
+                        logger.exception("Failed to fetch prices for %s", company.symbol)
+                        failed_symbols.append(company.symbol)
+                        continue
 
-                if failed_symbols:
-                    state.status = "partial_success"
-                    logger.warning("Price refresh failed for symbols: %s", ",".join(failed_symbols))
-                state.error_text = _job_error_text(
-                    failed_symbols=failed_symbols,
-                    error_text=state.error_text,
-                )
-                return {
-                    "status": state.status,
-                    "rows_read": state.rows_read,
-                    "rows_written": state.rows_written,
-                    "failed_symbols": failed_symbols,
-                    "error_text": state.error_text if state.status == "failed" else None,
-                }
+                    if frame.empty:
+                        logger.warning("No price data returned for %s", company.symbol)
+                        failed_symbols.append(company.symbol)
+                        continue
 
-            for company in companies:
-                try:
-                    frame = execute_provider_request(
+                    records = frame.to_dict(orient="records")
+                    state.rows_read += len(records)
+                    state.rows_written += _upsert_price_bar_rows(
                         session,
+                        company.id,
+                        records,
                         provider.name,
-                        fetch_daily_ohlcv,
-                        company.symbol,
-                        period=period,
+                        interval=interval,
                     )
-                except Exception:
-                    logger.exception("Failed to fetch prices for %s", company.symbol)
-                    failed_symbols.append(company.symbol)
-                    continue
-
-                if frame.empty:
-                    logger.warning("No price data returned for %s", company.symbol)
-                    failed_symbols.append(company.symbol)
-                    continue
-
-                records = frame.to_dict(orient="records")
-                state.rows_read += len(records)
-                state.rows_written += _upsert_price_bar_rows(
-                    session,
-                    company.id,
-                    records,
-                    provider.name,
-                    interval="1d",
-                )
 
             if failed_symbols:
                 state.status = "partial_success"

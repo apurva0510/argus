@@ -353,7 +353,7 @@ def parse_capex_facts(facts: dict) -> list[dict]:
         if not usd_entries:
             continue
 
-        results = []
+        candidates = []
         seen = set()
         for entry in usd_entries:
             form = entry.get("form", "")
@@ -366,6 +366,7 @@ def parse_capex_facts(facts: dict) -> list[dict]:
             end_str = entry.get("end")
             val = entry.get("val")
             accession = entry.get("accn", "")
+            fy_val = entry.get("fy")
 
             if not end_str or val is None:
                 continue
@@ -390,18 +391,53 @@ def parse_capex_facts(facts: dict) -> list[dict]:
             except (ValueError, TypeError):
                 continue
 
-            results.append(
+            if fy_val is None:
+                try:
+                    fy = int(end_str.split("-")[0])
+                except (ValueError, TypeError):
+                    continue
+            else:
+                try:
+                    fy = int(fy_val)
+                except (ValueError, TypeError):
+                    continue
+
+            candidates.append(
                 {
                     "fiscal_period_end": fiscal_period_end,
-                    "capex_amount": abs(
-                        float(val)
-                    ),  # Capex is often reported as negative in cash flow
+                    "cumulative_amount": abs(float(val)),
                     "form": form,
                     "accession_no": accession,
+                    "fy": fy,
                 }
             )
 
-        if results:
+        if candidates:
+            # Group by fiscal year to calculate quarterly amounts
+            from collections import defaultdict
+            by_fy = defaultdict(list)
+            for c in candidates:
+                by_fy[c["fy"]].append(c)
+
+            results = []
+            for fy, group in by_fy.items():
+                # Sort group by period end date
+                group.sort(key=lambda x: x["fiscal_period_end"])
+                for i, entry in enumerate(group):
+                    if i == 0:
+                        quarterly_amount = entry["cumulative_amount"]
+                    else:
+                        quarterly_amount = entry["cumulative_amount"] - group[i - 1]["cumulative_amount"]
+                        quarterly_amount = max(0.0, quarterly_amount)
+
+                    results.append(
+                        {
+                            "fiscal_period_end": entry["fiscal_period_end"],
+                            "capex_amount": quarterly_amount,
+                            "form": entry["form"],
+                            "accession_no": entry["accession_no"],
+                        }
+                    )
             return sorted(results, key=lambda r: r["fiscal_period_end"])
 
     return []
