@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from html import escape
+import re
+
 import pandas as pd
 import streamlit as st
 from argus.core.db import safe_execute_query
@@ -41,7 +44,7 @@ def load_backtest_summaries() -> pd.DataFrame:
         df = pd.DataFrame(data)
         if df.empty:
             return df
-            
+
         def bucket_key(b):
             if b == "Below 0":
                 return -100
@@ -59,7 +62,9 @@ def load_backtest_summaries() -> pd.DataFrame:
 
         df["bucket_sort"] = df["score_bucket"].apply(bucket_key)
         df["horizon_sort"] = df["horizon"].apply(horizon_key)
-        df = df.sort_values(by=["bucket_sort", "horizon_sort"]).drop(columns=["bucket_sort", "horizon_sort"])
+        df = df.sort_values(by=["bucket_sort", "horizon_sort"]).drop(
+            columns=["bucket_sort", "horizon_sort"]
+        )
         return df
 
 
@@ -98,8 +103,123 @@ def _fmt_score(value: float | None) -> str:
     return f"{value:.1f}"
 
 
-def render_explanation_card(ticker: str, company: str, explanation: str, score: float) -> str:
-    """Renders a custom HTML/CSS card for displaying pullback explanation and reason."""
+def _fmt_date(value) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return str(value)
+    return parsed.date().isoformat()
+
+
+def _fmt_price(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"${float(value):,.2f}"
+
+
+def _fmt_metric_pct(value: float | None, *, signed: bool = True) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    sign = "+" if signed else ""
+    return f"{float(value) * 100:{sign}.1f}%"
+
+
+def _metric_color(value: float | None, *, inverse: bool = False) -> str:
+    if value is None or pd.isna(value):
+        return "#8b949e"
+    numeric = float(value)
+    if numeric == 0:
+        return "#8b949e"
+    is_positive = numeric > 0
+    if inverse:
+        is_positive = not is_positive
+    return "#3fb950" if is_positive else "#f85149"
+
+
+def _score_color(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "#8b949e"
+    score = float(value)
+    if score >= 70:
+        return "#3fb950"
+    if score >= 40:
+        return "#f0b429"
+    return "#f85149"
+
+
+def _metric_badge(label: str, value: str, color: str = "#c9d1d9") -> str:
+    return f"""
+        <div style="background: rgba(13, 17, 23, 0.72); border: 1px solid rgba(139, 148, 158, 0.22); border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">{escape(label)}</div>
+            <div style="font-size: 15px; color: {color}; font-weight: 700;">{escape(value)}</div>
+        </div>
+    """
+
+
+def _score_chip(label: str, value: float | None) -> str:
+    text = _fmt_score(value)
+    color = _metric_color(value)
+    return f"""
+        <span style="display: inline-flex; gap: 6px; align-items: baseline; border: 1px solid rgba(139, 148, 158, 0.22); border-radius: 999px; padding: 4px 9px; background: rgba(13, 17, 23, 0.62);">
+            <span style="color: #8b949e;">{escape(label)}</span>
+            <span style="color: {color}; font-weight: 700;">{escape(text)}</span>
+        </span>
+    """
+
+
+def render_candidate_detail_card(ticker: str, company: str, row: pd.Series) -> str:
+    """Render a compact selected-candidate detail card."""
+    score = row.get("score")
+    explanation = str(row.get("explanation") or "No explanation available.")
+    valuation = str(row.get("valuation_flag") or "n/a")
+    if valuation == "nan":
+        valuation = "n/a"
+    fwd_pe_pctile = row.get("forward_pe_percentile_rank")
+    fwd_pe_text = "n/a" if pd.isna(fwd_pe_pctile) else f"{float(fwd_pe_pctile):.0f}"
+
+    metrics = [
+        _metric_badge("Latest Price", _fmt_price(row.get("price"))),
+        _metric_badge("Price Date", _fmt_date(row.get("price_date"))),
+        _metric_badge(
+            "52W Drawdown",
+            _fmt_metric_pct(row.get("drawdown_52w")),
+            _metric_color(row.get("drawdown_52w")),
+        ),
+        _metric_badge(
+            "RSI 14", "n/a" if pd.isna(row.get("rsi_14")) else f"{float(row.get('rsi_14')):.1f}"
+        ),
+        _metric_badge(
+            "200DMA Distance",
+            _fmt_metric_pct(row.get("distance_from_200dma")),
+            _metric_color(row.get("distance_from_200dma")),
+        ),
+        _metric_badge(
+            "3M vs QQQ",
+            _fmt_metric_pct(row.get("relative_return_vs_qqq_3m")),
+            _metric_color(row.get("relative_return_vs_qqq_3m")),
+        ),
+        _metric_badge("Valuation", valuation.title()),
+        _metric_badge(
+            "EV/Sales vs Sector",
+            _fmt_metric_pct(row.get("ev_sales_premium_discount_pct")),
+            _metric_color(row.get("ev_sales_premium_discount_pct"), inverse=True),
+        ),
+        _metric_badge("Fwd P/E Pctile", fwd_pe_text),
+    ]
+
+    chips = [
+        _score_chip("Theme", row.get("score_theme_exposure")),
+        _score_chip("Pullback", row.get("score_pullback")),
+        _score_chip("Technical", row.get("score_technical_setup")),
+        _score_chip("Rel Str", row.get("score_relative_strength")),
+        _score_chip("Catalyst", row.get("score_catalyst")),
+        _score_chip("Watchlist", row.get("score_watchlist_priority")),
+        _score_chip("Risk", row.get("score_risk_penalty")),
+        _score_chip("Macro", row.get("score_macro_penalty")),
+        _score_chip("Valuation", row.get("score_valuation_adjustment")),
+    ]
+
     return f"""
     <div style="
         background: rgba(22, 27, 34, 0.7);
@@ -115,13 +235,19 @@ def render_explanation_card(ticker: str, company: str, explanation: str, score: 
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(240, 246, 252, 0.1); padding-bottom: 8px;">
             <div style="font-size: 18px; font-weight: 600; color: #58a6ff;">
-                Candidate Detail: <span style="color: #f0f6fc;">{ticker}</span> <span style="font-size: 14px; font-weight: normal; color: #8b949e;">({company})</span>
+                Candidate Detail: <span style="color: #f0f6fc;">{escape(ticker)}</span> <span style="font-size: 14px; font-weight: normal; color: #8b949e;">({escape(company)})</span>
             </div>
-            <div style="background: rgba(56, 139, 253, 0.15); color: #58a6ff; font-weight: 600; font-size: 14px; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(56, 139, 253, 0.3);">
-                Score: {score:.1f}
+            <div style="background: rgba(56, 139, 253, 0.15); color: {_score_color(score)}; font-weight: 700; font-size: 14px; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(56, 139, 253, 0.3);">
+                Score: {_fmt_score(score)}
             </div>
         </div>
-        <div style="color: #c9d1d9; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">{explanation}</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin: 14px 0 12px;">
+            {"".join(metrics)}
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 7px; margin: 6px 0 14px; font-size: 13px;">
+            {"".join(chips)}
+        </div>
+        <div style="color: #c9d1d9; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">{escape(explanation)}</div>
     </div>
     """
 
@@ -158,7 +284,9 @@ def render_pullback_finder() -> None:
 
         candidates = load_pullback_data()
         if candidates.empty:
-            st.warning("No candidate data found. Run price ingestion and metrics computation first.")
+            st.warning(
+                "No candidate data found. Run price ingestion and metrics computation first."
+            )
             return
 
         # Check for stale data warning
@@ -252,7 +380,9 @@ def render_pullback_finder() -> None:
 
         filter7, filter8 = st.columns(2)
         with filter7:
-            exclude_benchmarks = st.checkbox("Exclude Benchmarks (NVDA, QQQ, MSFT, etc.)", value=True)
+            exclude_benchmarks = st.checkbox(
+                "Exclude Benchmarks (NVDA, QQQ, MSFT, etc.)", value=True
+            )
         with filter8:
             exclude_hyperscalers = st.checkbox(
                 "Exclude Hyperscalers (AMZN, GOOGL, META, MSFT)", value=False
@@ -289,7 +419,9 @@ def render_pullback_finder() -> None:
                 lambda value: "n/a" if pd.isna(value) else f"{value:.1f}/5"
             )
             display_df["valuation"] = (
-                display_df["valuation_flag"].fillna("n/a") if "valuation_flag" in display_df else "n/a"
+                display_df["valuation_flag"].fillna("n/a")
+                if "valuation_flag" in display_df
+                else "n/a"
             )
             display_df["EV/Sales vs sector"] = (
                 display_df["ev_sales_premium_discount_pct"].apply(_fmt_pct)
@@ -354,27 +486,26 @@ def render_pullback_finder() -> None:
                 selected_row = display_df.iloc[selected_row_idx]
 
                 # Extract symbol from link
-                import re
-
                 ticker_symbol = selected_row["ticker"]
                 match = re.search(r"ticker=([^&]+)", ticker_symbol)
                 if match:
                     ticker_symbol = match.group(1)
 
                 company_name = selected_row["company"]
-                explanation_text = selected_row["explanation"]
                 score_val = selected_row["score"]
 
-                st.html(render_explanation_card(ticker_symbol, company_name, explanation_text, score_val))
+                st.html(render_candidate_detail_card(ticker_symbol, company_name, selected_row))
 
                 # Historical Backtest Context
                 bucket = _get_bucket_for_score(score_val)
                 summary_df = load_summary_for_bucket(bucket)
                 if not summary_df.empty:
                     st.markdown(f"#### 📊 Historical Backtest Context for Bucket: `{bucket}`")
-                    st.caption("Shows historical returns and drawdowns for candidates with scores in this range.")
+                    st.caption(
+                        "Shows historical returns and drawdowns for candidates with scores in this range."
+                    )
                     disp_summary = summary_df.copy()
-                    
+
                     # Horizon ordering
                     horizon_map = {"5d": 1, "20d": 2, "60d": 3}
                     disp_summary["sort"] = disp_summary["horizon"].str.lower().map(horizon_map)
@@ -382,15 +513,24 @@ def render_pullback_finder() -> None:
 
                     disp_summary["Horizon"] = disp_summary["horizon"].str.upper()
                     disp_summary["Event Count"] = disp_summary["event_count"]
-                    disp_summary["Hit Rate"] = disp_summary["hit_rate"].apply(lambda v: f"{v * 100:.1f}%")
-                    disp_summary["Avg Return"] = disp_summary["avg_return"].apply(lambda v: f"{v * 100:+.1f}%")
-                    disp_summary["Avg Drawdown"] = disp_summary["avg_drawdown"].apply(lambda v: f"{v * 100:.1f}%")
-                    
-                    st.dataframe(
-                        disp_summary[["Horizon", "Event Count", "Hit Rate", "Avg Return", "Avg Drawdown"]],
-                        hide_index=True,
-                        use_container_width=True
+                    disp_summary["Hit Rate"] = disp_summary["hit_rate"].apply(
+                        lambda v: f"{v * 100:.1f}%"
                     )
+                    disp_summary["Avg Return"] = disp_summary["avg_return"].apply(
+                        lambda v: f"{v * 100:+.1f}%"
+                    )
+                    disp_summary["Avg Drawdown"] = disp_summary["avg_drawdown"].apply(
+                        lambda v: f"{v * 100:+.1f}%"
+                    )
+                    summary_view = disp_summary[
+                        ["Horizon", "Event Count", "Hit Rate", "Avg Return", "Avg Drawdown"]
+                    ]
+                    styled_summary = summary_view.style.map(
+                        style_positive_green_negative_red,
+                        subset=["Avg Return", "Avg Drawdown"],
+                    )
+
+                    st.dataframe(styled_summary, hide_index=True, use_container_width=True)
 
             with st.expander("Score component breakdown"):
                 breakdown_df = display_df[
@@ -421,14 +561,17 @@ def render_pullback_finder() -> None:
                     }
                 )
                 styled_breakdown_df = breakdown_df.style.map(
-                    style_positive_green_negative_red, subset=["risk penalty", "macro penalty", "valuation adj"]
+                    style_positive_green_negative_red,
+                    subset=["risk penalty", "macro penalty", "valuation adj"],
                 )
                 st.dataframe(
                     styled_breakdown_df,
                     hide_index=True,
                     width="stretch",
                     column_config={
-                        "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")
+                        "ticker": st.column_config.LinkColumn(
+                            "ticker", display_text=r"ticker=([^&]+)"
+                        )
                     },
                 )
 
@@ -438,10 +581,12 @@ def render_pullback_finder() -> None:
             "Performance of opportunity scores over historical 5-day, 20-day, and 60-day windows. "
             "Use this data to assess the historical reliability of candidates in different score buckets."
         )
-        
+
         summaries_df = load_backtest_summaries()
         if summaries_df.empty:
-            st.info("No signal backtest history found in database. Run `python scripts/backtest_scores.py` to generate it.")
+            st.info(
+                "No signal backtest history found in database. Run `python scripts/backtest_scores.py` to generate it."
+            )
         else:
             disp_df = summaries_df.copy()
             disp_df["Score Bucket"] = disp_df["score_bucket"]
@@ -449,10 +594,21 @@ def render_pullback_finder() -> None:
             disp_df["Event Count"] = disp_df["event_count"]
             disp_df["Hit Rate"] = disp_df["hit_rate"].apply(lambda v: f"{v * 100:.1f}%")
             disp_df["Avg Return"] = disp_df["avg_return"].apply(lambda v: f"{v * 100:+.1f}%")
-            disp_df["Avg Drawdown"] = disp_df["avg_drawdown"].apply(lambda v: f"{v * 100:.1f}%")
+            disp_df["Avg Drawdown"] = disp_df["avg_drawdown"].apply(lambda v: f"{v * 100:+.1f}%")
 
-            cols = ["Score Bucket", "Horizon", "Event Count", "Hit Rate", "Avg Return", "Avg Drawdown"]
-            st.dataframe(disp_df[cols], hide_index=True, use_container_width=True)
+            cols = [
+                "Score Bucket",
+                "Horizon",
+                "Event Count",
+                "Hit Rate",
+                "Avg Return",
+                "Avg Drawdown",
+            ]
+            styled_signal_history = disp_df[cols].style.map(
+                style_positive_green_negative_red,
+                subset=["Avg Return", "Avg Drawdown"],
+            )
+            st.dataframe(styled_signal_history, hide_index=True, use_container_width=True)
 
 
 def selected_dma_position(label: str) -> str | None:
