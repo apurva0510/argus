@@ -97,6 +97,8 @@ def build_score_inputs(row: dict[str, Any], *, macro_pressure_level: int = 0) ->
         return_1w=row.get("return_1w"),
         macro_pressure_level=macro_pressure_level,
         sector=row.get("sector"),
+        valuation_flag=row.get("valuation_flag"),
+        revenue_growth=row.get("revenue_growth"),
     )
 
 

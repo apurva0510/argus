@@ -60,7 +60,12 @@ REQUIRED_TABLES = {
     "index_definitions",
     "index_constituents",
     "app_settings",
+    "score_backtest_events",
+    "score_backtest_summaries",
+    "catalyst_events",
+    "catalyst_impact_snapshots",
 }
+
 
 
 def test_package_modules_import_without_side_effects() -> None:
@@ -124,7 +129,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
         schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
-        assert schema_version.value == "10"
+        assert schema_version.value == "11"
     test_engine.dispose()
 
 

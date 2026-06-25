@@ -219,6 +219,8 @@ class ScoreInputs:
     return_1w: float | None = None
     macro_pressure_level: int | None = None
     sector: str | None = None
+    valuation_flag: str | None = None
+    revenue_growth: float | None = None
 
 
 @dataclass
@@ -231,6 +233,7 @@ class ScoreBreakdown:
     watchlist_priority: float
     risk_penalty: float
     macro_penalty: float
+    valuation_adjustment: float
     opportunity_score: float
     explanation: str
     reason_lines: list[str] = field(default_factory=list)
@@ -274,6 +277,25 @@ def score_macro_penalty(
     return penalty, [reason]
 
 
+def score_valuation_adjustment(
+    valuation_flag: str | None,
+    revenue_growth: float | None,
+) -> tuple[float, list[str]]:
+    if _is_missing(valuation_flag):
+        return 0.0, ["Valuation: neutral/unavailable (0.0)"]
+
+    flag = valuation_flag.strip().lower()
+    if flag == "cheap":
+        return 5.0, ["Valuation: cheap (+5.0)"]
+    elif flag == "stretched":
+        growth = 0.0 if _is_missing(revenue_growth) else float(revenue_growth)
+        if growth <= 0.0:
+            return -10.0, [f"Valuation: stretched with flat/negative growth {growth * 100:.1f}% (-10.0)"]
+        else:
+            return -5.0, ["Valuation: stretched (-5.0)"]
+    return 0.0, [f"Valuation: {flag} (0.0)"]
+
+
 def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
     theme_score, theme_reasons = score_theme_exposure(inputs.theme_exposure_score)
     pullback_score, pullback_reasons = score_pullback(inputs.drawdown_52w)
@@ -297,6 +319,10 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         inputs.macro_pressure_level,
         inputs.sector,
     )
+    valuation_adjustment, valuation_reasons = score_valuation_adjustment(
+        inputs.valuation_flag,
+        inputs.revenue_growth,
+    )
 
     reason_lines = [
         *theme_reasons,
@@ -307,6 +333,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         *watchlist_reasons,
         *risk_reasons,
         *macro_reasons,
+        *valuation_reasons,
     ]
 
     opportunity_score = (
@@ -318,6 +345,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         + watchlist_score
         + risk_penalty
         + macro_penalty
+        + valuation_adjustment
     )
 
     return ScoreBreakdown(
@@ -329,6 +357,7 @@ def compute_opportunity_score(inputs: ScoreInputs) -> ScoreBreakdown:
         watchlist_priority=watchlist_score,
         risk_penalty=risk_penalty,
         macro_penalty=macro_penalty,
+        valuation_adjustment=valuation_adjustment,
         opportunity_score=opportunity_score,
         explanation=build_explanation(reason_lines),
         reason_lines=reason_lines,

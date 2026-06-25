@@ -51,7 +51,8 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                     dm.opportunity_score AS stored_opportunity_score,
                     vps_ev.valuation_flag AS valuation_flag,
                     vps_ev.premium_discount_pct AS ev_sales_premium_discount_pct,
-                    vps_fpe.percentile_rank AS forward_pe_percentile_rank
+                    vps_fpe.percentile_rank AS forward_pe_percentile_rank,
+                    fs.revenue_growth AS revenue_growth
                 FROM companies c
                 JOIN watchlist_items wi ON wi.company_id = c.id
                 JOIN watchlists w ON w.id = wi.watchlist_id
@@ -86,6 +87,13 @@ def load_pullback_candidates(engine: Engine) -> pd.DataFrame:
                         AND vps_fpe2.peer_group_type = 'sector'
                         AND vps_fpe2.metric_name = 'forward_pe'
                     ORDER BY vps_fpe2.as_of_date DESC, vps_fpe2.id DESC
+                    LIMIT 1
+                )
+                LEFT JOIN fundamentals_snapshot fs ON fs.id = (
+                    SELECT fs2.id
+                    FROM fundamentals_snapshot fs2
+                    WHERE fs2.company_id = c.id
+                    ORDER BY fs2.as_of_date DESC, fs2.id DESC
                     LIMIT 1
                 )
                 WHERE c.is_active = TRUE
@@ -149,6 +157,7 @@ def _score_candidates(df: pd.DataFrame, pressure_level: int = 0) -> pd.DataFrame
                 "score_watchlist_priority": breakdown.watchlist_priority,
                 "score_risk_penalty": breakdown.risk_penalty,
                 "score_macro_penalty": breakdown.macro_penalty,
+                "score_valuation_adjustment": breakdown.valuation_adjustment,
                 "explanation": breakdown.explanation,
             }
         )

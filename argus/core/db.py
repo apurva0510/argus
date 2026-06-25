@@ -123,3 +123,36 @@ def get_insert_statement_producer(session):
         from sqlalchemy.dialects.sqlite import insert
 
         return insert
+
+
+def safe_execute_query(session_or_conn, query: str, params: dict | None = None) -> list[dict]:
+    """Execute a raw SQL query, convert rows to dicts, and coerce SQLite date strings to native objects.
+
+    Compatible with both Session objects and Connection objects.
+    """
+    from sqlalchemy import text
+    from datetime import date, datetime
+
+    result = session_or_conn.execute(text(query), params or {})
+    rows = result.mappings().all()
+
+    coerced_rows = []
+    for row in rows:
+        row_dict = dict(row)
+        for k, v in row_dict.items():
+            if isinstance(v, str):
+                k_lower = k.lower()
+                if any(x in k_lower for x in ("date", "time", "_at", "as_of")):
+                    if " " in v or "T" in v:
+                        try:
+                            row_dict[k] = datetime.fromisoformat(v)
+                            continue
+                        except ValueError:
+                            pass
+                    try:
+                        clean_date = v.split(" ")[0].split("T")[0]
+                        row_dict[k] = date.fromisoformat(clean_date)
+                    except ValueError:
+                        pass
+        coerced_rows.append(row_dict)
+    return coerced_rows

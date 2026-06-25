@@ -6,12 +6,48 @@ from argus.analytics.scoring import (
     compute_opportunity_score,
     score_pullback,
     score_risk_penalty,
+    score_valuation_adjustment,
 )
 
 
 def test_theme_exposure_scales_to_25_points() -> None:
     breakdown = compute_opportunity_score(ScoreInputs(theme_exposure_score=5.0))
     assert breakdown.theme_exposure == pytest.approx(25.0)
+
+
+def test_valuation_adjustment_scoring() -> None:
+    # 1. Missing valuation_flag returns 0.0
+    score, reasons = score_valuation_adjustment(None, 0.15)
+    assert score == 0.0
+    assert "neutral/unavailable" in reasons[0]
+
+    # 2. Cheap flag returns 5.0
+    score, reasons = score_valuation_adjustment("cheap", 0.15)
+    assert score == 5.0
+    assert "cheap" in reasons[0]
+
+    # 3. Stretched flag with positive growth returns -5.0
+    score, reasons = score_valuation_adjustment("stretched", 0.15)
+    assert score == -5.0
+    assert "stretched" in reasons[0]
+
+    # 4. Stretched flag with flat/negative growth returns -10.0
+    score, reasons = score_valuation_adjustment("stretched", 0.0)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    score, reasons = score_valuation_adjustment("stretched", -0.05)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    # 5. Stretched flag with missing growth returns -10.0 (since missing defaults to 0.0)
+    score, reasons = score_valuation_adjustment("stretched", None)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    # 6. Neutral flag returns 0.0
+    score, reasons = score_valuation_adjustment("neutral", 0.15)
+    assert score == 0.0
 
 
 def test_missing_metrics_do_not_crash() -> None:

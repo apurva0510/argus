@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting, IndexDefinition, IndexValue
 
 
-CURRENT_SCHEMA_VERSION = "10"
+CURRENT_SCHEMA_VERSION = "11"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
