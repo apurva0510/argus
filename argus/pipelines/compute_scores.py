@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 
 from sqlalchemy import text
 
 from argus.analytics.scoring import compute_opportunity_score
+from argus.analytics.valuation import FUNDAMENTALS_MAX_AGE_DAYS
 from argus.core.db import session_scope
 from argus.core.models import DailyMetric
 from argus.pipelines.job_runs import job_run_context
@@ -37,9 +39,29 @@ def _load_score_inputs(session) -> list[dict]:
                 dm.rsi_14 AS rsi_14,
                 dm.distance_from_200dma AS distance_from_200dma,
                 dm.relative_return_vs_qqq_3m AS relative_return_vs_qqq_3m,
-                dm.return_1w AS return_1w
+                dm.return_1w AS return_1w,
+                vps_ev.valuation_flag AS valuation_flag,
+                fs.revenue_growth AS revenue_growth
             FROM daily_metrics dm
             JOIN companies c ON c.id = dm.company_id
+            LEFT JOIN valuation_peer_snapshot vps_ev ON vps_ev.id = (
+                SELECT vps_ev2.id
+                FROM valuation_peer_snapshot vps_ev2
+                WHERE vps_ev2.company_id = c.id
+                    AND vps_ev2.peer_group_type = 'sector'
+                    AND vps_ev2.metric_name = 'ev_to_sales'
+                    AND vps_ev2.as_of_date >= :min_snapshot_date
+                ORDER BY vps_ev2.as_of_date DESC, vps_ev2.id DESC
+                LIMIT 1
+            )
+            LEFT JOIN fundamentals_snapshot fs ON fs.id = (
+                SELECT fs2.id
+                FROM fundamentals_snapshot fs2
+                WHERE fs2.company_id = c.id
+                    AND fs2.as_of_date >= :min_snapshot_date
+                ORDER BY fs2.as_of_date DESC, fs2.id DESC
+                LIMIT 1
+            )
             WHERE c.is_active = TRUE
                 AND dm.date = (
                     SELECT MAX(dm2.date)
@@ -48,7 +70,10 @@ def _load_score_inputs(session) -> list[dict]:
                 )
     """
 
-    rows = session.execute(text(query_str)).mappings()
+    rows = session.execute(
+        text(query_str),
+        {"min_snapshot_date": date.today() - timedelta(days=FUNDAMENTALS_MAX_AGE_DAYS)},
+    ).mappings()
     inputs = load_scoring_inputs_for_active_companies(session)
 
     results = []

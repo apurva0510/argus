@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from argus.core.db import safe_execute_query
 
 from app.components import formatting as fmt
 from app.components.charts import apply_intraday_xaxis
@@ -109,6 +110,28 @@ def load_company_filings(company_id: int) -> list[dict]:
 @st.cache_data(ttl=300)
 def load_company_relative_valuation(company_id: int) -> pd.DataFrame:
     return get_company_relative_valuation(company_id)
+
+
+@st.cache_data(ttl=300)
+def load_company_catalysts(company_id: int) -> pd.DataFrame:
+    engine = get_configured_app_engine()
+    with engine.connect() as conn:
+        query = """
+            SELECT
+                ce.event_type,
+                ce.date AS event_date,
+                cis.return_m1_to_event,
+                cis.return_event_to_p1,
+                cis.return_p1_to_p5,
+                cis.return_p1_to_p20,
+                cis.max_drawdown_p20
+            FROM catalyst_events ce
+            LEFT JOIN catalyst_impact_snapshots cis ON cis.catalyst_event_id = ce.id
+            WHERE ce.company_id = :company_id
+            ORDER BY ce.date DESC
+        """
+        data = safe_execute_query(conn, query, {"company_id": company_id})
+        return pd.DataFrame(data)
 
 
 def _interval_for_timeframe(tf: str) -> str:
@@ -731,7 +754,7 @@ def render_company_detail() -> None:
     # Bottom Layout: Fundamentals, thesis, news, filings
     st.write("---")
     bottom_tabs = st.tabs(
-        ["Fundamentals Snapshot", "Thesis", "Latest News", "Latest SEC Filings"]
+        ["Fundamentals Snapshot", "Thesis", "Latest News", "Latest SEC Filings", "Catalyst History"]
     )
 
     with bottom_tabs[0]:
@@ -896,6 +919,42 @@ def render_company_detail() -> None:
                     ),
                     unsafe_allow_html=True,
                 )
+
+    with bottom_tabs[4]:
+        catalysts_df = load_company_catalysts(company["id"])
+        if catalysts_df.empty:
+            st.info("No catalyst history found for this company.")
+        else:
+            display_df = catalysts_df.copy()
+            type_map = {
+                "earnings": "Earnings",
+                "sec_10k": "SEC 10-K",
+                "sec_10q": "SEC 10-Q",
+                "sec_8k": "SEC 8-K",
+                "nvda_earnings": "NVIDIA Earnings (Cross-Stock)",
+                "hyperscaler_earnings": "Hyperscaler Earnings (Cross-Stock)"
+            }
+            display_df["Event Type"] = display_df["event_type"].map(lambda x: type_map.get(x, x))
+            
+            def _fmt_pct_local(val):
+                if val is None or pd.isna(val):
+                    return "n/a"
+                return f"{val * 100:+.1f}%"
+
+            def _fmt_pct_negative_local(val):
+                if val is None or pd.isna(val):
+                    return "n/a"
+                return f"{val * 100:.1f}%"
+
+            display_df["Date"] = pd.to_datetime(display_df["event_date"]).dt.strftime("%Y-%m-%d")
+            display_df["M1 to Event"] = display_df["return_m1_to_event"].map(_fmt_pct_local)
+            display_df["Event to P1"] = display_df["return_event_to_p1"].map(_fmt_pct_local)
+            display_df["P1 to P5"] = display_df["return_p1_to_p5"].map(_fmt_pct_local)
+            display_df["P1 to P20"] = display_df["return_p1_to_p20"].map(_fmt_pct_local)
+            display_df["Max DD (P20)"] = display_df["max_drawdown_p20"].map(_fmt_pct_negative_local)
+
+            cols = ["Event Type", "Date", "M1 to Event", "Event to P1", "P1 to P5", "P1 to P20", "Max DD (P20)"]
+            st.dataframe(display_df[cols], hide_index=True, use_container_width=True)
 
 
 if __name__ == "__main__":

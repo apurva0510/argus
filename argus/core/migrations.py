@@ -9,7 +9,7 @@ from argus.core.db import Base
 from argus.core.models import AppSetting, IndexDefinition, IndexValue
 
 
-CURRENT_SCHEMA_VERSION = "10"
+CURRENT_SCHEMA_VERSION = "12"
 SCHEMA_VERSION_KEY = "schema_version"
 
 
@@ -23,6 +23,7 @@ def run_migrations(database_engine: Engine) -> None:
     _migrate_macro_tables_for_foreign_key(database_engine)
     _migrate_capex_observations_source_column(database_engine)
     _migrate_news_items_sentiment_explanation(database_engine)
+    _migrate_catalyst_events_source_key(database_engine)
     Base.metadata.create_all(bind=database_engine)
     _backfill_news_items_sentiment_explanations(database_engine)
     _migrate_price_bars_bar_time(database_engine)
@@ -264,6 +265,103 @@ def _migrate_news_items_sentiment_explanation(database_engine: Engine) -> None:
 
     with database_engine.begin() as conn:
         conn.execute(text("ALTER TABLE news_items ADD COLUMN sentiment_explanation TEXT"))
+
+
+def _migrate_catalyst_events_source_key(database_engine: Engine) -> None:
+    inspector = inspect(database_engine)
+    if "catalyst_events" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("catalyst_events")}
+    if "source_key" not in columns and database_engine.dialect.name == "sqlite":
+        has_snapshots = "catalyst_impact_snapshots" in inspector.get_table_names()
+        with database_engine.begin() as conn:
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+            if has_snapshots:
+                conn.execute(
+                    text("ALTER TABLE catalyst_impact_snapshots RENAME TO catalyst_impact_snapshots_old")
+                )
+            conn.execute(text("ALTER TABLE catalyst_events RENAME TO catalyst_events_old"))
+            conn.execute(text("DROP INDEX IF EXISTS ix_catalyst_events_company_id"))
+            conn.execute(text("DROP INDEX IF EXISTS ix_catalyst_events_date"))
+            if has_snapshots:
+                conn.execute(text("DROP INDEX IF EXISTS ix_catalyst_impact_snapshots_catalyst_event_id"))
+            Base.metadata.tables["catalyst_events"].create(bind=conn)
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO catalyst_events (
+                        id, company_id, event_type, date, details, created_at, source_key
+                    )
+                    SELECT
+                        id,
+                        company_id,
+                        event_type,
+                        date,
+                        details,
+                        created_at,
+                        event_type || ':' || CAST(date AS VARCHAR)
+                    FROM catalyst_events_old
+                    """
+                )
+            )
+            if has_snapshots:
+                Base.metadata.tables["catalyst_impact_snapshots"].create(bind=conn)
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO catalyst_impact_snapshots (
+                            id,
+                            catalyst_event_id,
+                            return_m1_to_event,
+                            return_event_to_p1,
+                            return_p1_to_p5,
+                            return_p1_to_p20,
+                            max_drawdown_p20,
+                            created_at
+                        )
+                        SELECT
+                            id,
+                            catalyst_event_id,
+                            return_m1_to_event,
+                            return_event_to_p1,
+                            return_p1_to_p5,
+                            return_p1_to_p20,
+                            max_drawdown_p20,
+                            created_at
+                        FROM catalyst_impact_snapshots_old
+                        """
+                    )
+                )
+                conn.execute(text("DROP TABLE catalyst_impact_snapshots_old"))
+            conn.execute(text("DROP TABLE catalyst_events_old"))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+    elif "source_key" not in columns:
+        with database_engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE catalyst_events ADD COLUMN source_key VARCHAR(128) NOT NULL DEFAULT ''")
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE catalyst_events
+                    SET source_key = event_type || ':' || CAST(date AS VARCHAR)
+                    WHERE source_key = ''
+                    """
+                )
+            )
+
+    if database_engine.dialect.name == "postgresql":
+        with database_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE catalyst_events DROP CONSTRAINT IF EXISTS uq_catalyst_events"))
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_catalyst_events
+                    ON catalyst_events (company_id, event_type, source_key)
+                    """
+                )
+            )
 
 
 def _backfill_news_items_sentiment_explanations(database_engine: Engine) -> None:

@@ -526,3 +526,70 @@ class AppSetting(Base):
         onupdate=utc_now,
         nullable=False,
     )
+
+
+class ScoreBacktestEvent(Base):
+    __tablename__ = "score_backtest_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
+    date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    indicators: Mapped[dict | None] = mapped_column(JSON)
+    ret_5d: Mapped[float | None] = mapped_column(Float)
+    ret_20d: Mapped[float | None] = mapped_column(Float)
+    ret_60d: Mapped[float | None] = mapped_column(Float)
+    drawdown_20d: Mapped[float | None] = mapped_column(Float)
+    drawdown_60d: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_score_backtest_events"),)
+
+
+class ScoreBacktestSummary(Base):
+    __tablename__ = "score_backtest_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    score_bucket: Mapped[str] = mapped_column(String(32), nullable=False)
+    horizon: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    hit_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_return: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_drawdown: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("score_bucket", "horizon", name="uq_score_backtest_summary"),)
+
+
+class CatalystEvent(Base):
+    __tablename__ = "catalyst_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    details: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    source_key: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "event_type", "source_key", name="uq_catalyst_events"),
+    )
+
+
+class CatalystImpactSnapshot(Base):
+    __tablename__ = "catalyst_impact_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    catalyst_event_id: Mapped[int] = mapped_column(
+        ForeignKey("catalyst_events.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    return_m1_to_event: Mapped[float | None] = mapped_column(Float)
+    return_event_to_p1: Mapped[float | None] = mapped_column(Float)
+    return_p1_to_p5: Mapped[float | None] = mapped_column(Float)
+    return_p1_to_p20: Mapped[float | None] = mapped_column(Float)
+    max_drawdown_p20: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)

@@ -21,7 +21,8 @@ VALUATION_METRIC_SPECS = (
 )
 VALUATION_METRICS = tuple(spec.name for spec in VALUATION_METRIC_SPECS)
 
-MIN_PEER_COUNT = 3
+MIN_COMPARABLE_COUNT = 3
+FUNDAMENTALS_MAX_AGE_DAYS = 120
 
 
 @dataclass(frozen=True)
@@ -67,8 +68,8 @@ def compute_percentile_rank(company_value: float, peer_values: list[float]) -> f
     return (lower_count + 0.5 * equal_count) / len(peer_values) * 100.0
 
 
-def valuation_flag_for_percentile(percentile_rank: float | None, peer_count: int) -> str:
-    if percentile_rank is None or peer_count < MIN_PEER_COUNT:
+def valuation_flag_for_percentile(percentile_rank: float | None, comparable_count: int) -> str:
+    if percentile_rank is None or comparable_count < MIN_COMPARABLE_COUNT:
         return "unavailable"
     if percentile_rank <= 30.0:
         return "cheap"
@@ -104,16 +105,18 @@ def build_peer_rows(
                 if not fundamental:
                     continue
                 company_value = values_by_company.get(company_id)
+                comparable_values = list(values_by_company.values())
                 peer_values = [
                     value
                     for peer_company_id, value in values_by_company.items()
                     if peer_company_id != company_id
                 ]
+                comparable_count = len(comparable_values)
                 peer_count = len(peer_values)
-                peer_median = median(peer_values) if peer_count >= MIN_PEER_COUNT else None
+                peer_median = median(peer_values) if peer_values else None
                 percentile_rank = (
-                    compute_percentile_rank(company_value, peer_values)
-                    if company_value is not None and peer_count >= MIN_PEER_COUNT
+                    compute_percentile_rank(company_value, comparable_values)
+                    if company_value is not None and comparable_count >= MIN_COMPARABLE_COUNT
                     else None
                 )
                 premium_discount_pct = (
@@ -133,7 +136,10 @@ def build_peer_rows(
                         peer_count=peer_count,
                         percentile_rank=percentile_rank,
                         premium_discount_pct=premium_discount_pct,
-                        valuation_flag=valuation_flag_for_percentile(percentile_rank, peer_count),
+                        valuation_flag=valuation_flag_for_percentile(
+                            percentile_rank,
+                            comparable_count,
+                        ),
                     )
                 )
     return rows

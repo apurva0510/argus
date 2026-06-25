@@ -6,6 +6,7 @@ from argus.analytics.scoring import (
     compute_opportunity_score,
     score_pullback,
     score_risk_penalty,
+    score_valuation_adjustment,
 )
 
 
@@ -14,10 +15,73 @@ def test_theme_exposure_scales_to_25_points() -> None:
     assert breakdown.theme_exposure == pytest.approx(25.0)
 
 
+def test_valuation_adjustment_scoring() -> None:
+    # 1. Missing valuation_flag returns 0.0
+    score, reasons = score_valuation_adjustment(None, 0.15)
+    assert score == 0.0
+    assert "neutral/unavailable" in reasons[0]
+
+    # 2. Cheap flag returns 5.0
+    score, reasons = score_valuation_adjustment("cheap", 0.15)
+    assert score == 5.0
+    assert "cheap" in reasons[0]
+
+    score, reasons = score_valuation_adjustment("cheap", 0.0)
+    assert score == 0.0
+    assert "flat/negative growth" in reasons[0]
+
+    score, reasons = score_valuation_adjustment("cheap", -0.05)
+    assert score == 0.0
+    assert "flat/negative growth" in reasons[0]
+
+    # 3. Stretched flag with positive growth returns -5.0
+    score, reasons = score_valuation_adjustment("stretched", 0.15)
+    assert score == -5.0
+    assert "stretched" in reasons[0]
+
+    # 4. Stretched flag with flat/negative growth returns -10.0
+    score, reasons = score_valuation_adjustment("stretched", 0.0)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    score, reasons = score_valuation_adjustment("stretched", -0.05)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    # 5. Stretched flag with missing growth returns -10.0 (since missing defaults to 0.0)
+    score, reasons = score_valuation_adjustment("stretched", None)
+    assert score == -10.0
+    assert "flat/negative growth" in reasons[0]
+
+    # 6. Neutral flag returns 0.0
+    score, reasons = score_valuation_adjustment("neutral", 0.15)
+    assert score == 0.0
+
+
 def test_missing_metrics_do_not_crash() -> None:
     breakdown = compute_opportunity_score(ScoreInputs())
     assert breakdown.opportunity_score == pytest.approx(0.0)
     assert "unavailable" in breakdown.explanation.lower()
+
+
+def test_opportunity_score_is_bounded_to_display_range() -> None:
+    breakdown = compute_opportunity_score(
+        ScoreInputs(
+            theme_exposure_score=5.0,
+            drawdown_52w=-0.30,
+            rsi_14=20.0,
+            distance_from_200dma=0.10,
+            relative_return_vs_qqq_3m=0.20,
+            watch_status="high_priority",
+            recent_news_count=10,
+            recent_filing_count=10,
+            upcoming_earnings_days=1,
+            valuation_flag="cheap",
+            revenue_growth=0.20,
+        )
+    )
+
+    assert breakdown.opportunity_score == 100.0
 
 
 def test_pullback_score_requires_at_least_10_percent_drawdown() -> None:
@@ -432,8 +496,8 @@ def test_minimum_possible_score() -> None:
     # catalyst = 0
     # watchlist = 0
     # penalty = -30 (drawdown >= 45%: -10, distance < -20%: -15, return_1w <= -15%: -5)
-    # Total = 25 - 30 = -5.0
-    assert breakdown.opportunity_score == pytest.approx(-5.0)
+    # Raw total would be 25 - 30 = -5.0, clamped to the displayed score range.
+    assert breakdown.opportunity_score == pytest.approx(0.0)
 
 
 def test_load_pullback_candidates_joins_and_calculates_correctly(sqlite_engine, db_session) -> None:

@@ -141,7 +141,19 @@ python scripts/refresh_capex.py
 python scripts/add_capex_observation.py --ticker MSFT --period-end 2026-03-31 --capex 10000000000 --source-label "Q1 earnings"
 ```
 
-### 5. Evaluate Alert Rules
+### 5. Pullback Backtesting & Catalyst Impact (Release B)
+
+Run historical backtests for opportunity scores and analyze price reactions to catalyst events (earnings releases and SEC filings):
+
+```bash
+# Run daily historical backtest (default start is 180 days ago)
+python scripts/backtest_scores.py --start-date 2026-01-01
+
+# Refresh catalyst impact snapshots and calculate price reactions/drifts
+python scripts/refresh_catalysts.py
+```
+
+### 6. Evaluate Alert Rules
 
 Evaluate watchlist metrics against your enabled alert parameters (sends emails for triggers):
 
@@ -149,7 +161,7 @@ Evaluate watchlist metrics against your enabled alert parameters (sends emails f
 python scripts/run_alerts.py
 ```
 
-### 6. Orchestrated Daily Refresh
+### 7. Orchestrated Daily Refresh
 
 Instead of running individual scripts, use the daily orchestrator to sync daily prices, macro data, metrics/scores, index values, generated theses, and alerts in one command. Scheduled production jobs handle news, IR feeds, intraday prices, and SEC filings separately through GitHub Actions:
 

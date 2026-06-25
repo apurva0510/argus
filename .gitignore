@@ -192,6 +192,7 @@ data/app.db
 data/raw/
 data/lake/
 data/exports/
+data/backups/
 
 # Streamlit local config/state
 .streamlit/

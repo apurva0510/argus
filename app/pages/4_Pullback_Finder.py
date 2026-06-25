@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from argus.core.db import safe_execute_query
 
 from datetime import UTC, datetime
 from app.auth_links import company_detail_url
@@ -26,6 +27,63 @@ def get_pullback_engine():
 @st.cache_data(ttl=300)
 def load_pullback_data() -> pd.DataFrame:
     return load_pullback_candidates(get_pullback_engine())
+
+
+@st.cache_data(ttl=300)
+def load_backtest_summaries() -> pd.DataFrame:
+    engine = get_pullback_engine()
+    with engine.connect() as conn:
+        query = """
+            SELECT score_bucket, horizon, event_count, hit_rate, avg_return, avg_drawdown
+            FROM score_backtest_summaries
+        """
+        data = safe_execute_query(conn, query)
+        df = pd.DataFrame(data)
+        if df.empty:
+            return df
+            
+        def bucket_key(b):
+            if b == "Below 0":
+                return -100
+            if b == "100+":
+                return 1000
+            try:
+                parts = b.split("-")
+                return int(parts[0])
+            except Exception:
+                return 0
+
+        def horizon_key(h):
+            h_map = {"5d": 1, "20d": 2, "60d": 3}
+            return h_map.get(h.lower(), 4)
+
+        df["bucket_sort"] = df["score_bucket"].apply(bucket_key)
+        df["horizon_sort"] = df["horizon"].apply(horizon_key)
+        df = df.sort_values(by=["bucket_sort", "horizon_sort"]).drop(columns=["bucket_sort", "horizon_sort"])
+        return df
+
+
+@st.cache_data(ttl=300)
+def load_summary_for_bucket(bucket: str) -> pd.DataFrame:
+    engine = get_pullback_engine()
+    with engine.connect() as conn:
+        query = """
+            SELECT horizon, event_count, hit_rate, avg_return, avg_drawdown
+            FROM score_backtest_summaries
+            WHERE score_bucket = :bucket
+        """
+        data = safe_execute_query(conn, query, {"bucket": bucket})
+        return pd.DataFrame(data)
+
+
+def _get_bucket_for_score(score_val: float) -> str:
+    if score_val < 0:
+        return "Below 0"
+    if score_val >= 100:
+        return "100+"
+    lower = int(score_val // 10) * 10
+    upper = lower + 10
+    return f"{lower}-{upper}"
 
 
 def _fmt_pct(value: float | None, digits: int = 1) -> str:
@@ -91,259 +149,310 @@ def render_pullback_finder() -> None:
         "and reduce the score rather than crashing the page."
     )
 
-    if st.button("Refresh candidates"):
-        load_pullback_data.clear()
-        st.rerun()
+    tabs = st.tabs(["Pullback Finder", "Signal History"])
 
-    candidates = load_pullback_data()
-    if candidates.empty:
-        st.warning("No candidate data found. Run price ingestion and metrics computation first.")
-        return
+    with tabs[0]:
+        if st.button("Refresh candidates"):
+            load_pullback_data.clear()
+            st.rerun()
 
-    # Check for stale data warning
-    metrics_dates = pd.to_datetime(candidates["metrics_date"]).dt.date.dropna()
-    price_dates = pd.to_datetime(candidates["price_date"]).dt.date.dropna()
-    latest_metrics_date = metrics_dates.max() if not metrics_dates.empty else None
-    latest_price_date = price_dates.max() if not price_dates.empty else None
+        candidates = load_pullback_data()
+        if candidates.empty:
+            st.warning("No candidate data found. Run price ingestion and metrics computation first.")
+            return
 
-    stale_reasons = build_stale_reasons(
-        latest_price_date,
-        latest_metrics_date,
-        today=datetime.now(UTC).date(),
-    )
-    if stale_reasons:
-        st.warning("Data warning: " + " ".join(stale_reasons))
+        # Check for stale data warning
+        metrics_dates = pd.to_datetime(candidates["metrics_date"]).dt.date.dropna()
+        price_dates = pd.to_datetime(candidates["price_date"]).dt.date.dropna()
+        latest_metrics_date = metrics_dates.max() if not metrics_dates.empty else None
+        latest_price_date = price_dates.max() if not price_dates.empty else None
 
-    selected_sector_state = _filter_value("pullback_sector_filter")
-    selected_family_state = _filter_value("pullback_theme_family_filter")
-    selected_theme_state = _filter_value("pullback_theme_filter")
-
-    sector_base = apply_pullback_filters(
-        candidates,
-        theme_family=None if selected_family_state == "All" else selected_family_state,
-        theme=None if selected_theme_state == "All" else selected_theme_state,
-    )
-    sector_options = get_filter_options(sector_base)["sectors"]
-    _reset_invalid_filter("pullback_sector_filter", sector_options)
-    selected_sector_state = _filter_value("pullback_sector_filter")
-
-    family_base = apply_pullback_filters(
-        candidates,
-        sector=None if selected_sector_state == "All" else selected_sector_state,
-        theme=None if selected_theme_state == "All" else selected_theme_state,
-    )
-    family_options = get_filter_options(family_base)["theme_families"]
-    _reset_invalid_filter("pullback_theme_family_filter", family_options)
-    selected_family_state = _filter_value("pullback_theme_family_filter")
-
-    theme_base = apply_pullback_filters(
-        candidates,
-        sector=None if selected_sector_state == "All" else selected_sector_state,
-        theme_family=None if selected_family_state == "All" else selected_family_state,
-    )
-    theme_options = get_filter_options(theme_base)["themes"]
-    _reset_invalid_filter("pullback_theme_filter", theme_options)
-
-    filter1, filter2, filter3, filter4 = st.columns(4)
-    with filter1:
-        selected_sector = st.selectbox(
-            "Sector",
-            ["All"] + sector_options,
-            key="pullback_sector_filter",
+        stale_reasons = build_stale_reasons(
+            latest_price_date,
+            latest_metrics_date,
+            today=datetime.now(UTC).date(),
         )
-    with filter2:
-        selected_theme_family = st.selectbox(
-            "Theme Family",
-            ["All"] + family_options,
-            key="pullback_theme_family_filter",
+        if stale_reasons:
+            st.warning("Data warning: " + " ".join(stale_reasons))
+
+        selected_sector_state = _filter_value("pullback_sector_filter")
+        selected_family_state = _filter_value("pullback_theme_family_filter")
+        selected_theme_state = _filter_value("pullback_theme_filter")
+
+        sector_base = apply_pullback_filters(
+            candidates,
+            theme_family=None if selected_family_state == "All" else selected_family_state,
+            theme=None if selected_theme_state == "All" else selected_theme_state,
         )
-    with filter3:
-        selected_theme = st.selectbox(
-            "Theme",
-            ["All"] + theme_options,
-            key="pullback_theme_filter",
+        sector_options = get_filter_options(sector_base)["sectors"]
+        _reset_invalid_filter("pullback_sector_filter", sector_options)
+        selected_sector_state = _filter_value("pullback_sector_filter")
+
+        family_base = apply_pullback_filters(
+            candidates,
+            sector=None if selected_sector_state == "All" else selected_sector_state,
+            theme=None if selected_theme_state == "All" else selected_theme_state,
         )
-    with filter4:
-        status_base = apply_pullback_filters(
+        family_options = get_filter_options(family_base)["theme_families"]
+        _reset_invalid_filter("pullback_theme_family_filter", family_options)
+        selected_family_state = _filter_value("pullback_theme_family_filter")
+
+        theme_base = apply_pullback_filters(
+            candidates,
+            sector=None if selected_sector_state == "All" else selected_sector_state,
+            theme_family=None if selected_family_state == "All" else selected_family_state,
+        )
+        theme_options = get_filter_options(theme_base)["themes"]
+        _reset_invalid_filter("pullback_theme_filter", theme_options)
+
+        filter1, filter2, filter3, filter4 = st.columns(4)
+        with filter1:
+            selected_sector = st.selectbox(
+                "Sector",
+                ["All"] + sector_options,
+                key="pullback_sector_filter",
+            )
+        with filter2:
+            selected_theme_family = st.selectbox(
+                "Theme Family",
+                ["All"] + family_options,
+                key="pullback_theme_family_filter",
+            )
+        with filter3:
+            selected_theme = st.selectbox(
+                "Theme",
+                ["All"] + theme_options,
+                key="pullback_theme_filter",
+            )
+        with filter4:
+            status_base = apply_pullback_filters(
+                candidates,
+                sector=None if selected_sector == "All" else selected_sector,
+                theme_family=None if selected_theme_family == "All" else selected_theme_family,
+                theme=None if selected_theme == "All" else selected_theme,
+            )
+            status_options = (
+                sorted(status_base["watch_status"].dropna().unique().tolist())
+                if "watch_status" in status_base
+                else sorted(WATCH_STATUSES)
+            )
+            selected_statuses = st.multiselect(
+                "Watch Status",
+                status_options,
+                default=status_options,
+            )
+
+        filter4_col, filter5, filter6 = st.columns(3)
+        with filter4_col:
+            min_drawdown_pct = st.slider("Minimum drawdown from 52W high (%)", 0, 40, 10)
+        with filter5:
+            rsi_min, rsi_max = st.slider("RSI 14 range", 0, 100, (0, 55))
+        with filter6:
+            dma_position = st.selectbox("200DMA position", ["Any", "Above", "Below"])
+
+        filter7, filter8 = st.columns(2)
+        with filter7:
+            exclude_benchmarks = st.checkbox("Exclude Benchmarks (NVDA, QQQ, MSFT, etc.)", value=True)
+        with filter8:
+            exclude_hyperscalers = st.checkbox(
+                "Exclude Hyperscalers (AMZN, GOOGL, META, MSFT)", value=False
+            )
+
+        filtered = apply_pullback_filters(
             candidates,
             sector=None if selected_sector == "All" else selected_sector,
             theme_family=None if selected_theme_family == "All" else selected_theme_family,
             theme=None if selected_theme == "All" else selected_theme,
-        )
-        status_options = (
-            sorted(status_base["watch_status"].dropna().unique().tolist())
-            if "watch_status" in status_base
-            else sorted(WATCH_STATUSES)
-        )
-        selected_statuses = st.multiselect(
-            "Watch Status",
-            status_options,
-            default=status_options,
+            watch_statuses=selected_statuses or None,
+            min_drawdown=min_drawdown_pct / 100.0 if min_drawdown_pct > 0 else None,
+            rsi_min=float(rsi_min),
+            rsi_max=float(rsi_max),
+            dma_position=selected_dma_position(dma_position),
+            exclude_benchmarks=exclude_benchmarks,
+            exclude_hyperscalers=exclude_hyperscalers,
         )
 
-    filter4, filter5, filter6 = st.columns(3)
-    with filter4:
-        min_drawdown_pct = st.slider("Minimum drawdown from 52W high (%)", 0, 40, 10)
-    with filter5:
-        rsi_min, rsi_max = st.slider("RSI 14 range", 0, 100, (0, 55))
-    with filter6:
-        dma_position = st.selectbox("200DMA position", ["Any", "Above", "Below"])
+        if filtered.empty:
+            st.info("No candidates match the current filters.")
+        else:
+            display_df = filtered.copy()
+            display_df["rank"] = range(1, len(display_df) + 1)
+            display_df["ticker"] = display_df["ticker"].apply(company_detail_url)
+            display_df["score"] = display_df["opportunity_score"].round(1)
+            display_df["drawdown"] = display_df["drawdown_52w"].apply(_fmt_pct)
+            display_df["rsi"] = display_df["rsi_14"].apply(
+                lambda value: "n/a" if pd.isna(value) else f"{value:.1f}"
+            )
+            display_df["vs QQQ 3M"] = display_df["relative_return_vs_qqq_3m"].apply(_fmt_pct)
+            display_df["200DMA"] = display_df["distance_from_200dma"].apply(_fmt_pct)
+            display_df["max theme score"] = display_df["theme_exposure_score"].apply(
+                lambda value: "n/a" if pd.isna(value) else f"{value:.1f}/5"
+            )
+            display_df["valuation"] = (
+                display_df["valuation_flag"].fillna("n/a") if "valuation_flag" in display_df else "n/a"
+            )
+            display_df["EV/Sales vs sector"] = (
+                display_df["ev_sales_premium_discount_pct"].apply(_fmt_pct)
+                if "ev_sales_premium_discount_pct" in display_df
+                else "n/a"
+            )
+            display_df["Fwd P/E pctile"] = (
+                display_df["forward_pe_percentile_rank"].apply(
+                    lambda value: "n/a" if pd.isna(value) else f"{value:.0f}"
+                )
+                if "forward_pe_percentile_rank" in display_df
+                else "n/a"
+            )
 
-    filter7, filter8 = st.columns(2)
-    with filter7:
-        exclude_benchmarks = st.checkbox("Exclude Benchmarks (NVDA, QQQ, MSFT, etc.)", value=True)
-    with filter8:
-        exclude_hyperscalers = st.checkbox(
-            "Exclude Hyperscalers (AMZN, GOOGL, META, MSFT)", value=False
-        )
-
-    filtered = apply_pullback_filters(
-        candidates,
-        sector=None if selected_sector == "All" else selected_sector,
-        theme_family=None if selected_theme_family == "All" else selected_theme_family,
-        theme=None if selected_theme == "All" else selected_theme,
-        watch_statuses=selected_statuses or None,
-        min_drawdown=min_drawdown_pct / 100.0 if min_drawdown_pct > 0 else None,
-        rsi_min=float(rsi_min),
-        rsi_max=float(rsi_max),
-        dma_position=selected_dma_position(dma_position),
-        exclude_benchmarks=exclude_benchmarks,
-        exclude_hyperscalers=exclude_hyperscalers,
-    )
-
-    if filtered.empty:
-        st.info("No candidates match the current filters.")
-        return
-
-    display_df = filtered.copy()
-    display_df["rank"] = range(1, len(display_df) + 1)
-    display_df["ticker"] = display_df["ticker"].apply(company_detail_url)
-    display_df["score"] = display_df["opportunity_score"].round(1)
-    display_df["drawdown"] = display_df["drawdown_52w"].apply(_fmt_pct)
-    display_df["rsi"] = display_df["rsi_14"].apply(
-        lambda value: "n/a" if pd.isna(value) else f"{value:.1f}"
-    )
-    display_df["vs QQQ 3M"] = display_df["relative_return_vs_qqq_3m"].apply(_fmt_pct)
-    display_df["200DMA"] = display_df["distance_from_200dma"].apply(_fmt_pct)
-    display_df["max theme score"] = display_df["theme_exposure_score"].apply(
-        lambda value: "n/a" if pd.isna(value) else f"{value:.1f}/5"
-    )
-    display_df["valuation"] = (
-        display_df["valuation_flag"].fillna("n/a") if "valuation_flag" in display_df else "n/a"
-    )
-    display_df["EV/Sales vs sector"] = (
-        display_df["ev_sales_premium_discount_pct"].apply(_fmt_pct)
-        if "ev_sales_premium_discount_pct" in display_df
-        else "n/a"
-    )
-    display_df["Fwd P/E pctile"] = (
-        display_df["forward_pe_percentile_rank"].apply(
-            lambda value: "n/a" if pd.isna(value) else f"{value:.0f}"
-        )
-        if "forward_pe_percentile_rank" in display_df
-        else "n/a"
-    )
-
-    table_df = display_df[
-        [
-            "rank",
-            "ticker",
-            "company",
-            "sector",
-            "theme_family",
-            "theme",
-            "watch_status",
-            "score",
-            "drawdown",
-            "rsi",
-            "200DMA",
-            "vs QQQ 3M",
-            "valuation",
-            "EV/Sales vs sector",
-            "Fwd P/E pctile",
-            "max theme score",
-        ]
-    ]
-
-    st.subheader("Ranked pullback candidates")
-    styled_table_df = table_df.style.map(
-        style_positive_green_negative_red, subset=["drawdown", "200DMA", "vs QQQ 3M"]
-    ).map(
-        style_score_traffic_light,
-        subset=["score"],
-    )
-    event = st.dataframe(
-        styled_table_df,
-        hide_index=True,
-        width="stretch",
-        column_config={
-            "rank": st.column_config.NumberColumn("rank", width="small"),
-            "score": st.column_config.NumberColumn("score", format="%.1f"),
-            "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)"),
-        },
-        on_select="rerun",
-        selection_mode="single-row",
-    )
-
-    st.caption(
-        "💡 *Tip: Click on any row in the table above to view the full, wrapped reason/explanation below.*"
-    )
-
-    if event and event.selection and event.selection.rows:
-        selected_row_idx = event.selection.rows[0]
-        selected_row = display_df.iloc[selected_row_idx]
-
-        # Extract symbol from link
-        import re
-
-        ticker_symbol = selected_row["ticker"]
-        match = re.search(r"ticker=([^&]+)", ticker_symbol)
-        if match:
-            ticker_symbol = match.group(1)
-
-        company_name = selected_row["company"]
-        explanation_text = selected_row["explanation"]
-        score_val = selected_row["score"]
-
-        st.html(render_explanation_card(ticker_symbol, company_name, explanation_text, score_val))
-
-    with st.expander("Score component breakdown"):
-        breakdown_df = display_df[
-            [
-                "ticker",
-                "score",
-                "score_theme_exposure",
-                "score_pullback",
-                "score_technical_setup",
-                "score_relative_strength",
-                "score_catalyst",
-                "score_watchlist_priority",
-                "score_risk_penalty",
-                "score_macro_penalty",
+            table_df = display_df[
+                [
+                    "rank",
+                    "ticker",
+                    "company",
+                    "sector",
+                    "theme_family",
+                    "theme",
+                    "watch_status",
+                    "score",
+                    "drawdown",
+                    "rsi",
+                    "200DMA",
+                    "vs QQQ 3M",
+                    "valuation",
+                    "EV/Sales vs sector",
+                    "Fwd P/E pctile",
+                    "max theme score",
+                ]
             ]
-        ].rename(
-            columns={
-                "score_theme_exposure": "theme",
-                "score_pullback": "pullback",
-                "score_technical_setup": "technical",
-                "score_relative_strength": "rel strength",
-                "score_catalyst": "catalyst",
-                "score_watchlist_priority": "watchlist",
-                "score_risk_penalty": "risk penalty",
-                "score_macro_penalty": "macro penalty",
-            }
+
+            st.subheader("Ranked pullback candidates")
+            styled_table_df = table_df.style.map(
+                style_positive_green_negative_red, subset=["drawdown", "200DMA", "vs QQQ 3M"]
+            ).map(
+                style_score_traffic_light,
+                subset=["score"],
+            )
+            event = st.dataframe(
+                styled_table_df,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "rank": st.column_config.NumberColumn("rank", width="small"),
+                    "score": st.column_config.NumberColumn("score", format="%.1f"),
+                    "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)"),
+                },
+                on_select="rerun",
+                selection_mode="single-row",
+            )
+
+            st.caption(
+                "💡 *Tip: Click on any row in the table above to view the full, wrapped reason/explanation below.*"
+            )
+
+            if event and event.selection and event.selection.rows:
+                selected_row_idx = event.selection.rows[0]
+                selected_row = display_df.iloc[selected_row_idx]
+
+                # Extract symbol from link
+                import re
+
+                ticker_symbol = selected_row["ticker"]
+                match = re.search(r"ticker=([^&]+)", ticker_symbol)
+                if match:
+                    ticker_symbol = match.group(1)
+
+                company_name = selected_row["company"]
+                explanation_text = selected_row["explanation"]
+                score_val = selected_row["score"]
+
+                st.html(render_explanation_card(ticker_symbol, company_name, explanation_text, score_val))
+
+                # Historical Backtest Context
+                bucket = _get_bucket_for_score(score_val)
+                summary_df = load_summary_for_bucket(bucket)
+                if not summary_df.empty:
+                    st.markdown(f"#### 📊 Historical Backtest Context for Bucket: `{bucket}`")
+                    st.caption("Shows historical returns and drawdowns for candidates with scores in this range.")
+                    disp_summary = summary_df.copy()
+                    
+                    # Horizon ordering
+                    horizon_map = {"5d": 1, "20d": 2, "60d": 3}
+                    disp_summary["sort"] = disp_summary["horizon"].str.lower().map(horizon_map)
+                    disp_summary = disp_summary.sort_values("sort").drop(columns=["sort"])
+
+                    disp_summary["Horizon"] = disp_summary["horizon"].str.upper()
+                    disp_summary["Event Count"] = disp_summary["event_count"]
+                    disp_summary["Hit Rate"] = disp_summary["hit_rate"].apply(lambda v: f"{v * 100:.1f}%")
+                    disp_summary["Avg Return"] = disp_summary["avg_return"].apply(lambda v: f"{v * 100:+.1f}%")
+                    disp_summary["Avg Drawdown"] = disp_summary["avg_drawdown"].apply(lambda v: f"{v * 100:.1f}%")
+                    
+                    st.dataframe(
+                        disp_summary[["Horizon", "Event Count", "Hit Rate", "Avg Return", "Avg Drawdown"]],
+                        hide_index=True,
+                        use_container_width=True
+                    )
+
+            with st.expander("Score component breakdown"):
+                breakdown_df = display_df[
+                    [
+                        "ticker",
+                        "score",
+                        "score_theme_exposure",
+                        "score_pullback",
+                        "score_technical_setup",
+                        "score_relative_strength",
+                        "score_catalyst",
+                        "score_watchlist_priority",
+                        "score_risk_penalty",
+                        "score_macro_penalty",
+                        "score_valuation_adjustment",
+                    ]
+                ].rename(
+                    columns={
+                        "score_theme_exposure": "theme",
+                        "score_pullback": "pullback",
+                        "score_technical_setup": "technical",
+                        "score_relative_strength": "rel strength",
+                        "score_catalyst": "catalyst",
+                        "score_watchlist_priority": "watchlist",
+                        "score_risk_penalty": "risk penalty",
+                        "score_macro_penalty": "macro penalty",
+                        "score_valuation_adjustment": "valuation adj",
+                    }
+                )
+                styled_breakdown_df = breakdown_df.style.map(
+                    style_positive_green_negative_red, subset=["risk penalty", "macro penalty", "valuation adj"]
+                )
+                st.dataframe(
+                    styled_breakdown_df,
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")
+                    },
+                )
+
+    with tabs[1]:
+        st.subheader("Signal History (Backtest Summaries)")
+        st.markdown(
+            "Performance of opportunity scores over historical 5-day, 20-day, and 60-day windows. "
+            "Use this data to assess the historical reliability of candidates in different score buckets."
         )
-        styled_breakdown_df = breakdown_df.style.map(
-            style_positive_green_negative_red, subset=["risk penalty", "macro penalty"]
-        )
-        st.dataframe(
-            styled_breakdown_df,
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "ticker": st.column_config.LinkColumn("ticker", display_text=r"ticker=([^&]+)")
-            },
-        )
+        
+        summaries_df = load_backtest_summaries()
+        if summaries_df.empty:
+            st.info("No signal backtest history found in database. Run `python scripts/backtest_scores.py` to generate it.")
+        else:
+            disp_df = summaries_df.copy()
+            disp_df["Score Bucket"] = disp_df["score_bucket"]
+            disp_df["Horizon"] = disp_df["horizon"].str.upper()
+            disp_df["Event Count"] = disp_df["event_count"]
+            disp_df["Hit Rate"] = disp_df["hit_rate"].apply(lambda v: f"{v * 100:.1f}%")
+            disp_df["Avg Return"] = disp_df["avg_return"].apply(lambda v: f"{v * 100:+.1f}%")
+            disp_df["Avg Drawdown"] = disp_df["avg_drawdown"].apply(lambda v: f"{v * 100:.1f}%")
+
+            cols = ["Score Bucket", "Horizon", "Event Count", "Hit Rate", "Avg Return", "Avg Drawdown"]
+            st.dataframe(disp_df[cols], hide_index=True, use_container_width=True)
 
 
 def selected_dma_position(label: str) -> str | None:

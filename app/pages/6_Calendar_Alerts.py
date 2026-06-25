@@ -72,6 +72,25 @@ def load_earnings_calendar(today: date) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def load_historical_post_earnings_moves() -> dict[str, float]:
+    """Return a dictionary mapping company symbol to its average absolute post-earnings move."""
+    query = """
+        SELECT
+            c.symbol,
+            AVG(ABS(cis.return_event_to_p1)) AS avg_move
+        FROM catalyst_events ce
+        JOIN companies c ON c.id = ce.company_id
+        JOIN catalyst_impact_snapshots cis ON cis.catalyst_event_id = ce.id
+        WHERE ce.event_type = 'earnings'
+          AND cis.return_event_to_p1 IS NOT NULL
+        GROUP BY c.symbol
+    """
+    with get_db_engine().connect() as conn:
+        df = pd.read_sql_query(text(query), conn)
+        return dict(zip(df["symbol"].str.upper(), df["avg_move"]))
+
+
+@st.cache_data(ttl=60)
 def load_macro_calendar(today: date) -> pd.DataFrame:
     query = """
         SELECT
@@ -388,7 +407,11 @@ def render_page() -> None:
         if earnings_df.empty:
             st.info("No upcoming corporate earnings calls found in the database.")
         else:
+            moves_map = load_historical_post_earnings_moves()
             df_view = earnings_df.copy()
+            df_view["Hist. Move Avg"] = df_view["symbol"].apply(
+                lambda sym: f"{moves_map[sym.upper()] * 100:.1f}%" if sym.upper() in moves_map else "n/a"
+            )
             df_view["event_date"] = pd.to_datetime(df_view["event_date"]).dt.strftime("%Y-%m-%d")
             df_view["fiscal_period"] = df_view["fiscal_period"].fillna("n/a")
             from app.auth_links import company_detail_url
@@ -396,13 +419,14 @@ def render_page() -> None:
             df_view["symbol"] = df_view["symbol"].apply(company_detail_url)
 
             st.dataframe(
-                df_view[["event_date", "symbol", "company_name", "fiscal_period", "source"]],
+                df_view[["event_date", "symbol", "company_name", "Hist. Move Avg", "fiscal_period", "source"]],
                 hide_index=True,
                 width="stretch",
                 column_config={
                     "event_date": "Earnings Date",
                     "symbol": st.column_config.LinkColumn("Symbol", display_text=r"ticker=([^&]+)"),
                     "company_name": "Company Name",
+                    "Hist. Move Avg": "Hist. Post-Earnings Move (Avg)",
                     "fiscal_period": "Fiscal Period",
                     "source": "Source",
                 },
