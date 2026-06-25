@@ -35,6 +35,41 @@ def _source_key(*parts) -> str:
     return ":".join(str(part) for part in parts if part is not None and str(part) != "")
 
 
+def _event_timing(details: dict) -> str:
+    timing = details.get("timing") or details.get("session") or details.get("market_session")
+    if timing:
+        return str(timing).strip().lower()
+
+    accepted_at = _parse_datetime(details.get("acceptance_datetime"))
+    if accepted_at:
+        if accepted_at.time() < time(9, 30):
+            return "bmo"
+        if accepted_at.time() >= time(16, 0):
+            return "amc"
+    return "unknown"
+
+
+def _anchor_index_for_event(
+    price_list: list[tuple[date, float | None]],
+    date_to_idx: dict[date, int],
+    event_date: date,
+    details: dict,
+) -> int | None:
+    timing = _event_timing(details)
+    if timing in {"bmo", "before_market", "before_open", "pre_market"}:
+        prior_dates = [d for d, _ in price_list if d < event_date]
+        return date_to_idx[prior_dates[-1]] if prior_dates else None
+
+    if event_date in date_to_idx:
+        return date_to_idx[event_date]
+
+    prior_dates = [d for d, _ in price_list if d < event_date]
+    if prior_dates:
+        return date_to_idx[prior_dates[-1]]
+    future_dates = [d for d, _ in price_list if d >= event_date]
+    return date_to_idx[future_dates[0]] if future_dates else None
+
+
 def _target_company_ids_for_cross_event(companies: list[Company], trigger: Company) -> list[int]:
     targets: list[int] = []
     for company in companies:
@@ -217,17 +252,10 @@ def refresh_catalyst_impact() -> dict[str, int]:
             # Map date to index
             date_to_idx = {p[0]: idx for idx, p in enumerate(price_list)}
             parsed_evt_date = _parse_date(evt.date)
-            anchor_date = parsed_evt_date
             details = evt.details or {}
-            accepted_at = _parse_datetime(details.get("acceptance_datetime"))
-            if accepted_at and accepted_at.time() >= time(16, 0):
-                anchor_date = next((d for d, _ in price_list if d > parsed_evt_date), None)
-            elif parsed_evt_date not in date_to_idx:
-                anchor_date = next((d for d, _ in price_list if d >= parsed_evt_date), None)
-            if anchor_date not in date_to_idx:
+            curr_idx = _anchor_index_for_event(price_list, date_to_idx, parsed_evt_date, details)
+            if curr_idx is None:
                 continue
-
-            curr_idx = date_to_idx[anchor_date]
 
             # M1 return (1 trading day before to event date)
             ret_m1 = None
@@ -243,21 +271,21 @@ def refresh_catalyst_impact() -> dict[str, int]:
 
             # P1 to P5 return
             ret_p5 = None
-            if curr_idx + 5 < len(price_list):
+            if curr_idx + 6 < len(price_list):
                 denom = price_list[curr_idx + 1][1]
-                ret_p5 = (price_list[curr_idx + 5][1] - denom) / denom if denom and denom > 0 else 0.0
+                ret_p5 = (price_list[curr_idx + 6][1] - denom) / denom if denom and denom > 0 else 0.0
 
             # P1 to P20 return & drawdown
             ret_p20 = None
             max_dd_20 = None
-            if curr_idx + 20 < len(price_list):
+            if curr_idx + 21 < len(price_list):
                 denom = price_list[curr_idx + 1][1]
-                ret_p20 = (price_list[curr_idx + 20][1] - denom) / denom if denom and denom > 0 else 0.0
+                ret_p20 = (price_list[curr_idx + 21][1] - denom) / denom if denom and denom > 0 else 0.0
                 
-                # Max drawdown over post-event 20 trading days
+                # Max drawdown over 20 trading sessions after P1.
                 peak = price_list[curr_idx + 1][1]
                 max_dd = 0.0
-                for i in range(1, 21):
+                for i in range(1, 22):
                     p_val = price_list[curr_idx + i][1]
                     peak = max(peak, p_val)
                     dd = (p_val - peak) / peak if peak and peak > 0 else 0.0
@@ -279,21 +307,21 @@ def refresh_catalyst_impact() -> dict[str, int]:
                 session.add(snap)
                 snapshots_updated += 1
             else:
-                # Update snapshot if we have new information (backfill Nones)
+                # Recompute snapshots when methodology changes or new information arrives.
                 changed = False
-                if snap.return_m1_to_event is None and ret_m1 is not None:
+                if ret_m1 is not None and snap.return_m1_to_event != ret_m1:
                     snap.return_m1_to_event = ret_m1
                     changed = True
-                if snap.return_event_to_p1 is None and ret_p1 is not None:
+                if ret_p1 is not None and snap.return_event_to_p1 != ret_p1:
                     snap.return_event_to_p1 = ret_p1
                     changed = True
-                if snap.return_p1_to_p5 is None and ret_p5 is not None:
+                if ret_p5 is not None and snap.return_p1_to_p5 != ret_p5:
                     snap.return_p1_to_p5 = ret_p5
                     changed = True
-                if snap.return_p1_to_p20 is None and ret_p20 is not None:
+                if ret_p20 is not None and snap.return_p1_to_p20 != ret_p20:
                     snap.return_p1_to_p20 = ret_p20
                     changed = True
-                if snap.max_drawdown_p20 is None and max_dd_20 is not None:
+                if max_dd_20 is not None and snap.max_drawdown_p20 != max_dd_20:
                     snap.max_drawdown_p20 = max_dd_20
                     changed = True
                 if changed:

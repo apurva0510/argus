@@ -191,7 +191,7 @@ def test_refresh_catalysts_preserves_same_day_filings(sqlite_engine, db_session:
     }
 
 
-def test_refresh_catalysts_aligns_non_trading_event_to_next_price_bar(sqlite_engine, db_session: Session) -> None:
+def test_refresh_catalysts_aligns_non_trading_event_to_first_reaction_session(sqlite_engine, db_session: Session) -> None:
     comp = Company(symbol="AAPL", name="Apple Inc.", is_active=True)
     db_session.add(comp)
     db_session.flush()
@@ -234,5 +234,91 @@ def test_refresh_catalysts_aligns_non_trading_event_to_next_price_bar(sqlite_eng
 
     event = db_session.query(CatalystEvent).filter_by(company_id=comp.id, event_type="sec_8k").one()
     snap = db_session.query(CatalystImpactSnapshot).filter_by(catalyst_event_id=event.id).one()
-    assert snap.return_m1_to_event == pytest.approx((90.0 - 100.0) / 100.0)
-    assert snap.return_event_to_p1 == pytest.approx((99.0 - 90.0) / 90.0)
+    assert snap.return_m1_to_event is None
+    assert snap.return_event_to_p1 == pytest.approx((90.0 - 100.0) / 100.0)
+
+
+def test_refresh_catalysts_aligns_bmo_event_to_event_day_reaction(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="AAPL", name="Apple Inc.", is_active=True)
+    db_session.add(comp)
+    db_session.flush()
+
+    prices = [
+        (date(2026, 1, 5), 100.0),
+        (date(2026, 1, 6), 110.0),
+        (date(2026, 1, 7), 111.0),
+        (date(2026, 1, 8), 112.0),
+        (date(2026, 1, 9), 113.0),
+        (date(2026, 1, 12), 114.0),
+        (date(2026, 1, 13), 115.0),
+    ]
+    for d, price in prices:
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=price,
+                adj_close=price,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    db_session.add(
+        CatalystEvent(
+            company_id=comp.id,
+            event_type="earnings",
+            date=date(2026, 1, 6),
+            details={"timing": "bmo"},
+            source_key="earnings:bmo-test",
+        )
+    )
+    db_session.commit()
+
+    refresh_catalyst_impact()
+
+    event = db_session.query(CatalystEvent).filter_by(company_id=comp.id, event_type="earnings").one()
+    snap = db_session.query(CatalystImpactSnapshot).filter_by(catalyst_event_id=event.id).one()
+    assert snap.return_event_to_p1 == pytest.approx((110.0 - 100.0) / 100.0)
+
+
+def test_refresh_catalysts_uses_full_post_p1_drift_windows(sqlite_engine, db_session: Session) -> None:
+    comp = Company(symbol="AAPL", name="Apple Inc.", is_active=True)
+    db_session.add(comp)
+    db_session.flush()
+
+    start_date = date(2026, 1, 1)
+    for i in range(25):
+        d = start_date + timedelta(days=i)
+        price = 100.0 + i
+        if i == 21:
+            price = 50.0
+        db_session.add(
+            PriceBar(
+                company_id=comp.id,
+                date=d,
+                bar_time=d,
+                close=price,
+                adj_close=price,
+                provider="yfinance",
+                interval="1d",
+            )
+        )
+    db_session.add(
+        CatalystEvent(
+            company_id=comp.id,
+            event_type="sec_8k",
+            date=start_date,
+            details={},
+            source_key="sec_8k:window-test",
+        )
+    )
+    db_session.commit()
+
+    refresh_catalyst_impact()
+
+    event = db_session.query(CatalystEvent).filter_by(company_id=comp.id, event_type="sec_8k").one()
+    snap = db_session.query(CatalystImpactSnapshot).filter_by(catalyst_event_id=event.id).one()
+    assert snap.return_p1_to_p5 == pytest.approx((106.0 - 101.0) / 101.0)
+    assert snap.return_p1_to_p20 == pytest.approx((50.0 - 101.0) / 101.0)
+    assert snap.max_drawdown_p20 == pytest.approx((50.0 - 120.0) / 120.0)

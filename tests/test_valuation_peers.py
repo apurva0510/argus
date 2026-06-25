@@ -57,6 +57,27 @@ def test_build_peer_rows_flags_relative_valuation() -> None:
     assert rows[2].premium_discount_pct == pytest.approx(1.0)
 
 
+def test_build_peer_rows_flags_three_company_peer_group() -> None:
+    fundamentals = [
+        {"company_id": 1, "as_of_date": date(2026, 1, 1), "ev_to_sales": 2.0},
+        {"company_id": 2, "as_of_date": date(2026, 1, 1), "ev_to_sales": 4.0},
+        {"company_id": 3, "as_of_date": date(2026, 1, 1), "ev_to_sales": 8.0},
+    ]
+    memberships = [
+        {"company_id": 1, "peer_group_type": "sector", "peer_group_key": "Cooling"},
+        {"company_id": 2, "peer_group_type": "sector", "peer_group_key": "Cooling"},
+        {"company_id": 3, "peer_group_type": "sector", "peer_group_key": "Cooling"},
+    ]
+
+    rows = [
+        row for row in build_peer_rows(fundamentals, memberships)
+        if row.metric_name == "ev_to_sales"
+    ]
+
+    assert [row.valuation_flag for row in rows] == ["cheap", "neutral", "stretched"]
+    assert {row.peer_count for row in rows} == {2}
+
+
 def test_compute_valuation_peers_is_idempotent(sqlite_engine, db_session: Session) -> None:
     today = date.today()
     theme = Theme(code="power", name="Power")
