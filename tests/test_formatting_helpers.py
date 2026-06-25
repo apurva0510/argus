@@ -40,3 +40,33 @@ def test_yield_observation_formatter() -> None:
     assert formatting.format_yield_observation({"value": "4.25"}) == "4.25%"
     assert formatting.format_yield_observation({}) == "n/a"
     assert formatting.format_yield_observation("4.25") == "n/a"
+
+
+def test_table_styler_helpers_zero_values() -> None:
+    from app.components.tables import (
+        style_positive_green_negative_red,
+        style_positive_red_negative_green,
+    )
+
+    # Test numbers
+    assert style_positive_green_negative_red(0) == ""
+    assert style_positive_green_negative_red(0.0) == ""
+    assert style_positive_green_negative_red(0.01) != ""
+    assert style_positive_green_negative_red(-0.01) != ""
+
+    # Test formatted strings
+    assert style_positive_green_negative_red("+0.0%") == ""
+    assert style_positive_green_negative_red("-0.0%") == ""
+    assert style_positive_green_negative_red("0.0%") == ""
+    assert style_positive_green_negative_red("+0 bps") == ""
+    assert style_positive_green_negative_red("-0 bps") == ""
+    assert style_positive_green_negative_red("0 bps") == ""
+
+    # Test non-zero strings
+    assert style_positive_green_negative_red("+1.2%") != ""
+    assert style_positive_green_negative_red("-0.5%") != ""
+
+    # Test inverse metrics styler
+    assert style_positive_red_negative_green("+0.0%") == ""
+    assert style_positive_red_negative_green("-0.0%") == ""
+    assert style_positive_red_negative_green("+1.2%") != ""

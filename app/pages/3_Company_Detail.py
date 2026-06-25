@@ -16,7 +16,10 @@ from app.components.feed_cards import (
 from app.components.database import get_configured_app_engine
 from app.components.metrics import render_metric_card, render_plain_metric_card
 from app.components.sidebar import render_sidebar_navigation
-from app.components.tables import style_positive_red_negative_green
+from app.components.tables import (
+    style_positive_green_negative_red,
+    style_positive_red_negative_green,
+)
 from argus.analytics.market_hours import (
     MARKET_TZ,
     append_market_close_markers,
@@ -56,6 +59,7 @@ _fmt_price = fmt.format_price
 _fmt_price_range = fmt.format_price_range
 _fmt_multiple = fmt.format_multiple
 _fmt_large_num = fmt.format_large_number
+
 
 def _to_et(val) -> datetime | None:
     if val is None or pd.isna(val):
@@ -132,6 +136,52 @@ def load_company_catalysts(company_id: int) -> pd.DataFrame:
         """
         data = safe_execute_query(conn, query, {"company_id": company_id})
         return pd.DataFrame(data)
+
+
+@st.cache_data(ttl=300)
+def load_company_upcoming_events(company_id: int, today) -> dict[str, pd.DataFrame]:
+    engine = get_configured_app_engine()
+    with engine.connect() as conn:
+        earnings_query = """
+            SELECT
+                event_date,
+                fiscal_period,
+                eps_estimate,
+                revenue_estimate,
+                source
+            FROM earnings_events
+            WHERE company_id = :company_id
+              AND event_date >= :today
+            ORDER BY event_date ASC, source ASC
+        """
+        catalyst_query = """
+            SELECT
+                event_type,
+                date AS event_date
+            FROM catalyst_events
+            WHERE company_id = :company_id
+              AND date >= :today
+            ORDER BY date ASC, event_type ASC
+        """
+        params = {"company_id": company_id, "today": today}
+        return {
+            "earnings": pd.DataFrame(
+                safe_execute_query(
+                    conn,
+                    earnings_query,
+                    params,
+                    type_map={"event_date": "date"},
+                )
+            ),
+            "catalysts": pd.DataFrame(
+                safe_execute_query(
+                    conn,
+                    catalyst_query,
+                    params,
+                    type_map={"event_date": "date"},
+                )
+            ),
+        }
 
 
 def _interval_for_timeframe(tf: str) -> str:
@@ -245,6 +295,42 @@ def _fmt_percentile(value) -> str:
     if value is None or pd.isna(value):
         return "n/a"
     return f"{float(value):.0f}"
+
+
+def _fmt_event_date(value) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    try:
+        return pd.to_datetime(value).strftime("%Y-%m-%d")
+    except Exception:
+        return str(value)
+
+
+def _days_until(value, today) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    try:
+        delta = pd.to_datetime(value).date() - today
+        days = delta.days
+    except Exception:
+        return "n/a"
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "1 day"
+    return f"{days} days"
+
+
+def _event_type_label(value) -> str:
+    type_map = {
+        "earnings": "Earnings",
+        "sec_10k": "SEC 10-K",
+        "sec_10q": "SEC 10-Q",
+        "sec_8k": "SEC 8-K",
+        "nvda_earnings": "NVIDIA Earnings (Cross-Stock)",
+        "hyperscaler_earnings": "Hyperscaler Earnings (Cross-Stock)",
+    }
+    return type_map.get(value, str(value or "n/a"))
 
 
 def _relative_valuation_table_df(group_df: pd.DataFrame) -> pd.DataFrame:
@@ -754,7 +840,14 @@ def render_company_detail() -> None:
     # Bottom Layout: Fundamentals, thesis, news, filings
     st.write("---")
     bottom_tabs = st.tabs(
-        ["Fundamentals Snapshot", "Thesis", "Latest News", "Latest SEC Filings", "Catalyst History"]
+        [
+            "Fundamentals Snapshot",
+            "Thesis",
+            "Upcoming Events",
+            "Latest News",
+            "Latest SEC Filings",
+            "Catalyst History",
+        ]
     )
 
     with bottom_tabs[0]:
@@ -848,12 +941,68 @@ def render_company_detail() -> None:
                     st.write("")
                     _render_relative_valuation_table(theme_table, "Top Theme Peers")
                 elif not theme_table.empty:
-                    st.caption("Top theme peer valuation matches the sector peer view, so it is not repeated.")
+                    st.caption(
+                        "Top theme peer valuation matches the sector peer view, so it is not repeated."
+                    )
 
     with bottom_tabs[1]:
         _render_thesis_section(company["id"])
 
     with bottom_tabs[2]:
+        today_market = pd.Timestamp.now(tz=MARKET_TZ).date()
+        upcoming_events = load_company_upcoming_events(company["id"], today_market)
+
+        st.markdown("**Next earnings**")
+        earnings_df = upcoming_events["earnings"]
+        if earnings_df.empty:
+            st.info("No upcoming earnings date found for this company.")
+        else:
+            earnings_display = earnings_df.copy()
+            earnings_display["Date"] = earnings_display["event_date"].map(_fmt_event_date)
+            earnings_display["Days Away"] = earnings_display["event_date"].map(
+                lambda value: _days_until(value, today_market)
+            )
+            earnings_display["Fiscal Period"] = earnings_display["fiscal_period"].fillna("n/a")
+            earnings_display["EPS Estimate"] = earnings_display["eps_estimate"].map(
+                lambda value: "n/a" if value is None or pd.isna(value) else f"{float(value):.2f}"
+            )
+            earnings_display["Revenue Estimate"] = earnings_display["revenue_estimate"].map(
+                _fmt_large_num
+            )
+            earnings_display["Source"] = earnings_display["source"].fillna("n/a")
+            st.dataframe(
+                earnings_display[
+                    [
+                        "Date",
+                        "Days Away",
+                        "Fiscal Period",
+                        "EPS Estimate",
+                        "Revenue Estimate",
+                        "Source",
+                    ]
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+        st.markdown("**Upcoming catalysts**")
+        upcoming_catalysts_df = upcoming_events["catalysts"]
+        if upcoming_catalysts_df.empty:
+            st.info("No upcoming catalysts found for this company.")
+        else:
+            catalyst_display = upcoming_catalysts_df.copy()
+            catalyst_display["Event Type"] = catalyst_display["event_type"].map(_event_type_label)
+            catalyst_display["Date"] = catalyst_display["event_date"].map(_fmt_event_date)
+            catalyst_display["Days Away"] = catalyst_display["event_date"].map(
+                lambda value: _days_until(value, today_market)
+            )
+            st.dataframe(
+                catalyst_display[["Event Type", "Date", "Days Away"]],
+                hide_index=True,
+                width="stretch",
+            )
+
+    with bottom_tabs[3]:
         news_items = load_company_news(company["id"])
         if not news_items:
             st.info("No recent news articles found in database.")
@@ -880,7 +1029,7 @@ def render_company_detail() -> None:
                     unsafe_allow_html=True,
                 )
 
-    with bottom_tabs[3]:
+    with bottom_tabs[4]:
         filings = load_company_filings(company["id"])
         if not filings:
             st.info("No SEC filings found in database.")
@@ -920,41 +1069,47 @@ def render_company_detail() -> None:
                     unsafe_allow_html=True,
                 )
 
-    with bottom_tabs[4]:
+    with bottom_tabs[5]:
         catalysts_df = load_company_catalysts(company["id"])
         if catalysts_df.empty:
             st.info("No catalyst history found for this company.")
         else:
             display_df = catalysts_df.copy()
-            type_map = {
-                "earnings": "Earnings",
-                "sec_10k": "SEC 10-K",
-                "sec_10q": "SEC 10-Q",
-                "sec_8k": "SEC 8-K",
-                "nvda_earnings": "NVIDIA Earnings (Cross-Stock)",
-                "hyperscaler_earnings": "Hyperscaler Earnings (Cross-Stock)"
-            }
-            display_df["Event Type"] = display_df["event_type"].map(lambda x: type_map.get(x, x))
-            
+            display_df["Event Type"] = display_df["event_type"].map(_event_type_label)
+
             def _fmt_pct_local(val):
                 if val is None or pd.isna(val):
                     return "n/a"
                 return f"{val * 100:+.1f}%"
-
-            def _fmt_pct_negative_local(val):
-                if val is None or pd.isna(val):
-                    return "n/a"
-                return f"{val * 100:.1f}%"
 
             display_df["Date"] = pd.to_datetime(display_df["event_date"]).dt.strftime("%Y-%m-%d")
             display_df["M1 to Event"] = display_df["return_m1_to_event"].map(_fmt_pct_local)
             display_df["Event to P1"] = display_df["return_event_to_p1"].map(_fmt_pct_local)
             display_df["P1 to P5"] = display_df["return_p1_to_p5"].map(_fmt_pct_local)
             display_df["P1 to P20"] = display_df["return_p1_to_p20"].map(_fmt_pct_local)
-            display_df["Max DD (P20)"] = display_df["max_drawdown_p20"].map(_fmt_pct_negative_local)
+            display_df["Max DD (P20)"] = display_df["max_drawdown_p20"].map(_fmt_pct_local)
 
-            cols = ["Event Type", "Date", "M1 to Event", "Event to P1", "P1 to P5", "P1 to P20", "Max DD (P20)"]
-            st.dataframe(display_df[cols], hide_index=True, use_container_width=True)
+            cols = [
+                "Event Type",
+                "Date",
+                "M1 to Event",
+                "Event to P1",
+                "P1 to P5",
+                "P1 to P20",
+                "Max DD (P20)",
+            ]
+            return_cols = [
+                "M1 to Event",
+                "Event to P1",
+                "P1 to P5",
+                "P1 to P20",
+                "Max DD (P20)",
+            ]
+            st.dataframe(
+                display_df[cols].style.map(style_positive_green_negative_red, subset=return_cols),
+                hide_index=True,
+                width="stretch",
+            )
 
 
 if __name__ == "__main__":

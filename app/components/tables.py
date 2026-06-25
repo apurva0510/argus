@@ -9,6 +9,12 @@ def style_positive_green_negative_red(val):
         return ""
     if isinstance(val, str):
         val_clean = val.strip()
+        try:
+            num_str = val_clean.replace("%", "").replace("bps", "").strip()
+            if float(num_str) == 0.0:
+                return ""
+        except ValueError:
+            pass
         if val_clean.startswith("+"):
             return "color: #3fb950; font-weight: 600;"
         elif val_clean.startswith("-"):
@@ -31,6 +37,12 @@ def style_positive_red_negative_green(val):
         return ""
     if isinstance(val, str):
         val_clean = val.strip()
+        try:
+            num_str = val_clean.replace("%", "").replace("bps", "").strip()
+            if float(num_str) == 0.0:
+                return ""
+        except ValueError:
+            pass
         if val_clean.startswith("+"):
             return "color: #f85149; font-weight: 600;"
         elif val_clean.startswith("-"):

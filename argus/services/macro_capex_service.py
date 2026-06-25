@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import logging
 from typing import Any
 
@@ -141,8 +141,9 @@ def _bps_change(frame: pd.DataFrame, series_code: str, *, days: int) -> float | 
     latest = _latest_observation(frame, series_code)
     if latest is None:
         return None
-    prior_date = pd.Timestamp(latest["date"]) - pd.Timedelta(days=days)
-    prior = _value_on_or_before(frame, series_code, prior_date.date())
+    latest_date = pd.to_datetime(latest["date"]).date()
+    prior_date = latest_date - timedelta(days=days)
+    prior = _value_on_or_before(frame, series_code, prior_date)
     if prior is None:
         return None
     return (latest["value"] - prior) * 100.0
@@ -152,8 +153,12 @@ def _yoy_change(frame: pd.DataFrame, series_code: str) -> float | None:
     latest = _latest_observation(frame, series_code)
     if latest is None:
         return None
-    prior_date = pd.Timestamp(latest["date"]) - pd.DateOffset(years=1)
-    prior = _value_on_or_before(frame, series_code, prior_date.date())
+    latest_date = pd.to_datetime(latest["date"]).date()
+    try:
+        prior_date = latest_date.replace(year=latest_date.year - 1)
+    except ValueError:
+        prior_date = latest_date - timedelta(days=365)
+    prior = _value_on_or_before(frame, series_code, prior_date)
     if prior is None or prior == 0:
         return None
     return (latest["value"] / prior) - 1.0

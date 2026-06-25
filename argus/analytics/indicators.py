@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 import numpy as np
 import pandas as pd
 
@@ -86,15 +87,15 @@ def calculate_power_signal(price_df: pd.DataFrame, demand_df: pd.DataFrame) -> f
     latest_price_val = latest_price_row["value"]
 
     prior_price_df = price_df[
-        (price_df["observation_date"] >= latest_price_date - pd.Timedelta(days=380))
-        & (price_df["observation_date"] <= latest_price_date - pd.Timedelta(days=340))
+        (price_df["observation_date"] >= latest_price_date - timedelta(days=380))
+        & (price_df["observation_date"] <= latest_price_date - timedelta(days=340))
     ]
     if prior_price_df.empty:
         return None
 
     prior_price_df = prior_price_df.copy()
     prior_price_df["diff"] = (
-        prior_price_df["observation_date"] - (latest_price_date - pd.Timedelta(days=365))
+        prior_price_df["observation_date"] - (latest_price_date - timedelta(days=365))
     ).abs()
     prior_price_val = prior_price_df.sort_values("diff").iloc[0]["value"]
     if prior_price_val == 0:
@@ -106,16 +107,16 @@ def calculate_power_signal(price_df: pd.DataFrame, demand_df: pd.DataFrame) -> f
     latest_demand_date = latest_demand_row["observation_date"]
 
     latest_demand_7d = demand_df[
-        (demand_df["observation_date"] >= latest_demand_date - pd.Timedelta(days=6))
+        (demand_df["observation_date"] >= latest_demand_date - timedelta(days=6))
         & (demand_df["observation_date"] <= latest_demand_date)
     ]
     if len(latest_demand_7d) < 5:
         return None
     latest_demand_val = latest_demand_7d["value"].mean()
 
-    prior_demand_date = latest_demand_date - pd.Timedelta(days=365)
+    prior_demand_date = latest_demand_date - timedelta(days=365)
     prior_demand_7d = demand_df[
-        (demand_df["observation_date"] >= prior_demand_date - pd.Timedelta(days=6))
+        (demand_df["observation_date"] >= prior_demand_date - timedelta(days=6))
         & (demand_df["observation_date"] <= prior_demand_date)
     ]
     if len(prior_demand_7d) < 5:
@@ -126,4 +127,3 @@ def calculate_power_signal(price_df: pd.DataFrame, demand_df: pd.DataFrame) -> f
     demand_yoy = (latest_demand_val / prior_demand_val) - 1.0
 
     return float((price_yoy + demand_yoy) / 2.0)
-
