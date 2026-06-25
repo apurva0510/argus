@@ -35,6 +35,7 @@ def test_refresh_prices_is_idempotent(sqlite_engine, monkeypatch) -> None:
             ]
         )
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -87,6 +88,7 @@ def test_refresh_prices_updates_existing_rows_without_duplicates(
             ]
         )
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -142,6 +144,7 @@ def test_refresh_prices_deduplicates_duplicate_dates_from_provider_payload(
             ]
         )
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -186,6 +189,7 @@ def test_refresh_prices_records_partial_success(sqlite_engine, monkeypatch) -> N
             ]
         )
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -216,6 +220,7 @@ def test_refresh_prices_treats_empty_yfinance_response_as_failed_ticker(
     def fake_fetch(_symbol: str, period: str = "2y") -> pd.DataFrame:
         return pd.DataFrame()
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -264,6 +269,7 @@ def test_refresh_prices_stores_benchmark_tickers(sqlite_engine, monkeypatch) -> 
             ]
         )
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr(
         db_module,
@@ -308,6 +314,7 @@ def test_refresh_prices_persists_job_run_on_unexpected_failure(sqlite_engine, mo
     def fail_upsert(*_args, **_kwargs) -> int:
         raise RuntimeError("upsert failed")
 
+    monkeypatch.setattr("argus.sources.yfinance_client.YFinanceProvider.supports_intraday_batch", False)
     monkeypatch.setattr("argus.pipelines.refresh_prices.fetch_daily_ohlcv", fake_fetch)
     monkeypatch.setattr("argus.pipelines.refresh_prices._upsert_price_bar_rows", fail_upsert)
     monkeypatch.setattr(
@@ -551,3 +558,51 @@ def test_refresh_prices_15m_fallback_for_unsupported_provider(sqlite_engine, mon
         assert len(bars) == 1
         assert bars[0].provider == "yfinance"
         assert bars[0].interval == "15m"
+
+
+def test_refresh_prices_daily_batch(sqlite_engine, monkeypatch) -> None:
+    from argus.core import db as db_module
+
+    captured_calls = []
+
+    def fake_batch(_self, symbols, *, period: str, interval: str) -> dict[str, pd.DataFrame]:
+        captured_calls.append((tuple(symbols), period, interval))
+        return {
+            symbol: pd.DataFrame(
+                [
+                    {
+                        "date": date(2026, 5, 29),
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "adj_close": 100.5,
+                        "volume": 1_000.0,
+                    }
+                ]
+            )
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr(
+        "argus.sources.yfinance_client.YFinanceProvider.fetch_ohlcv_batch", fake_batch
+    )
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=sqlite_engine, autocommit=False, autoflush=False, class_=Session),
+    )
+
+    with db_module.session_scope() as session:
+        session.add(Company(symbol="AAPL", name="Apple", is_active=True))
+        session.add(Company(symbol="MSFT", name="Microsoft", is_active=True))
+
+    result = refresh_prices(interval="1d", period="2y")
+
+    assert result["status"] == "success"
+    assert captured_calls == [(("AAPL", "MSFT"), "2y", "1d")]
+    with db_module.session_scope() as session:
+        bars = session.query(PriceBar).all()
+        assert len(bars) == 2
+        assert {bar.interval for bar in bars} == {"1d"}
+        assert {bar.provider for bar in bars} == {"yfinance"}

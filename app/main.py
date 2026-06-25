@@ -8,7 +8,6 @@ if str(project_root) not in sys.path:
 
 import streamlit as st  # noqa: E402
 from argus.core.auth import (  # noqa: E402
-    AUTH_COOKIE_NAME,
     AUTH_QUERY_PARAM,
     create_auth_token,
     validate_auth_token,
@@ -33,10 +32,6 @@ def _remove_query_param(name: str) -> None:
     if name in st.query_params:
         del st.query_params[name]
 
-
-def _cookie_is_authenticated() -> bool:
-    token = st.context.cookies.get(AUTH_COOKIE_NAME)
-    return validate_auth_token(token, _auth_secret())
 
 
 def _query_token_is_authenticated() -> bool:
@@ -125,9 +120,9 @@ def render_login_screen():
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
 
-# Check cookie authentication for cross-tab session persistence
+# Check query parameter authentication
 if settings.app_password:
-    if _query_token_is_authenticated() or _cookie_is_authenticated():
+    if _query_token_is_authenticated():
         st.session_state["password_correct"] = True
         if "auth_token" not in st.session_state:
             st.session_state["auth_token"] = create_auth_token(_auth_secret())

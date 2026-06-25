@@ -2,7 +2,7 @@ import sys
 from unittest.mock import MagicMock, patch, call
 from urllib.parse import parse_qs, urlsplit
 
-from argus.core.auth import AUTH_COOKIE_NAME, AUTH_QUERY_PARAM, create_auth_token
+from argus.core.auth import AUTH_QUERY_PARAM, create_auth_token
 from app.auth_links import company_detail_url
 
 
@@ -73,54 +73,6 @@ def test_password_protection_bypass(monkeypatch):
         assert page_calls[7] == call("pages/7_Admin_Data_Health.py", title="Admin / Data Health")
 
 
-def test_password_protection_rejects_forged_cookie(monkeypatch):
-    """A user-set app_password_auth=1 cookie must not bypass the password screen."""
-    monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
-    monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
-
-    mock_st = MagicMock()
-    mock_st.session_state = {}
-    mock_st.query_params = {}
-    mock_st.context.cookies.get.return_value = "1"
-    mock_st.form_submit_button.return_value = False
-    mock_st.text_input.return_value = ""
-    mock_st.columns.return_value = (MagicMock(), MagicMock(), MagicMock())
-    mock_navigation = MagicMock()
-    mock_st.navigation.return_value = mock_navigation
-
-    with patch.dict("sys.modules", {"streamlit": mock_st}):
-        if "app.main" in sys.modules:
-            del sys.modules["app.main"]
-
-        import app.main  # noqa: F401
-
-        assert mock_st.session_state["password_correct"] is False
-        mock_navigation.run.assert_not_called()
-
-
-def test_password_protection_accepts_signed_cookie(monkeypatch):
-    """A signed legacy cookie should still authenticate a new tab without re-entering the password."""
-    monkeypatch.setattr("argus.core.settings.settings.app_password", "secure123")
-    monkeypatch.setattr("argus.core.settings.settings.app_auth_secret", "")
-
-    mock_st = MagicMock()
-    mock_st.session_state = {}
-    mock_st.query_params = {}
-    mock_st.context.cookies.get.return_value = create_auth_token("secure123")
-    mock_navigation = MagicMock()
-    mock_st.navigation.return_value = mock_navigation
-
-    with patch.dict("sys.modules", {"streamlit": mock_st}):
-        if "app.main" in sys.modules:
-            del sys.modules["app.main"]
-
-        import app.main  # noqa: F401
-
-        mock_st.context.cookies.get.assert_called_with(AUTH_COOKIE_NAME)
-        assert mock_st.session_state["password_correct"] is True
-        assert "auth_token" in mock_st.session_state
-        mock_navigation.run.assert_called_once()
-
 
 def test_password_protection_accepts_signed_query_token(monkeypatch):
     """A valid inbound query token authenticates once and is removed from the URL."""
@@ -130,7 +82,7 @@ def test_password_protection_accepts_signed_query_token(monkeypatch):
     mock_st = MagicMock()
     mock_st.session_state = {}
     mock_st.query_params = FakeQueryParams({AUTH_QUERY_PARAM: create_auth_token("secure123")})
-    mock_st.context.cookies.get.return_value = None
+
     mock_navigation = MagicMock()
     mock_st.navigation.return_value = mock_navigation
 
@@ -163,7 +115,7 @@ def test_authenticated_company_link_opens_new_session_without_password(monkeypat
             AUTH_QUERY_PARAM: link_params[AUTH_QUERY_PARAM][0],
         }
     )
-    mock_st.context.cookies.get.return_value = None
+
     mock_navigation = MagicMock()
     mock_st.navigation.return_value = mock_navigation
 
