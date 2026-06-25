@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -76,7 +77,7 @@ def get_index_preview_data(
             rel_df["nvda_level"] = 100.0 + rel_df["nvda_ret"]
 
     latest_date = latest_point.date()
-    contributor_start = latest_date - pd.Timedelta(days=90)
+    contributor_start = latest_date - timedelta(days=90)
     return {
         "index_df": index_df,
         "rel_df": rel_df,

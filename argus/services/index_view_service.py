@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from sqlalchemy.engine import Engine
@@ -145,8 +145,8 @@ def load_dashboard_index_data_from_engine(
         weights = get_index_weights(session, index_definition_id)
         symbols = list(weights)
 
-        date_1m = latest_date_date - pd.Timedelta(days=30)
-        date_3m = latest_date_date - pd.Timedelta(days=90)
+        date_1m = latest_date_date - timedelta(days=30)
+        date_3m = latest_date_date - timedelta(days=90)
         date_ytd = datetime(latest_date_date.year - 1, 12, 31).date()
 
         return {
@@ -204,9 +204,7 @@ def load_index_relative_returns_from_engine(
         else:
             start_date_utc = start_date
 
-        return calculate_relative_performance(
-            session, index_df, start_date_utc, interval=interval
-        )
+        return calculate_relative_performance(session, index_df, start_date_utc, interval=interval)
 
 
 def _build_daily_close_levels(
