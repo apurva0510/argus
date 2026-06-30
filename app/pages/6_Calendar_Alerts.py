@@ -8,6 +8,7 @@ import streamlit as st
 
 from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
+from app.components.tables import style_positive_green_negative_red
 from argus.services.company_service import get_company_options
 from argus.services.alert_service import (
     get_all_alerts,
@@ -73,11 +74,11 @@ def load_earnings_calendar(today: date) -> pd.DataFrame:
 
 @st.cache_data(ttl=60)
 def load_historical_post_earnings_moves() -> dict[str, float]:
-    """Return a dictionary mapping company symbol to its average absolute post-earnings move."""
+    """Return a dictionary mapping company symbol to its average signed post-earnings move."""
     query = """
         SELECT
             c.symbol,
-            AVG(ABS(cis.return_event_to_p1)) AS avg_move
+            AVG(cis.return_event_to_p1) AS avg_move
         FROM catalyst_events ce
         JOIN companies c ON c.id = ce.company_id
         JOIN catalyst_impact_snapshots cis ON cis.catalyst_event_id = ce.id
@@ -418,8 +419,21 @@ def render_page() -> None:
 
             df_view["symbol"] = df_view["symbol"].apply(company_detail_url)
 
+            display_columns = [
+                "event_date",
+                "symbol",
+                "company_name",
+                "Hist. Move Avg",
+                "fiscal_period",
+                "source",
+            ]
+            styled_view = df_view[display_columns].style.map(
+                style_positive_green_negative_red,
+                subset=["Hist. Move Avg"],
+            )
+
             st.dataframe(
-                df_view[["event_date", "symbol", "company_name", "Hist. Move Avg", "fiscal_period", "source"]],
+                styled_view,
                 hide_index=True,
                 width="stretch",
                 column_config={
