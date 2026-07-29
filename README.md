@@ -12,30 +12,18 @@ Follow these steps to set up Argus on your local machine.
 
 ### 1. Environment Setup
 
-Argus requires **Python 3.12** or higher. Create a virtual environment and activate it:
+Argus requires **Python 3.12** or higher. Create the uv-managed environment and install dependencies:
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate
+uv sync
 ```
 
 ### 2. Install Dependencies
 
-Install dependencies from `requirements.txt` and install the package in **editable mode**.
+`uv sync` installs dependencies from `requirements.txt` and installs the package in **editable mode**.
 
 > [!TIP]
 > Installing in editable mode (`-e .`) registers the `argus` package with your virtual environment, ensuring all import paths resolve correctly and preventing common path errors.
-
-```bash
-# Install core requirements
-pip install -r requirements.txt
-
-# Install package in editable mode
-pip install -e .
-```
 
 ### 3. Environment Configuration
 
