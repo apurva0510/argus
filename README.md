@@ -12,30 +12,18 @@ Follow these steps to set up Argus on your local machine.
 
 ### 1. Environment Setup
 
-Argus requires **Python 3.12** or higher. Create a virtual environment and activate it:
+Argus requires **Python 3.12** or higher. Create the uv-managed environment and install dependencies:
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate
+uv sync
 ```
 
 ### 2. Install Dependencies
 
-Install dependencies from `requirements.txt` and install the package in **editable mode**.
+`uv sync` installs the locked dependencies from `uv.lock` and installs the package in **editable mode**.
 
 > [!TIP]
 > Installing in editable mode (`-e .`) registers the `argus` package with your virtual environment, ensuring all import paths resolve correctly and preventing common path errors.
-
-```bash
-# Install core requirements
-pip install -r requirements.txt
-
-# Install package in editable mode
-pip install -e .
-```
 
 ### 3. Environment Configuration
 
@@ -198,7 +186,7 @@ The application will be accessible at [http://localhost:8501](http://localhost:8
 To execute the unit and integration test suite, run:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 *Note: The test suite runs in ~30 seconds, uses SQLite in-memory fixtures, and mocks all external API/network requests.*
@@ -208,7 +196,7 @@ pytest
 To check for syntax, format, or type issues, run:
 
 ```bash
-ruff check .
+uv run ruff check .
 ```
 
 ---
@@ -219,7 +207,7 @@ ruff check .
 
 This occurs if python cannot find the internal packages when executing scripts or running tests.
 
-* **Fix**: Ensure you have installed the package in editable mode (`pip install -e .`) inside your active virtual environment. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. python scripts/init_db.py`).
+* **Fix**: Ensure you have installed the package with `uv sync`. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. python scripts/init_db.py`).
 
 ### 2. `sqlite3.OperationalError: database is locked`
 

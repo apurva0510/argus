@@ -84,15 +84,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Install dependencies
         if: steps.daily_close_window.outputs.run_job == 'true'
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .
+          pip install uv
+          uv sync --frozen
 
       - name: Run daily refresh
         if: steps.daily_close_window.outputs.run_job == 'true'
-        run: python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings
+        run: uv run python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings
