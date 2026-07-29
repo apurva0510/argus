@@ -56,10 +56,10 @@ Initialize the database file and seed it with the default universe of companies 
 
 ```bash
 # Create tables
-python scripts/init_db.py
+uv run python scripts/init_db.py
 
 # Seed initial stock list and watchlists
-python scripts/seed_companies.py
+uv run python scripts/seed_companies.py
 ```
 
 ### 2. Backfill Prices & Compute Metrics
@@ -68,31 +68,31 @@ Ingest historical pricing data, compute relative metrics (vs. QQQ and NVDA), and
 
 ```bash
 # Ingest 2 years of daily price history
-python scripts/backfill_prices.py --period 2y
+uv run python scripts/backfill_prices.py --period 2y
 
 # Refresh recent 15-minute bars during market hours
-python scripts/backfill_prices.py --period 5d --interval 15m
+uv run python scripts/backfill_prices.py --period 5d --interval 15m
 
 # Compute technical/moving average indicators
-python scripts/compute_metrics.py
+uv run python scripts/compute_metrics.py
 
 # Refresh fundamentals used by peer-relative valuation
-python scripts/refresh_fundamentals.py
+uv run python scripts/refresh_fundamentals.py
 
 # Compute peer-relative valuation snapshots from refreshed fundamentals
-python scripts/compute_valuation_peers.py
+uv run python scripts/compute_valuation_peers.py
 
 # Calculate opportunity and pullback scores
-python scripts/compute_scores.py
+uv run python scripts/compute_scores.py
 
 # Pre-calculate AI Infra Core Index values
-python scripts/refresh_index.py
+uv run python scripts/refresh_index.py
 
 # Compute rich signals (NVDA/hyperscaler correlation, capex growth, power demand, etc.)
-python scripts/compute_signals.py
+uv run python scripts/compute_signals.py
 
 # Generate read-only company theses from current Argus data
-python scripts/generate_theses.py
+uv run python scripts/generate_theses.py
 ```
 
 ### 3. (Optional) Ingest News, IR Feeds & SEC Filings
@@ -101,14 +101,14 @@ Fetch news headlines and company filings from RSS and SEC EDGAR:
 
 ```bash
 # Refresh broad market news articles (uses provider cooldown protection)
-python scripts/refresh_news.py
+uv run python scripts/refresh_news.py
 
 # Refresh selected company investor-relations feeds
-python scripts/refresh_ir_feeds.py
+uv run python scripts/refresh_ir_feeds.py
 
 # Refresh SEC filings (requires valid SEC_USER_AGENT in .env)
-python scripts/refresh_ciks.py
-python scripts/refresh_filings.py
+uv run python scripts/refresh_ciks.py
+uv run python scripts/refresh_filings.py
 ```
 
 ### 4. (Optional) Refresh Macro & Capex Context
@@ -117,16 +117,16 @@ Refresh FRED macro indicators, automated or manual hyperscaler capex data, and m
 
 ```bash
 # Refresh Treasury yields and inflation indicators from FRED
-python scripts/refresh_macro.py
+uv run python scripts/refresh_macro.py
 
 # Ingest upcoming FRED release schedules (requires FRED_API_KEY)
-python scripts/refresh_release_calendar.py
+uv run python scripts/refresh_release_calendar.py
 
 # Ingest automated capex from SEC CompanyFacts (MSFT, AMZN, GOOGL, META)
-python scripts/refresh_capex.py
+uv run python scripts/refresh_capex.py
 
 # Add a manual quarterly capex observation (fallback / overrides)
-python scripts/add_capex_observation.py --ticker MSFT --period-end 2026-03-31 --capex 10000000000 --source-label "Q1 earnings"
+uv run python scripts/add_capex_observation.py --ticker MSFT --period-end 2026-03-31 --capex 10000000000 --source-label "Q1 earnings"
 ```
 
 ### 5. Pullback Backtesting & Catalyst Impact (Release B)
@@ -135,10 +135,10 @@ Run historical backtests for opportunity scores and analyze price reactions to c
 
 ```bash
 # Run daily historical backtest (default start is 180 days ago)
-python scripts/backtest_scores.py --start-date 2026-01-01
+uv run python scripts/backtest_scores.py --start-date 2026-01-01
 
 # Refresh catalyst impact snapshots and calculate price reactions/drifts
-python scripts/refresh_catalysts.py
+uv run python scripts/refresh_catalysts.py
 ```
 
 ### 6. Evaluate Alert Rules
@@ -146,7 +146,7 @@ python scripts/refresh_catalysts.py
 Evaluate watchlist metrics against your enabled alert parameters (sends emails for triggers):
 
 ```bash
-python scripts/run_alerts.py
+uv run python scripts/run_alerts.py
 ```
 
 ### 7. Orchestrated Daily Refresh
@@ -155,7 +155,7 @@ Instead of running individual scripts, use the daily orchestrator to sync daily 
 
 ```bash
 # Run the complete refresh workflow
-python scripts/run_daily_refresh.py --period 2y
+uv run python scripts/run_daily_refresh.py --period 2y
 ```
 
 Useful daily workflow flags:
@@ -172,7 +172,7 @@ Useful daily workflow flags:
 Start the Streamlit dashboard on your local machine:
 
 ```bash
-streamlit run app/main.py
+uv run streamlit run app/main.py
 ```
 
 The application will be accessible at [http://localhost:8501](http://localhost:8501). If `APP_PASSWORD` is defined in your `.env`, you will be greeted by a secure login page.
@@ -207,7 +207,7 @@ uv run ruff check .
 
 This occurs if python cannot find the internal packages when executing scripts or running tests.
 
-* **Fix**: Ensure you have installed the package with `uv sync`. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. python scripts/init_db.py`).
+* **Fix**: Ensure you have installed the package with `uv sync`. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. uv run python scripts/init_db.py`).
 
 ### 2. `sqlite3.OperationalError: database is locked`
 
@@ -249,17 +249,17 @@ Argus supports both **local SQLite** (default) and **Supabase Postgres** for pro
 3. Initialize the schema and seed data by running the standard scripts with `DATABASE_URL` set. `init_db.py` creates the current schema and records the schema version used for future hosted upgrades:
 
    ```bash
-   DATABASE_URL="postgresql://..." python scripts/init_db.py
-   DATABASE_URL="postgresql://..." python scripts/seed_companies.py
+   DATABASE_URL="postgresql://..." uv run python scripts/init_db.py
+   DATABASE_URL="postgresql://..." uv run python scripts/seed_companies.py
    ```
 4. Backfill prices and compute metrics:
 
    ```bash
-   DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 2y
-   DATABASE_URL="postgresql://..." python scripts/backfill_prices.py --period 5d --interval 15m
-   DATABASE_URL="postgresql://..." python scripts/compute_metrics.py
-   DATABASE_URL="postgresql://..." python scripts/compute_scores.py
-   DATABASE_URL="postgresql://..." python scripts/refresh_index.py
+   DATABASE_URL="postgresql://..." uv run python scripts/backfill_prices.py --period 2y
+   DATABASE_URL="postgresql://..." uv run python scripts/backfill_prices.py --period 5d --interval 15m
+   DATABASE_URL="postgresql://..." uv run python scripts/compute_metrics.py
+   DATABASE_URL="postgresql://..." uv run python scripts/compute_scores.py
+   DATABASE_URL="postgresql://..." uv run python scripts/refresh_index.py
    ```
 
 > [!NOTE]
@@ -329,9 +329,9 @@ For a persistent SQLite deployment (no Postgres), deploy to a VPS or PaaS with v
 2. Mount a persistent disk to the `data/` folder. Set `DATABASE_URL=sqlite:////mnt/persistent/app.db`.
 3. Configure a cron job for daily ingestion:
    ```cron
-   0 18 * * 1-5 /path/to/project/.venv/bin/python /path/to/project/scripts/run_daily_refresh.py --skip-news
+   0 18 * * 1-5 cd /path/to/project && uv run python scripts/run_daily_refresh.py --skip-news
    ```
-4. No Docker required — install Python 3.12, clone, install requirements, and run with systemd or PM2.
+4. No Docker required — install uv, clone the repository, run `uv sync`, and launch with systemd or PM2.
 
 ---
 
