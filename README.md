@@ -186,7 +186,7 @@ The application will be accessible at [http://localhost:8501](http://localhost:8
 To execute the unit and integration test suite, run:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 *Note: The test suite runs in ~30 seconds, uses SQLite in-memory fixtures, and mocks all external API/network requests.*
@@ -196,7 +196,7 @@ pytest
 To check for syntax, format, or type issues, run:
 
 ```bash
-ruff check .
+uv run ruff check .
 ```
 
 ---
@@ -207,7 +207,7 @@ ruff check .
 
 This occurs if python cannot find the internal packages when executing scripts or running tests.
 
-* **Fix**: Ensure you have installed the package in editable mode (`pip install -e .`) inside your active virtual environment. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. python scripts/init_db.py`).
+* **Fix**: Ensure you have installed the package with `uv sync`. Alternatively, manually prefix commands with `PYTHONPATH=.` (e.g. `PYTHONPATH=. python scripts/init_db.py`).
 
 ### 2. `sqlite3.OperationalError: database is locked`
 
