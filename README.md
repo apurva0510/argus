@@ -20,7 +20,7 @@ uv sync
 
 ### 2. Install Dependencies
 
-`uv sync` installs dependencies from `requirements.txt` and installs the package in **editable mode**.
+`uv sync` installs the locked dependencies from `uv.lock` and installs the package in **editable mode**.
 
 > [!TIP]
 > Installing in editable mode (`-e .`) registers the `argus` package with your virtual environment, ensuring all import paths resolve correctly and preventing common path errors.
