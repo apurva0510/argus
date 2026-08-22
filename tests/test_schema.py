@@ -31,6 +31,28 @@ from argus.core.models import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+
+def test_catalyst_unique_key_detection_accepts_constraint_or_index() -> None:
+    from argus.core.migrations import _has_catalyst_unique_key
+
+    class Inspector:
+        def __init__(self, constraints, indexes):
+            self.constraints = constraints
+            self.indexes = indexes
+
+        def get_unique_constraints(self, _table_name):
+            return self.constraints
+
+        def get_indexes(self, _table_name):
+            return self.indexes
+
+    columns = ["company_id", "event_type", "source_key"]
+    assert _has_catalyst_unique_key(Inspector([{"column_names": columns}], []))
+    assert _has_catalyst_unique_key(Inspector([], [{"unique": True, "column_names": columns}]))
+    assert not _has_catalyst_unique_key(
+        Inspector([], [{"unique": False, "column_names": columns}])
+    )
+
 REQUIRED_TABLES = {
     "companies",
     "themes",
