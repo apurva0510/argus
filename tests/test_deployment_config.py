@@ -13,7 +13,7 @@ from argus.core.models import Company, PriceBar
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_intraday_workflow_runs_every_30_minutes_during_market_hours_et() -> None:
+def test_intraday_workflow_refreshes_prices_without_recomputing_daily_metrics() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "intraday-prices.yml").read_text(
         encoding="utf-8"
     )
@@ -27,11 +27,8 @@ def test_intraday_workflow_runs_every_30_minutes_during_market_hours_et() -> Non
     assert 'os.environ["GITHUB_OUTPUT"]' in workflow
     assert 'open("$GITHUB_OUTPUT"' not in workflow
     assert "python scripts/backfill_prices.py --period 5d --interval 15m" in workflow
-    assert "python scripts/compute_metrics.py" in workflow
+    assert "python scripts/compute_metrics.py" not in workflow
     assert "python scripts/refresh_index.py" in workflow
-    assert workflow.index("python scripts/compute_metrics.py") < workflow.index(
-        "python scripts/refresh_index.py"
-    )
     assert workflow.index("python scripts/refresh_index.py") < workflow.index(
         "python scripts/run_alerts.py"
     )

@@ -352,16 +352,37 @@ def _migrate_catalyst_events_source_key(database_engine: Engine) -> None:
             )
 
     if database_engine.dialect.name == "postgresql":
-        with database_engine.begin() as conn:
-            conn.execute(text("ALTER TABLE catalyst_events DROP CONSTRAINT IF EXISTS uq_catalyst_events"))
-            conn.execute(
-                text(
-                    """
-                    CREATE UNIQUE INDEX IF NOT EXISTS uq_catalyst_events
-                    ON catalyst_events (company_id, event_type, source_key)
-                    """
+        inspector = inspect(database_engine)
+        has_target_unique_key = _has_catalyst_unique_key(inspector)
+
+        # This migration used to drop/recreate the index on every script startup.
+        # Only change the schema when the required unique key is actually absent.
+        if not has_target_unique_key:
+            with database_engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE catalyst_events DROP CONSTRAINT IF EXISTS uq_catalyst_events")
                 )
-            )
+                conn.execute(
+                    text(
+                        """
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_catalyst_events
+                        ON catalyst_events (company_id, event_type, source_key)
+                        """
+                    )
+                )
+
+
+def _has_catalyst_unique_key(inspector) -> bool:
+    """Return whether catalyst identity is already enforced by a unique key."""
+    target_columns = {"company_id", "event_type", "source_key"}
+    return any(
+        set(constraint.get("column_names") or []) == target_columns
+        for constraint in inspector.get_unique_constraints("catalyst_events")
+    ) or any(
+        index.get("unique")
+        and set(index.get("column_names") or []) == target_columns
+        for index in inspector.get_indexes("catalyst_events")
+    )
 
 
 def _backfill_news_items_sentiment_explanations(database_engine: Engine) -> None:

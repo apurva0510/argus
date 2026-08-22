@@ -1,4 +1,4 @@
-name: Intraday Prices Metrics Alerts
+name: Intraday Prices Index Alerts
 
 on:
   schedule:
@@ -73,10 +73,6 @@ jobs:
       - name: Refresh prices
         if: steps.market_window.outputs.run_job == 'true'
         run: uv run python scripts/backfill_prices.py --period 5d --interval 15m
-
-      - name: Compute metrics
-        if: steps.market_window.outputs.run_job == 'true'
-        run: uv run python scripts/compute_metrics.py
 
       - name: Refresh index
         if: steps.market_window.outputs.run_job == 'true'
