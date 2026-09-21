@@ -9,6 +9,7 @@ from sqlalchemy.engine import Engine
 from argus.core.db import session_scope
 from argus.core.settings import settings
 from argus.core.models import UserNote, WatchlistItem
+from argus.analytics.downside_screen import downside_screen_label
 from argus.core.seed import WATCH_STATUSES
 
 
@@ -38,6 +39,7 @@ def load_watchlist_table(
                     wi.id AS watchlist_item_id,
                     c.symbol AS ticker,
                     c.name AS company,
+                    c.is_benchmark AS is_benchmark,
                     w.name AS theme,
                     wi.watch_status AS watch_status,
                     pb.adj_close AS price,
@@ -51,6 +53,8 @@ def load_watchlist_table(
                     dm.ma_50 AS ma_50,
                     dm.ma_200 AS ma_200,
                     dm.rsi_14 AS rsi_14,
+                    dm.date AS metrics_date,
+                    dm.volatility_20d AS volatility_20d,
                     wi.notes AS notes
                 FROM watchlist_items wi
                 JOIN watchlists w ON w.id = wi.watchlist_id
@@ -80,6 +84,15 @@ def load_watchlist_table(
 
     if watch_statuses:
         df = df[df["watch_status"].isin(watch_statuses)]
+
+    if not df.empty:
+        df["downside_screen"] = df.apply(
+            lambda row: downside_screen_label(
+                row["volatility_20d"], row["metrics_date"],
+                is_benchmark=bool(row["is_benchmark"]),
+            ),
+            axis=1,
+        )
 
     return df.reset_index(drop=True)
 

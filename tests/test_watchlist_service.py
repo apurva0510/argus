@@ -149,6 +149,21 @@ def test_load_watchlist_table_includes_metrics(sqlite_engine, db_session) -> Non
     assert row["return_1m"] == 0.03
 
 
+def test_watchlist_downside_screen_uses_fresh_metrics(sqlite_engine, db_session) -> None:
+    _seed_watchlist_fixture(db_session)
+    metric = db_session.query(DailyMetric).one()
+    metric.date = date.today()
+    metric.volatility_20d = 0.32
+    db_session.commit()
+    row = load_watchlist_table(sqlite_engine).iloc[0]
+    assert row["downside_screen"] == "Lower observed risk"
+
+    metric.volatility_20d = 0.62
+    db_session.commit()
+    row = load_watchlist_table(sqlite_engine).iloc[0]
+    assert row["downside_screen"] == "No signal"
+
+
 def test_load_watchlist_table_filters(sqlite_engine, db_session) -> None:
     _seed_watchlist_fixture(db_session)
     df_theme = load_watchlist_table(sqlite_engine, theme="AI Capex Benchmarks")

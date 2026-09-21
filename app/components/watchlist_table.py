@@ -26,6 +26,7 @@ def prepare_watchlist_editor_df(df: pd.DataFrame) -> pd.DataFrame:
     editor_df["50DMA"] = editor_df["ma_50"].round(2)
     editor_df["200DMA"] = editor_df["ma_200"].round(2)
     editor_df["RSI 14"] = editor_df["rsi_14"].round(1)
+    editor_df["20D downside screen"] = editor_df["downside_screen"]
 
     return editor_df[
         [
@@ -45,6 +46,7 @@ def prepare_watchlist_editor_df(df: pd.DataFrame) -> pd.DataFrame:
             "50DMA",
             "200DMA",
             "RSI 14",
+            "20D downside screen",
             "notes",
         ]
     ]
@@ -79,4 +81,8 @@ def watchlist_column_config(st_module: Any) -> dict[str, Any]:
         "50DMA": st_module.column_config.NumberColumn("50DMA", disabled=True, format="$%.2f"),
         "200DMA": st_module.column_config.NumberColumn("200DMA", disabled=True, format="$%.2f"),
         "RSI 14": st_module.column_config.NumberColumn("RSI 14", disabled=True, format="%.1f"),
+        "20D downside screen": st_module.column_config.TextColumn(
+            "20D downside screen", disabled=True,
+            help="Lower observed risk only when recent 20D volatility is at most 35%; otherwise no signal.",
+        ),
     }

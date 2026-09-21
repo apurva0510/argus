@@ -45,6 +45,7 @@ METRIC_COLUMNS = [
     "relative_return_vs_nvda_3m",
     "volatility_20d",
 ]
+BULK_METRIC_BATCH_SIZE = 500
 
 
 def _load_price_frame(session, company_id: int) -> pd.DataFrame:
@@ -176,32 +177,13 @@ def _bulk_upsert_daily_metrics(session, company_id: int, metrics_frame: pd.DataF
         )
 
     insert_fn = get_insert_statement_producer(session)
-    statement = insert_fn(DailyMetric).values(rows)
-    statement = statement.on_conflict_do_update(
-        index_elements=["company_id", "date"],
-        set_={
-            "return_1d": statement.excluded.return_1d,
-            "return_1w": statement.excluded.return_1w,
-            "return_1m": statement.excluded.return_1m,
-            "return_3m": statement.excluded.return_3m,
-            "return_6m": statement.excluded.return_6m,
-            "return_ytd": statement.excluded.return_ytd,
-            "ma_50": statement.excluded.ma_50,
-            "ma_200": statement.excluded.ma_200,
-            "rsi_14": statement.excluded.rsi_14,
-            "high_52w": statement.excluded.high_52w,
-            "low_52w": statement.excluded.low_52w,
-            "drawdown_52w": statement.excluded.drawdown_52w,
-            "distance_from_50dma": statement.excluded.distance_from_50dma,
-            "distance_from_200dma": statement.excluded.distance_from_200dma,
-            "relative_return_vs_qqq_1m": statement.excluded.relative_return_vs_qqq_1m,
-            "relative_return_vs_qqq_3m": statement.excluded.relative_return_vs_qqq_3m,
-            "relative_return_vs_nvda_1m": statement.excluded.relative_return_vs_nvda_1m,
-            "relative_return_vs_nvda_3m": statement.excluded.relative_return_vs_nvda_3m,
-            "volatility_20d": statement.excluded.volatility_20d,
-        },
-    )
-    session.execute(statement)
+    for start in range(0, len(rows), BULK_METRIC_BATCH_SIZE):
+        statement = insert_fn(DailyMetric).values(rows[start:start + BULK_METRIC_BATCH_SIZE])
+        statement = statement.on_conflict_do_update(
+            index_elements=["company_id", "date"],
+            set_={column: getattr(statement.excluded, column) for column in METRIC_COLUMNS},
+        )
+        session.execute(statement)
     return len(rows)
 
 
@@ -272,4 +254,3 @@ def compute_daily_metrics() -> dict[str, object]:
         "failed_symbols": failed_symbols,
         "error_text": state.error_text,
     }
-
