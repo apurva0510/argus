@@ -8,7 +8,25 @@ from sqlalchemy.orm import Session, sessionmaker
 from argus.analytics.indicators import annualized_volatility, compute_rsi
 from argus.analytics.relative_strength import relative_return
 from argus.core.models import Company, DailyMetric, JobRun, PriceBar
-from argus.pipelines.compute_metrics import compute_daily_metrics
+from argus.pipelines.compute_metrics import _bulk_upsert_daily_metrics, compute_daily_metrics
+
+
+def test_bulk_metric_upsert_batches_long_history(sqlite_engine) -> None:
+    start = date(2020, 1, 1)
+    frame = pd.DataFrame({
+        "date": pd.date_range(start, periods=1800),
+        "return_1d": [0.01] * 1800,
+    })
+    with Session(sqlite_engine) as session:
+        company = Company(symbol="LONG", name="Long history", is_active=True)
+        session.add(company)
+        session.flush()
+        assert _bulk_upsert_daily_metrics(session, company.id, frame) == 1800
+        session.commit()
+        assert session.query(DailyMetric).count() == 1800
+        assert _bulk_upsert_daily_metrics(session, company.id, frame) == 1800
+        session.commit()
+        assert session.query(DailyMetric).count() == 1800
 
 
 def _patch_session(sqlite_engine, monkeypatch):

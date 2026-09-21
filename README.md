@@ -141,6 +141,38 @@ uv run python scripts/backtest_scores.py --start-date 2026-01-01
 uv run python scripts/refresh_catalysts.py
 ```
 
+### Offline Predictive Signal Experiment
+
+Run a read-only, date-ordered comparison of a shallow decision tree, random forest,
+gradient boosted tree, and historical base rate:
+
+```bash
+uv run python scripts/experiment_predictive_signals.py
+uv run python scripts/search_predictive_features.py
+uv run python scripts/experiment_pullback_recovery.py
+uv run python scripts/experiment_downside_warning.py
+uv run python scripts/validate_downside_screen.py
+```
+
+The script reads the configured `DATABASE_URL` (SQLite locally or Supabase Postgres
+when configured) and prints JSON metrics. It does not save predictions or alter the
+database. The target is whether a non-benchmark company outperformed QQQ over the
+next 20 trading sessions, measured from the signal day's adjusted close. Training
+labels must mature before the held-out test period begins. Only dated technical
+metrics are used; current watch statuses, theme exposure, news, fundamentals, and
+valuation snapshots are excluded until their historical availability can be
+verified. This is research evaluation, not an executable return estimate or an
+investment recommendation.
+The second command compares feature families across four expanding, date-ordered
+folds and reports separate results for pullback and non-pullback candidates.
+The third command tests a narrower healthy-pullback outcome from the next
+available open, with a 60-session label and a 70% held-out hit-rate gate.
+The last two commands evaluate a 20-session downside outcome and validate the
+selective Watchlists downside screen. The screen abstains outside its supported
+lower-risk zone and when metrics are missing or stale.
+See [predictive signal research](docs/PREDICTIVE_SIGNAL_RESEARCH.md) for the latest
+findings and limitations.
+
 ### 6. Evaluate Alert Rules
 
 Evaluate watchlist metrics against your enabled alert parameters (sends emails for triggers):

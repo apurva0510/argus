@@ -13,6 +13,7 @@ def test_watchlist_editor_data_renders_tickers_as_links(monkeypatch) -> None:
     assert df_out.iloc[0]["ticker"] == "/Company_Detail?ticker=AAPL&auth=test-token-123"
     assert df_out.iloc[0]["1D %"] == "+1.00%"
     assert df_out.iloc[0]["drawdown from 52W high"] == "-10.00%"
+    assert df_out.iloc[0]["20D downside screen"] == "Lower observed risk"
 
 
 def test_watchlist_column_config_uses_link_column() -> None:
@@ -43,6 +44,7 @@ def _sample_watchlist_df() -> pd.DataFrame:
                 "ma_50": 145.0,
                 "ma_200": 140.0,
                 "rsi_14": 55.0,
+                "downside_screen": "Lower observed risk",
                 "notes": "Good stock",
             }
         ]

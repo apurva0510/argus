@@ -45,6 +45,12 @@ def load_watchlist_data(
 def render_watchlists() -> None:
     render_sidebar_navigation()
     st.title("Watchlists")
+    st.caption(
+        "20D downside screen: ‘Lower observed risk’ flags fresh, non-benchmark stocks "
+        "with annualized 20-day volatility at or below 35%. In four dated historical "
+        "tests, 81–89% avoided a 10% closing decline over the next 20 sessions, "
+        "versus 67–80% without the screen. ‘No signal’ is an abstention."
+    )
 
     all_options_df = load_watchlist_table(get_watchlist_engine())
 
