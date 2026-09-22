@@ -18,7 +18,7 @@ from argus.core.models import (
     Watchlist,
     WatchlistItem,
 )
-from argus.services.watch_status_history import record_watch_status_change
+from argus.services.watch_status import resolved_watch_status, set_company_watch_status, validate_watch_status
 
 
 def build_relative_performance_frame(
@@ -335,22 +335,18 @@ def add_company_note(
 
 def get_watch_status(company_id: int) -> str:
     with session_scope() as session:
-        item = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).first()
-        return item.watch_status if item else "watch"
+        items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
+        return resolved_watch_status(items)
 
 
 def update_watch_status(
     company_id: int, watch_status: str, *, reason: str | None = None
 ) -> None:
+    validate_watch_status(watch_status)
     with session_scope() as session:
         items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
         if items:
-            record_watch_status_change(
-                session, company_id, items[0].watch_status, watch_status,
-                reason=reason, source="company_detail",
-            )
-            for item in items:
-                item.watch_status = watch_status
+            set_company_watch_status(session, company_id, watch_status, reason=reason, source="company_detail", items=items)
         else:
             # Associate company with its sector watchlist or first watchlist
             company = session.query(Company).filter(Company.id == company_id).one_or_none()
@@ -375,10 +371,7 @@ def update_watch_status(
                 notes="",
             )
             session.add(item)
-            record_watch_status_change(
-                session, company_id, "watch", watch_status,
-                reason=reason, source="company_detail",
-            )
+            set_company_watch_status(session, company_id, watch_status, reason=reason, source="company_detail", items=[])
 
 
 def get_watchlist_notes(company_id: int) -> list[dict]:

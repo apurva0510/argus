@@ -637,6 +637,50 @@ def test_status_history_records_one_event_for_synced_company(
     assert db_session.query(WatchStatusEvent).count() == 1
 
 
+def test_conflicting_batch_statuses_are_atomic(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="NVDA", name="NVIDIA", is_active=True)
+    first = Watchlist(name="First")
+    second = Watchlist(name="Second")
+    db_session.add_all([company, first, second])
+    db_session.flush()
+    items = [
+        WatchlistItem(watchlist_id=first.id, company_id=company.id, watch_status="watch", notes="first"),
+        WatchlistItem(watchlist_id=second.id, company_id=company.id, watch_status="watch", notes="second"),
+    ]
+    db_session.add_all(items)
+    db_session.commit()
+
+    count, errors = update_watchlist_items([
+        {"watchlist_item_id": items[0].id, "watch_status": "owned", "notes": "changed"},
+        {"watchlist_item_id": items[1].id, "watch_status": "ignore", "notes": "changed"},
+    ])
+    assert count == 0
+    assert errors == [f"Conflicting watch statuses for company {company.id}"]
+    db_session.expire_all()
+    assert {(item.watch_status, item.notes) for item in db_session.query(WatchlistItem).all()} == {
+        ("watch", "first"), ("watch", "second")
+    }
+    assert db_session.query(WatchStatusEvent).count() == 0
+
+
+def test_watchlist_table_resolves_conflicting_stored_statuses(sqlite_engine, db_session) -> None:
+    company = Company(symbol="NVDA", name="NVIDIA", is_active=True)
+    first = Watchlist(name="First")
+    second = Watchlist(name="Second")
+    db_session.add_all([company, first, second])
+    db_session.flush()
+    db_session.add_all([
+        WatchlistItem(watchlist_id=first.id, company_id=company.id, watch_status="ignore"),
+        WatchlistItem(watchlist_id=second.id, company_id=company.id, watch_status="owned"),
+    ])
+    db_session.commit()
+
+    table = load_watchlist_table(sqlite_engine)
+    assert len(table) == 2
+    assert set(table["watch_status"]) == {"owned"}
+
+
 def test_update_watchlist_items_does_not_sync_notes_globally(
     sqlite_engine, db_session, monkeypatch
 ) -> None:
