@@ -97,6 +97,17 @@ class WatchlistItem(Base, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)
 
 
+class WatchStatusEvent(Base):
+    __tablename__ = "watch_status_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    previous_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
 class PriceBar(Base):
     __tablename__ = "price_bars"
     __table_args__ = (

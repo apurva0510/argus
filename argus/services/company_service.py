@@ -18,6 +18,7 @@ from argus.core.models import (
     Watchlist,
     WatchlistItem,
 )
+from argus.services.watch_status_history import record_watch_status_change
 
 
 def build_relative_performance_frame(
@@ -338,10 +339,16 @@ def get_watch_status(company_id: int) -> str:
         return item.watch_status if item else "watch"
 
 
-def update_watch_status(company_id: int, watch_status: str) -> None:
+def update_watch_status(
+    company_id: int, watch_status: str, *, reason: str | None = None
+) -> None:
     with session_scope() as session:
         items = session.query(WatchlistItem).filter(WatchlistItem.company_id == company_id).all()
         if items:
+            record_watch_status_change(
+                session, company_id, items[0].watch_status, watch_status,
+                reason=reason, source="company_detail",
+            )
             for item in items:
                 item.watch_status = watch_status
         else:
@@ -368,6 +375,10 @@ def update_watch_status(company_id: int, watch_status: str) -> None:
                 notes="",
             )
             session.add(item)
+            record_watch_status_change(
+                session, company_id, "watch", watch_status,
+                reason=reason, source="company_detail",
+            )
 
 
 def get_watchlist_notes(company_id: int) -> list[dict]:

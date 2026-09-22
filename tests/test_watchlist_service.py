@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from argus.core.models import Company, DailyMetric, PriceBar, Watchlist, WatchlistItem
+from argus.core.models import Company, DailyMetric, PriceBar, Watchlist, WatchlistItem, WatchStatusEvent
 from argus.services.watchlist_service import (
     load_watchlist_table,
     normalize_note_value,
@@ -610,6 +610,31 @@ def test_update_watchlist_items_syncs_status_globally(
     # Verify notes remain separate
     assert item1.notes == "system note"
     assert item2.notes == "custom note"
+
+
+def test_status_history_records_one_event_for_synced_company(
+    sqlite_engine, db_session, monkeypatch
+) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    fixture = _seed_multi_watchlist_fixture(db_session)
+    item_id = fixture["item_nvda_id"]
+    update_watchlist_items(
+        [{"watchlist_item_id": item_id, "watch_status": "owned", "notes": "nvda note"}],
+        status_reason="Long-term holding",
+    )
+    db_session.expire_all()
+    events = db_session.query(WatchStatusEvent).all()
+    assert len(events) == 1
+    assert events[0].company_id == fixture["nvda_company_id"]
+    assert (events[0].previous_status, events[0].new_status) == ("watch", "owned")
+    assert events[0].reason == "Long-term holding"
+    assert events[0].source == "watchlists"
+
+    update_watchlist_items(
+        [{"watchlist_item_id": item_id, "watch_status": "owned", "notes": "revised note"}]
+    )
+    db_session.expire_all()
+    assert db_session.query(WatchStatusEvent).count() == 1
 
 
 def test_update_watchlist_items_does_not_sync_notes_globally(

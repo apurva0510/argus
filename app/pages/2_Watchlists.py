@@ -138,6 +138,10 @@ def render_watchlists() -> None:
         key="watchlists_editor",
     )
 
+    status_reason = st.text_input(
+        "Reason for status changes (optional)",
+        help="Saved with each status change in this batch; notes-only edits do not create status history.",
+    )
     if st.button("Save edits", type="primary"):
         updates = []
         original_by_id = {int(row["watchlist_item_id"]): row for _, row in editor_df.iterrows()}
@@ -160,7 +164,7 @@ def render_watchlists() -> None:
             st.info("No changes detected.")
             return
 
-        updated_count, errors = update_watchlist_items(updates)
+        updated_count, errors = update_watchlist_items(updates, status_reason=status_reason)
         if errors:
             for err in errors:
                 st.error(err)

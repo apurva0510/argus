@@ -59,6 +59,7 @@ REQUIRED_TABLES = {
     "company_theme_exposure",
     "watchlists",
     "watchlist_items",
+    "watch_status_events",
     "price_bars",
     "daily_metrics",
     "fundamentals_snapshot",
@@ -151,7 +152,7 @@ def test_initialize_database_creates_directories_and_tables(tmp_path, monkeypatc
     assert REQUIRED_TABLES.issubset(set(inspect(test_engine).get_table_names()))
     with Session(test_engine) as session:
         schema_version = session.query(AppSetting).filter(AppSetting.key == "schema_version").one()
-        assert schema_version.value == "12"
+        assert schema_version.value == "13"
     test_engine.dispose()
 
 
