@@ -327,7 +327,7 @@ def render_dashboard() -> None:
     data = load_dashboard_data()
     metrics_df: pd.DataFrame = data["latest_metrics"]
     latest_signals = data.get("latest_signals")
-    # Empty metrics early return - KEEP EXACT STRING SEQUENCE FOR TEST COMPLIANCE
+    # Show theme coverage even before the first metrics refresh.
     if metrics_df.empty:
         col1, col2, col3, col4 = st.columns(4)
         col1.markdown(
@@ -919,11 +919,6 @@ def render_dashboard() -> None:
             )
         else:
             st.info("No signal data populated yet. Run `python scripts/compute_signals.py`.")
-
-    # Compliance comments for integration test expectations:
-    # **Missing/Stale 30m Tickers**
-    # data['active_company_count']
-
 
 if os.environ.get("PYTEST_CURRENT_TEST") is None:
     # Only execute the Streamlit page render when not running under pytest.

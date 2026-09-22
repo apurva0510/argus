@@ -393,7 +393,7 @@ def render_pullback_finder() -> None:
             sector=None if selected_sector == "All" else selected_sector,
             theme_family=None if selected_theme_family == "All" else selected_theme_family,
             theme=None if selected_theme == "All" else selected_theme,
-            watch_statuses=selected_statuses or None,
+            watch_statuses=selected_statuses,
             min_drawdown=min_drawdown_pct / 100.0 if min_drawdown_pct > 0 else None,
             rsi_min=float(rsi_min),
             rsi_max=float(rsi_max),

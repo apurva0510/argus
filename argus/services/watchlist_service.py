@@ -88,7 +88,7 @@ def load_watchlist_table(
         canonical = df.assign(_priority=priority).sort_values("_priority").drop_duplicates("ticker", keep="last")
         df["watch_status"] = df["ticker"].map(canonical.set_index("ticker")["watch_status"])
 
-    if watch_statuses:
+    if watch_statuses is not None:
         df = df[df["watch_status"].isin(watch_statuses)]
 
     if not df.empty:

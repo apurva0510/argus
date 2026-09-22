@@ -200,7 +200,7 @@ def apply_pullback_filters(
     if theme:
         filtered = filtered[filtered["theme"] == theme]
 
-    if watch_statuses:
+    if watch_statuses is not None:
         filtered = filtered[filtered["watch_status"].isin(watch_statuses)]
 
     if min_drawdown is not None and min_drawdown > 0:
@@ -208,10 +208,10 @@ def apply_pullback_filters(
         filtered = filtered[drawdown_magnitude >= min_drawdown]
 
     if rsi_min is not None:
-        filtered = filtered[filtered["rsi_14"].isna() | (filtered["rsi_14"] >= rsi_min)]
+        filtered = filtered[filtered["rsi_14"] >= rsi_min]
 
     if rsi_max is not None:
-        filtered = filtered[filtered["rsi_14"].isna() | (filtered["rsi_14"] <= rsi_max)]
+        filtered = filtered[filtered["rsi_14"] <= rsi_max]
 
     if exclude_benchmarks:
         filtered = filtered[filtered["is_benchmark"] != 1]

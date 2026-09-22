@@ -290,7 +290,7 @@ def test_pullback_finder_excludes_benchmarks_and_hyperscalers() -> None:
     assert no_hyperscalers["ticker"].tolist() == ["NVDA", "VERT"]
 
 
-def test_pullback_finder_allows_nan_rsi_under_default_filter() -> None:
+def test_pullback_finder_excludes_missing_rsi_when_range_is_active() -> None:
     from argus.services.pullback_finder_service import apply_pullback_filters
 
     df = pd.DataFrame(
@@ -299,10 +299,17 @@ def test_pullback_finder_allows_nan_rsi_under_default_filter() -> None:
             {"ticker": "BBB", "rsi_14": pd.NA},
         ]
     )
-    # Default range is typically (0, 55). Under default, BBB (NaN RSI) should not be filtered out
     filtered = apply_pullback_filters(df, rsi_min=0.0, rsi_max=55.0)
-    assert "BBB" in filtered["ticker"].tolist()
-    assert "AAA" in filtered["ticker"].tolist()
+    assert filtered["ticker"].tolist() == ["AAA"]
+    assert apply_pullback_filters(df)["ticker"].tolist() == ["AAA", "BBB"]
+
+
+def test_pullback_finder_empty_watch_status_selection_matches_nothing() -> None:
+    from argus.services.pullback_finder_service import apply_pullback_filters
+
+    df = pd.DataFrame([{"ticker": "AAA", "watch_status": "watch"}])
+    assert apply_pullback_filters(df, watch_statuses=[]).empty
+    assert apply_pullback_filters(df)["ticker"].tolist() == ["AAA"]
 
 
 def test_score_theme_exposure_bounds_and_clamping() -> None:

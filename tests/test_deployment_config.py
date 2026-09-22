@@ -18,8 +18,6 @@ def test_intraday_workflow_refreshes_prices_without_recomputing_daily_metrics() 
         encoding="utf-8"
     )
 
-    assert "GitHub cron is UTC-only" in workflow
-    assert "These off-hour half-hour marks cover the requested" in workflow
     assert 'cron: "7,37 13-21 * * 1-5"' in workflow
     assert 'ZoneInfo("America/New_York")' in workflow
     assert "start = time(9, 30)" in workflow
@@ -39,7 +37,6 @@ def test_daily_close_workflow_runs_after_close_even_when_actions_starts_late() -
         encoding="utf-8"
     )
 
-    assert "GitHub cron is UTC-only" in workflow
     assert 'cron: "47 22 * * 1-5"' in workflow
     assert "daily_close_window" not in workflow
     assert "if:" not in workflow
@@ -47,14 +44,11 @@ def test_daily_close_workflow_runs_after_close_even_when_actions_starts_late() -
 
 
 def test_daily_refresh_orchestrator_includes_refresh_index() -> None:
-    source = (PROJECT_ROOT / "argus" / "pipelines" / "run_daily_refresh.py").read_text(
-        encoding="utf-8"
-    )
+    from argus.pipelines.run_daily_refresh import build_daily_refresh_steps
 
-    assert "from argus.pipelines.refresh_index import refresh_index" in source
-    assert '("refresh_index", refresh_index)' in source
-    assert "from argus.pipelines.run_alerts import run_alerts" in source
-    assert '("run_alerts", run_alerts)' in source
+    names = [name for name, _ in build_daily_refresh_steps()]
+    assert names.index("compute_opportunity_scores") < names.index("refresh_index")
+    assert names.index("refresh_index") < names.index("run_alerts")
 
 
 def test_filings_workflow_syncs_ciks_before_refreshing_filings() -> None:
@@ -62,7 +56,6 @@ def test_filings_workflow_syncs_ciks_before_refreshing_filings() -> None:
         encoding="utf-8"
     )
 
-    assert "Every 3 hours, every day" in workflow
     assert 'cron: "0 */3 * * *"' in workflow
     assert "python scripts/refresh_ciks.py" in workflow
     assert "python scripts/refresh_filings.py" in workflow
@@ -95,7 +88,6 @@ def test_news_workflow_has_no_github_actions_skip_gate() -> None:
         encoding="utf-8"
     )
 
-    assert "Every 2 hours, every day" in workflow
     assert 'cron: "0 */2 * * *"' in workflow
     assert "Determine if news refresh window" not in workflow
     assert "steps.news_refresh_window.outputs.run_job" not in workflow
@@ -119,8 +111,6 @@ def test_ir_feeds_workflow_runs_every_6_hours() -> None:
         encoding="utf-8"
     )
 
-    assert "GitHub cron is UTC-only" in workflow
-    assert "Run every 6 hours at an off-peak minute" in workflow
     assert 'cron: "22 */6 * * *"' in workflow
     assert "Determine if IR refresh window" not in workflow
     assert "steps.ir_refresh_window.outputs.run_job" not in workflow
@@ -140,12 +130,26 @@ def test_ir_feeds_workflow_runs_every_6_hours() -> None:
     assert "--force" not in workflow
 
 
-def test_daily_refresh_cli_allows_partial_success_without_failing_workflow() -> None:
-    script = (PROJECT_ROOT / "scripts" / "run_daily_refresh.py").read_text(encoding="utf-8")
+@pytest.mark.parametrize("status, exits", [("partial_success", False), ("failed", True)])
+def test_daily_refresh_cli_exit_status(monkeypatch, capsys, status, exits) -> None:
+    from argparse import Namespace
+    from scripts import run_daily_refresh as cli
 
-    assert "Warning: {result['error_text']}" in script
-    assert 'result.get("status") == "failed"' in script
-    assert "sys.exit(1)" in script
+    monkeypatch.setattr(cli, "parse_args", lambda: Namespace(period="2y", skip_news=False, skip_filings=False, skip_alerts=False, skip_macro=False))
+    monkeypatch.setattr(cli, "get_engine", lambda: object())
+    monkeypatch.setattr(cli, "run_migrations", lambda _engine: None)
+    monkeypatch.setattr(cli, "run_daily_refresh", lambda **_kwargs: {
+        "status": status, "rows_read": 0, "rows_written": 0,
+        "results": {}, "error_text": "provider unavailable",
+    })
+
+    if exits:
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 1
+    else:
+        cli.main()
+    assert "Warning: provider unavailable" in capsys.readouterr().out
 
 
 def test_scheduled_workflows_validate_database_url_secret() -> None:
@@ -159,7 +163,6 @@ def test_scheduled_workflows_validate_database_url_secret() -> None:
         workflow = (PROJECT_ROOT / ".github" / "workflows" / workflow_name).read_text(
             encoding="utf-8"
         )
-        assert "Validate required secrets" in workflow
         assert "DATABASE_URL secret is required" in workflow
         assert "APP_AUTH_SECRET: ${{ secrets.APP_AUTH_SECRET }}" in workflow
 

@@ -164,14 +164,10 @@ def test_watchlist_downside_screen_uses_fresh_metrics(sqlite_engine, db_session)
     assert row["downside_screen"] == "No signal"
 
 
-def test_load_watchlist_table_filters(sqlite_engine, db_session) -> None:
-    _seed_watchlist_fixture(db_session)
-    df_theme = load_watchlist_table(sqlite_engine, theme="AI Capex Benchmarks")
-    assert len(df_theme) == 1
-    df_ticker = load_watchlist_table(sqlite_engine, ticker_query="NV")
-    assert len(df_ticker) == 1
-    df_status = load_watchlist_table(sqlite_engine, watch_statuses=["owned"])
-    assert df_status.empty
+def test_load_watchlist_table_combines_theme_and_status(sqlite_engine, db_session) -> None:
+    _seed_multi_watchlist_fixture(db_session)
+    rows = load_watchlist_table(sqlite_engine, theme="Theme A", watch_statuses=["owned"])
+    assert rows["ticker"].tolist() == ["AMD"]
 
 
 def test_load_watchlist_table_omits_unused_filter_params(monkeypatch) -> None:
@@ -400,6 +396,7 @@ def test_load_watchlist_table_filters_by_watch_status(sqlite_engine, db_session)
     assert len(df) == 2
     assert set(df["ticker"]) == {"NVDA", "AMD"}
     assert set(df["watch_status"]) == {"watch", "owned"}
+    assert load_watchlist_table(sqlite_engine, watch_statuses=[]).empty
 
 
 def test_load_watchlist_table_handles_missing_metrics(sqlite_engine, db_session) -> None:
