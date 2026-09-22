@@ -34,20 +34,15 @@ def test_intraday_workflow_refreshes_prices_without_recomputing_daily_metrics() 
     )
 
 
-def test_daily_close_workflow_runs_until_7pm_et_with_manual_override() -> None:
+def test_daily_close_workflow_runs_after_close_even_when_actions_starts_late() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "daily-refresh.yml").read_text(
         encoding="utf-8"
     )
 
     assert "GitHub cron is UTC-only" in workflow
-    assert "requested 4:00-7:00 PM ET" in workflow
-    assert 'cron: "17,47 20-23 * * 1-5"' in workflow
-    assert 'ZoneInfo("America/New_York")' in workflow
-    assert 'os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"' in workflow
-    assert "start = time(16, 0)" in workflow
-    assert "end = time(19, 0)" in workflow
-    assert "is_manual or in_window" in workflow
-    assert "steps.daily_close_window.outputs.run_job == 'true'" in workflow
+    assert 'cron: "47 22 * * 1-5"' in workflow
+    assert "daily_close_window" not in workflow
+    assert "if:" not in workflow
     assert "python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings" in workflow
 
 

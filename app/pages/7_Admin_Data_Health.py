@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +12,7 @@ from app.components.data_health import (
 from app.components.database import get_configured_app_engine
 from app.components.sidebar import render_sidebar_navigation
 from argus.core.timezones import format_et_datetime
+from argus.core.timezones import ET
 
 
 @st.cache_resource
@@ -40,7 +41,8 @@ def render_page() -> None:
     )
 
     # Fetch stats
-    today = datetime.now(UTC).date()
+    now_et = datetime.now(ET)
+    today = now_et.date()
     health_data = _load_health_data(today)
 
     tab_overview, tab_pipelines, tab_providers, tab_integrity = st.tabs(
@@ -55,7 +57,7 @@ def render_page() -> None:
     # 1. Overview Tab
     with tab_overview:
         st.subheader("Data Freshness Audits")
-        freshness_summary = build_freshness_summary(health_data, today)
+        freshness_summary = build_freshness_summary(health_data, today, as_of=now_et)
 
         if freshness_summary.stale_items:
             st.error("🚨 Stale Datasets Detected!")
@@ -63,7 +65,7 @@ def render_page() -> None:
                 st.markdown(f"**{item.name}**: {item.reason}")
                 st.code(item.command, language="bash")
         else:
-            st.success("✅ All core datasets are fresh (updated within the last 3 days).")
+            st.success("✅ All core datasets are fresh for their expected update schedule.")
 
         st.divider()
         st.subheader("Freshness Summary")

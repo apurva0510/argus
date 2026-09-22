@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -28,7 +29,7 @@ def test_build_freshness_summary_marks_fresh_stale_and_missing() -> None:
 
     stale_by_name = {item.name: item for item in summary.stale_items}
     assert set(stale_by_name) == {"Daily Metrics", "Macro Observations", "SEC Filings"}
-    assert stale_by_name["Daily Metrics"].reason == "Stale since 2026-06-07 (Older than 3 days)"
+    assert stale_by_name["Daily Metrics"].reason == "Latest 2026-06-07; expected 2026-06-10 after market close"
     assert stale_by_name["Macro Observations"].reason == "No data present"
     assert stale_by_name["SEC Filings"].command == "python scripts/refresh_filings.py"
 
@@ -61,6 +62,29 @@ def test_build_freshness_summary_formats_intraday_prices_and_timed_filings() -> 
     assert cards["Latest Filings"].display_value == "2026-06-10 06:00 PM ET"
     assert cards["Latest Macro"].display_value == "2026-06-10 03:00 PM ET"
     assert not summary.stale_items
+
+
+def test_friday_market_data_is_fresh_monday_before_close_but_stale_after() -> None:
+    market_data = {
+        "latest_prices": pd.DataFrame([{"val": "2026-09-18", "interval": "1d"}]),
+        "latest_metrics": pd.DataFrame([{"val": "2026-09-18"}]),
+        "latest_signals": pd.DataFrame([{"val": "2026-09-18"}]),
+        "latest_macro": pd.DataFrame([{"val": "2026-09-21"}]),
+        "latest_news": pd.DataFrame([{"val": "2026-09-21"}]),
+        "latest_filings": pd.DataFrame([{"val": "2026-09-21", "has_time": False}]),
+    }
+    et = ZoneInfo("America/New_York")
+    before = build_freshness_summary(
+        market_data, date(2026, 9, 21), as_of=datetime(2026, 9, 21, 17, 0, tzinfo=et)
+    )
+    after = build_freshness_summary(
+        market_data, date(2026, 9, 21), as_of=datetime(2026, 9, 21, 20, 30, tzinfo=et)
+    )
+    assert not before.stale_items
+    assert {item.name for item in after.stale_items} == {
+        "Price Bars", "Daily Metrics", "Daily Signals"
+    }
+    assert all("expected 2026-09-21" in item.reason for item in after.stale_items)
 
 
 def test_render_freshness_card_html_splits_date_and_time() -> None:
