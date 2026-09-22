@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pandas as pd
 import streamlit as st
 
@@ -175,4 +176,5 @@ def render_watchlists() -> None:
             st.rerun()
 
 
-render_watchlists()
+if os.environ.get("PYTEST_CURRENT_TEST") is None:
+    render_watchlists()
