@@ -16,10 +16,9 @@ name: Daily Close Refresh
 
 on:
   schedule:
-    # GitHub cron is UTC-only. These UTC times cover the requested 4:00-7:00 PM ET
-    # weekday window in both EDT and EST; the Python gate below is the source
-    # of truth for whether the refresh should actually run.
-    - cron: "17,47 20-23 * * 1-5"
+    # GitHub cron is UTC-only. 22:47 UTC is after the US market close in both EDT and EST.
+    # Run even if GitHub Actions starts late; the backfill is idempotent.
+    - cron: "47 22 * * 1-5"
   workflow_dispatch: {}
 
 
@@ -49,48 +48,23 @@ jobs:
       MARKET_DATA_PROVIDER: yfinance
 
     steps:
-      - name: Determine if daily close window (ET)
-        id: daily_close_window
-        run: |
-          python - <<'PY'
-          from datetime import datetime, time
-          from zoneinfo import ZoneInfo
-          import os
-
-          is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          now_et = datetime.now(ZoneInfo("America/New_York"))
-          is_weekday = now_et.weekday() < 5
-          start = time(16, 0)
-          end = time(19, 0)
-          in_window = is_weekday and (start <= now_et.time() < end)
-          run_job = is_manual or in_window
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"run_job={'true' if run_job else 'false'}\n")
-          print(f"now_et={now_et.isoformat()} is_manual={is_manual} in_window={in_window}")
-          PY
-
       - name: Validate required secrets
-        if: steps.daily_close_window.outputs.run_job == 'true'
         run: |
           test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is required"; exit 1; }
           test -n "$SEC_USER_AGENT" || { echo "::error::SEC_USER_AGENT secret is required"; exit 1; }
 
       - name: Checkout repository
-        if: steps.daily_close_window.outputs.run_job == 'true'
         uses: actions/checkout@v6
 
       - name: Set up Python 3.12
-        if: steps.daily_close_window.outputs.run_job == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        if: steps.daily_close_window.outputs.run_job == 'true'
         run: |
           pip install uv
           uv sync --frozen
 
       - name: Run daily refresh
-        if: steps.daily_close_window.outputs.run_job == 'true'
         run: uv run python scripts/run_daily_refresh.py --period 2y --skip-news --skip-filings

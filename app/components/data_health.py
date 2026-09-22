@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
-from argus.core.timezones import format_et_datetime
+from argus.core.market_freshness import expected_daily_market_date
+from argus.core.timezones import ET, format_et_datetime
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,8 @@ FRESHNESS_CARD_CSS = """
 def build_freshness_summary(
     health_data: dict[str, pd.DataFrame],
     today: date,
+    *,
+    as_of: datetime | None = None,
 ) -> FreshnessSummary:
     latest_values = {
         "prices": _safe_get_val(health_data["latest_prices"]),
@@ -142,6 +145,9 @@ def build_freshness_summary(
     }
     latest_dates = {key: _parse_date(value) for key, value in latest_values.items()}
     stale_threshold = today - timedelta(days=3)
+    market_expected = expected_daily_market_date(
+        as_of or datetime.combine(today, time(12), tzinfo=ET)
+    )
 
     stale_items: list[StaleDataset] = []
     datasets = [
@@ -153,32 +159,34 @@ def build_freshness_summary(
         ("Daily Signals", latest_dates["signals"], "python scripts/compute_signals.py"),
     ]
     for name, latest_date, command in datasets:
+        threshold = market_expected if name in {"Price Bars", "Daily Metrics", "Daily Signals"} else stale_threshold
         if latest_date is None:
             stale_items.append(StaleDataset(name, "No data present", command))
-        elif latest_date < stale_threshold:
+        elif latest_date < threshold:
+            reason = (
+                f"Latest {latest_date.isoformat()}; expected {market_expected.isoformat()} after market close"
+                if threshold == market_expected and name in {"Price Bars", "Daily Metrics", "Daily Signals"}
+                else f"Stale since {latest_date.isoformat()} (Older than 3 days)"
+            )
             stale_items.append(
-                StaleDataset(
-                    name,
-                    f"Stale since {latest_date.isoformat()} (Older than 3 days)",
-                    command,
-                )
+                StaleDataset(name, reason, command)
             )
 
     cards = [
         FreshnessCard(
             "Latest Prices",
             _price_display(health_data["latest_prices"]),
-            _freshness_status(latest_dates["prices"], stale_threshold),
+            _freshness_status(latest_dates["prices"], market_expected),
         ),
         FreshnessCard(
             "Latest Metrics",
             _format_freshness_val(latest_values["metrics"], is_datetime=False),
-            _freshness_status(latest_dates["metrics"], stale_threshold),
+            _freshness_status(latest_dates["metrics"], market_expected),
         ),
         FreshnessCard(
             "Latest Signals",
             _format_freshness_val(latest_values["signals"], is_datetime=False),
-            _freshness_status(latest_dates["signals"], stale_threshold),
+            _freshness_status(latest_dates["signals"], market_expected),
         ),
         FreshnessCard(
             "Latest News",

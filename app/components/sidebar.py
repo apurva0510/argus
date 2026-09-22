@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import UTC, datetime
+from datetime import datetime
 from app.components.database import get_configured_app_engine
 from argus.services.company_service import get_company_options
 from argus.core.settings import settings
+from argus.core.market_freshness import expected_daily_market_date
+from argus.core.timezones import ET
 
 
 @st.cache_data(ttl=60)
@@ -50,18 +52,17 @@ def get_system_health_status() -> tuple[str, str]:
     latest_metrics_date = _parse_date(latest_dates.at[0, "latest_metrics_date"])
     failed_job = not failed_job_df.empty
 
-    today = datetime.now(UTC).date()
-    stale_days_threshold = 3
+    expected_market_date = expected_daily_market_date(datetime.now(ET))
 
     stale_reasons = []
     if latest_price_date is None:
         stale_reasons.append("No price data found.")
-    elif (today - latest_price_date).days > stale_days_threshold:
+    elif latest_price_date < expected_market_date:
         stale_reasons.append("Prices are stale.")
 
     if latest_metrics_date is None:
         stale_reasons.append("No metrics data found.")
-    elif (today - latest_metrics_date).days > stale_days_threshold:
+    elif latest_metrics_date < expected_market_date:
         stale_reasons.append("Metrics are stale.")
 
     if failed_job:
