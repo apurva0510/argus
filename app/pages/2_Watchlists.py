@@ -35,7 +35,7 @@ def load_watchlist_data(
         get_watchlist_engine(),
         theme=theme,
         ticker_query=None,
-        watch_statuses=list(watch_statuses) if watch_statuses else None,
+        watch_statuses=list(watch_statuses),
     )
     if tickers:
         df = df[df["ticker"].isin(tickers)]
@@ -65,10 +65,9 @@ def render_watchlists() -> None:
 
     selected_ticker_state = st.session_state.get("watchlist_ticker_filter", [])
     theme_options_df = all_options_df.copy()
-    if selected_statuses:
-        theme_options_df = theme_options_df[
-            theme_options_df["watch_status"].isin(selected_statuses)
-        ]
+    theme_options_df = theme_options_df[
+        theme_options_df["watch_status"].isin(selected_statuses)
+    ]
     if selected_ticker_state:
         theme_options_df = theme_options_df[theme_options_df["ticker"].isin(selected_ticker_state)]
     theme_options = (
@@ -89,10 +88,9 @@ def render_watchlists() -> None:
     ticker_options_df = all_options_df.copy()
     if selected_theme != "All":
         ticker_options_df = ticker_options_df[ticker_options_df["theme"] == selected_theme]
-    if selected_statuses:
-        ticker_options_df = ticker_options_df[
-            ticker_options_df["watch_status"].isin(selected_statuses)
-        ]
+    ticker_options_df = ticker_options_df[
+        ticker_options_df["watch_status"].isin(selected_statuses)
+    ]
     ticker_options = (
         sorted(ticker_options_df["ticker"].dropna().unique().tolist())
         if not ticker_options_df.empty

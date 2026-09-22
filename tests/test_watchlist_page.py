@@ -1,6 +1,23 @@
 import pandas as pd
+import importlib
 
 from app.components.watchlist_table import prepare_watchlist_editor_df, watchlist_column_config
+
+
+def test_page_loader_preserves_empty_status_selection(monkeypatch) -> None:
+    page = importlib.import_module("app.pages.2_Watchlists")
+    captured = {}
+
+    def load_table(_engine, **kwargs):
+        captured["watch_statuses"] = kwargs["watch_statuses"]
+        return pd.DataFrame()
+
+    monkeypatch.setattr(page, "get_watchlist_engine", lambda: object())
+    monkeypatch.setattr(page, "load_watchlist_table", load_table)
+    page.load_watchlist_data.clear()
+
+    assert page.load_watchlist_data(None, (), ()).empty
+    assert captured["watch_statuses"] == []
 
 
 def test_watchlist_editor_data_renders_tickers_as_links(monkeypatch) -> None:

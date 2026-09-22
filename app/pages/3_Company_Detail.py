@@ -407,19 +407,8 @@ def _render_thesis_section(company_id: int) -> None:
     st.markdown(thesis.get("key_kpis") or "_No KPI list generated yet._")
 
 
-def render_company_detail() -> None:
-    st.set_page_config(page_title="Argus - Company Detail", layout="wide")
-    render_sidebar_navigation()
-
-    st.title("Company Detail")
-
-    st.markdown(FEED_CARD_STYLES, unsafe_allow_html=True)
-
-    symbols = get_company_options()
-    if not symbols:
-        st.warning("No active companies found in the database. Please seed the database first.")
-        return
-
+def select_company_ticker(symbols: list[str]) -> str:
+    """Keep the ticker widget and deep link in sync across Streamlit reruns."""
     # Check query parameters for ticker
     qp = st.query_params
     if "ticker" in qp:
@@ -453,6 +442,24 @@ def render_company_detail() -> None:
         st.session_state.selected_ticker = selected_ticker
         if "last_query_ticker" not in st.session_state:
             st.session_state.last_query_ticker = selected_ticker
+
+    return selected_ticker
+
+
+def render_company_detail() -> None:
+    st.set_page_config(page_title="Argus - Company Detail", layout="wide")
+    render_sidebar_navigation()
+
+    st.title("Company Detail")
+
+    st.markdown(FEED_CARD_STYLES, unsafe_allow_html=True)
+
+    symbols = get_company_options()
+    if not symbols:
+        st.warning("No active companies found in the database. Please seed the database first.")
+        return
+
+    selected_ticker = select_company_ticker(symbols)
 
     # Load company details
     company = get_company_by_symbol(selected_ticker)
@@ -785,15 +792,7 @@ def render_company_detail() -> None:
         if st.button("Save status change", disabled=new_status == current_status):
             update_watch_status(company["id"], new_status, reason=status_reason)
             st.success(f"Status updated to '{new_status}'!")
-            # Clear relevant Streamlit cache
-            load_price_history.clear()
-            load_index_relative_returns.clear()
-            load_index_options.clear()
-            load_company_fundamentals.clear()
-            load_company_news.clear()
-            load_company_filings.clear()
-            st.cache_data.clear()
-            # Rerun the app
+            # Status and status history are read without a cache on rerun.
             st.rerun()
 
         with st.expander("Status history"):
@@ -830,15 +829,7 @@ def render_company_detail() -> None:
             if submit_note and new_note_text.strip():
                 add_company_note(company["id"], new_note_text)
                 st.success("Note saved!")
-                # Clear relevant Streamlit cache
-                load_price_history.clear()
-                load_index_relative_returns.clear()
-                load_index_options.clear()
-                load_company_fundamentals.clear()
-                load_company_news.clear()
-                load_company_filings.clear()
-                st.cache_data.clear()
-                # Rerun the app
+                # Notes are read without a cache on rerun.
                 st.rerun()
 
         # List notes chronologically

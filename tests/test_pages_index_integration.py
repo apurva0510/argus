@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 import importlib
-from pathlib import Path
+from unittest.mock import MagicMock
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -428,22 +428,6 @@ def test_intraday_chart_helpers_compress_non_market_time() -> None:
     assert daily_fig.layout.xaxis.type is None
 
 
-def test_dashboard_index_contributors_link_to_company_detail_and_show_30m_stale_label() -> None:
-    component_source = (
-        Path(__file__).resolve().parents[1] / "app" / "components" / "links.py"
-    ).read_text(encoding="utf-8")
-    dashboard_source = (
-        Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
-    ).read_text(encoding="utf-8")
-
-    assert "ticker_link_column_config" in dashboard_source
-    assert "company_detail_url" in component_source
-    assert "st.column_config.LinkColumn(" in component_source
-    assert 'display_text=r"ticker=([^&]+)"' in component_source
-    assert "**Missing/Stale 30m Tickers**" in dashboard_source
-    assert "**Missing/Stale 15m Tickers**" not in dashboard_source
-
-
 def test_dashboard_links_all_visible_ticker_surfaces() -> None:
     import importlib
 
@@ -528,28 +512,27 @@ def test_dashboard_recent_news_renders_multiple_ticker_links_in_dataframe(monkey
     assert news_out.columns.tolist() == ["Ticker", "Headline", "Link"]
 
 
-def test_dashboard_theme_coverage_renders_before_empty_metrics_return() -> None:
-    dashboard_source = (
-        Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
-    ).read_text(encoding="utf-8")
-    empty_message = "Earnings events will appear here after earnings ingestion is implemented."
-    empty_return = 'st.info("Earnings events will appear here after earnings ingestion is implemented.")\n        _render_theme_counts(data.get("theme_counts"))\n        return'
+def test_dashboard_empty_metrics_shows_theme_coverage_and_constituent_count(monkeypatch) -> None:
+    dashboard = importlib.import_module("app.pages.1_Dashboard")
+    theme_counts = pd.DataFrame([{"theme": "Power and Grid", "company_count": 2}])
+    mock_st = MagicMock()
+    mock_st.columns.return_value = [MagicMock() for _ in range(4)]
+    render_theme_counts = MagicMock()
+    metric_card = MagicMock(return_value="tracked symbols card")
+    monkeypatch.setattr(dashboard, "st", mock_st)
+    monkeypatch.setattr(dashboard, "render_sidebar_navigation", MagicMock())
+    monkeypatch.setattr(dashboard, "load_dashboard_data", lambda: {
+        "latest_metrics": pd.DataFrame(), "index_constituent_count": 2,
+        "active_company_count": 5, "theme_counts": theme_counts,
+    })
+    monkeypatch.setattr(dashboard, "render_plain_metric_card", metric_card)
+    monkeypatch.setattr(dashboard, "_render_macro_capex_context", MagicMock())
+    monkeypatch.setattr(dashboard, "_render_theme_counts", render_theme_counts)
 
-    assert empty_message in dashboard_source
-    assert empty_return in dashboard_source
+    dashboard.render_dashboard()
 
-
-def test_dashboard_uses_separate_active_and_index_constituent_counts() -> None:
-    dashboard_source = (
-        Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Dashboard.py"
-    ).read_text(encoding="utf-8")
-
-    assert "data['active_company_count']" in dashboard_source
-    assert 'data.get("index_constituent_count")' in dashboard_source
-    assert (
-        'render_plain_metric_card("Tracked Symbols", data.get("index_symbol_count"))'
-        not in dashboard_source
-    )
+    metric_card.assert_called_once_with("Tracked Symbols", 2)
+    render_theme_counts.assert_called_once_with(theme_counts)
 
 
 def test_company_detail_formatters() -> None:
