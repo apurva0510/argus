@@ -10,8 +10,7 @@ from argus.core.db import session_scope
 from argus.core.settings import settings
 from argus.core.models import UserNote, WatchlistItem
 from argus.analytics.downside_screen import downside_screen_label
-from argus.core.seed import WATCH_STATUSES
-from argus.services.watch_status_history import record_watch_status_change
+from argus.services.watch_status import STATUS_PRIORITY, set_company_watch_status, validate_watch_status
 
 
 def load_watchlist_table(
@@ -83,6 +82,12 @@ def load_watchlist_table(
             params=params,
         )
 
+    if not df.empty:
+        # Old databases may contain different statuses for one company.
+        priority = df["watch_status"].map(STATUS_PRIORITY).fillna(0)
+        canonical = df.assign(_priority=priority).sort_values("_priority").drop_duplicates("ticker", keep="last")
+        df["watch_status"] = df["ticker"].map(canonical.set_index("ticker")["watch_status"])
+
     if watch_statuses:
         df = df[df["watch_status"].isin(watch_statuses)]
 
@@ -121,24 +126,26 @@ def update_watchlist_items(
         if errors:
             return 0, errors
 
+        statuses_by_company: dict[int, str] = {}
+        for item_id, new_status, _ in parsed_edits:
+            company_id = items_by_id[item_id].company_id
+            previous = statuses_by_company.setdefault(company_id, new_status)
+            if previous != new_status:
+                errors.append(f"Conflicting watch statuses for company {company_id}")
+        if errors:
+            return 0, errors
+
         updated = 0
+        changed_status_companies: set[int] = set()
         for item_id, new_status, new_notes in parsed_edits:
             item = items_by_id[item_id]
             changed = False
-            if item.watch_status != new_status:
-                record_watch_status_change(
-                    session, item.company_id, item.watch_status, new_status,
-                    reason=status_reason, source="watchlists",
-                )
-                # Synchronize watch status globally for this company
-                company_items = (
-                    session.query(WatchlistItem)
-                    .filter(WatchlistItem.company_id == item.company_id)
-                    .all()
-                )
-                for c_item in company_items:
-                    c_item.watch_status = new_status
-                changed = True
+            if item.company_id not in changed_status_companies:
+                company_items = session.query(WatchlistItem).filter(WatchlistItem.company_id == item.company_id).all()
+                if any(c_item.watch_status != new_status for c_item in company_items):
+                    set_company_watch_status(session, item.company_id, new_status, reason=status_reason, source="watchlists", items=company_items)
+                    changed = True
+                changed_status_companies.add(item.company_id)
             if (item.notes or "") != new_notes:
                 item.notes = new_notes
 
@@ -187,8 +194,10 @@ def _validate_watchlist_edits(
         new_status = str(edit.get("watch_status", "")).strip()
         new_notes = normalize_note_value(edit.get("notes"))
 
-        if new_status not in WATCH_STATUSES:
-            errors.append(f"Invalid watch_status '{new_status}' for item {item_id}")
+        try:
+            validate_watch_status(new_status)
+        except ValueError as exc:
+            errors.append(f"{exc} for item {item_id}")
             continue
 
         parsed_edits.append((item_id, new_status, new_notes))

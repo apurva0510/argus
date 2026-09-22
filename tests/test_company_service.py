@@ -570,6 +570,35 @@ def test_company_detail_status_history(sqlite_engine, db_session, monkeypatch) -
     assert db_session.query(WatchStatusEvent).count() == 2
 
 
+def test_conflicting_memberships_resolve_and_converge(sqlite_engine, db_session, monkeypatch) -> None:
+    from argus.core.models import WatchStatusEvent
+
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="HUBB", name="Hubbell", is_active=True)
+    first = Watchlist(name="First")
+    second = Watchlist(name="Second")
+    db_session.add_all([company, first, second])
+    db_session.flush()
+    db_session.add_all([
+        WatchlistItem(watchlist_id=first.id, company_id=company.id, watch_status="ignore"),
+        WatchlistItem(watchlist_id=second.id, company_id=company.id, watch_status="owned"),
+    ])
+    db_session.commit()
+
+    assert get_watch_status(company.id) == "owned"
+    update_watch_status(company.id, "high_priority")
+    db_session.expire_all()
+    assert {item.watch_status for item in db_session.query(WatchlistItem).all()} == {"high_priority"}
+    event = db_session.query(WatchStatusEvent).one()
+    assert (event.previous_status, event.new_status) == ("owned", "high_priority")
+
+
+def test_company_status_rejects_invalid_value(sqlite_engine, db_session, monkeypatch) -> None:
+    _patch_session(sqlite_engine, monkeypatch)
+    with pytest.raises(ValueError, match="Invalid watch_status"):
+        update_watch_status(999, "unreviewed")
+
+
 def test_get_watchlist_notes(sqlite_engine, db_session, monkeypatch) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     c = Company(symbol="AAPL", name="Apple", is_active=True)
