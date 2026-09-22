@@ -43,6 +43,7 @@ from argus.services.company_service import (
     get_watchlist_notes,
     update_watch_status,
 )
+from argus.services.watch_status_history import get_watch_status_history
 from argus.services.index_view_service import (
     load_index_options_from_engine,
     load_index_relative_returns_from_engine,
@@ -780,8 +781,9 @@ def render_company_detail() -> None:
             else 0,
             key="watch_status_selectbox",
         )
-        if new_status != current_status:
-            update_watch_status(company["id"], new_status)
+        status_reason = st.text_input("Reason for status change (optional)")
+        if st.button("Save status change", disabled=new_status == current_status):
+            update_watch_status(company["id"], new_status, reason=status_reason)
             st.success(f"Status updated to '{new_status}'!")
             # Clear relevant Streamlit cache
             load_price_history.clear()
@@ -793,6 +795,18 @@ def render_company_detail() -> None:
             st.cache_data.clear()
             # Rerun the app
             st.rerun()
+
+        with st.expander("Status history"):
+            status_events = get_watch_status_history(company["id"])
+            if not status_events:
+                st.caption("No status changes recorded yet.")
+            for event in status_events:
+                changed_at = event["changed_at"].strftime("%Y-%m-%d %H:%M UTC")
+                st.markdown(
+                    f"**{changed_at}** · {event['previous_status']} → {event['new_status']}"
+                )
+                if event["reason"]:
+                    st.caption(event["reason"])
 
         # Watchlist Notes Reference
         wl_notes = get_watchlist_notes(company["id"])

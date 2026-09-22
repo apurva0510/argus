@@ -548,6 +548,28 @@ def test_watch_status_get_and_set(sqlite_engine, db_session, monkeypatch) -> Non
     assert items[0].watch_status == "owned"
 
 
+def test_company_detail_status_history(sqlite_engine, db_session, monkeypatch) -> None:
+    from argus.core.models import WatchStatusEvent
+    from argus.services.watch_status_history import get_watch_status_history
+
+    _patch_session(sqlite_engine, monkeypatch)
+    company = Company(symbol="HUBB", name="Hubbell", is_active=True)
+    db_session.add(company)
+    db_session.commit()
+
+    update_watch_status(company.id, "high_priority", reason="  New catalyst  ")
+    update_watch_status(company.id, "high_priority", reason="No change")
+    update_watch_status(company.id, "watch")
+
+    history = get_watch_status_history(company.id)
+    assert len(history) == 2
+    assert history[0]["new_status"] == "watch"
+    assert history[1]["previous_status"] == "watch"
+    assert history[1]["new_status"] == "high_priority"
+    assert history[1]["reason"] == "New catalyst"
+    assert db_session.query(WatchStatusEvent).count() == 2
+
+
 def test_get_watchlist_notes(sqlite_engine, db_session, monkeypatch) -> None:
     _patch_session(sqlite_engine, monkeypatch)
     c = Company(symbol="AAPL", name="Apple", is_active=True)

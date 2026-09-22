@@ -11,6 +11,7 @@ from argus.core.settings import settings
 from argus.core.models import UserNote, WatchlistItem
 from argus.analytics.downside_screen import downside_screen_label
 from argus.core.seed import WATCH_STATUSES
+from argus.services.watch_status_history import record_watch_status_change
 
 
 def load_watchlist_table(
@@ -97,7 +98,9 @@ def load_watchlist_table(
     return df.reset_index(drop=True)
 
 
-def update_watchlist_items(edits: list[dict[str, Any]]) -> tuple[int, list[str]]:
+def update_watchlist_items(
+    edits: list[dict[str, Any]], *, status_reason: str | None = None
+) -> tuple[int, list[str]]:
     if not edits:
         return 0, []
 
@@ -123,6 +126,10 @@ def update_watchlist_items(edits: list[dict[str, Any]]) -> tuple[int, list[str]]
             item = items_by_id[item_id]
             changed = False
             if item.watch_status != new_status:
+                record_watch_status_change(
+                    session, item.company_id, item.watch_status, new_status,
+                    reason=status_reason, source="watchlists",
+                )
                 # Synchronize watch status globally for this company
                 company_items = (
                     session.query(WatchlistItem)
